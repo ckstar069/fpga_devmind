@@ -139,6 +139,34 @@ requires_evidence: true / false
 
 如果用户纠正与源码证据冲突，不应静默覆盖，而应生成 `conflicting_evidence`。
 
+## 记忆新鲜度
+
+Semantic Memory 不能被无条件复用。每个图谱节点、边和 claim 都应记录来源快照：
+
+```text
+MemoryProvenance
+- source_snapshot_id
+- source_file_hashes
+- graph_schema_version
+- tool_version
+- model_id
+- created_at
+- validated_at
+- stale_when_source_changed
+```
+
+读取记忆时必须先做 freshness check：
+
+```text
+1. 重新计算相关源文件 hash。
+2. 对比 source_file_hashes。
+3. 如果文件变化，标记相关节点为 stale。
+4. stale 节点不能作为 strong evidence。
+5. 需要重新查证后才能恢复 confirmed / supported 结论。
+```
+
+这对 `fpga_project_*` 尤其重要，因为目标项目会持续由 AI agent 或人工修改。没有失效机制，语义图会变成带证据外观的陈旧结论。
+
 ## 追问机制
 
 当证据不足时，Agent 可以提出澄清问题，但应优先自查本地上下文。

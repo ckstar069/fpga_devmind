@@ -2,6 +2,8 @@
 
 本文定义未来 `fpga_devmind` Agent 可以调用的确定性工具箱。工具箱不是产品核心，核心是 Agent 的调查、推理和语义记忆。
 
+第一批工具的输入输出、evidence id 生成、错误模式和片段边界规则见 [Tool Contracts](tool-contracts.md)。
+
 ## Tooling 原则
 
 - 工具只负责证据、索引、解析、存储、渲染。

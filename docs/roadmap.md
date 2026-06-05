@@ -16,6 +16,8 @@
 
 目标：只读项目，建语义图，解释阶段实现，生成可视化，支持追问。
 
+Review 0001 后，Phase 1 已收窄为 P1a / P1b / P1c 三个可验收切片，详见 [Phase 1 Scope](phase1-scope.md)。第一阶段不再试图一次完成所有工作流，而是先证明单项目单阶段理解、一个概念 L5-L6-RTL trace、一个 cocotb 覆盖解释闭环。
+
 核心能力：
 
 - UnderstandProject。

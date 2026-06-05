@@ -37,6 +37,8 @@ Visualization Planner
 Dialogue Response
 ```
 
+运行时的结构化输入输出契约见 [Runtime Contracts](runtime-contracts.md)。该契约定义 `TaskPlan`、`ToolCallRequest`、`ToolObservation`、`CandidateClaim`、`GroundingDiagnostic` 和 `ReflectionDecision`，是后续实现 ReAct 闭环的基础。
+
 ### Intent Interpreter
 
 把用户自然语言问题转成结构化任务。

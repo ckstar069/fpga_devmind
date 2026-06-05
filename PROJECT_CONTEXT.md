@@ -220,12 +220,17 @@ FPGA 模板项目通常不是一次性完成的，而是从早期算法模型开
 
 - `docs/agent-first-architecture.md`：Agent-first 总体架构与机制。
 - `docs/agent-runtime.md`：Agent 运行时组件、任务生命周期和最小可行运行时。
+- `docs/runtime-contracts.md`：TaskPlan、ToolObservation、Claim、GroundingDiagnostic、ReflectionDecision 等最小可执行契约。
 - `docs/agent-workflows.md`：UnderstandProject、UnderstandStage、TraceConcept、MapL6ToRTL、ExplainVerification 等核心工作流。
 - `docs/evidence-grounding-policy.md`：证据强度、结论置信、映射规则和冲突处理。
+- `docs/domain-semantics.md`：StageContract、FixedPointSpec、StreamInterfaceSpec、PipelineTimingSpec、RTLSignalSpec、TestObservation、SourceLineage 等 FPGA 领域对象。
 - `docs/memory-and-interaction.md`：程序性记忆、语义记忆、情节记忆和多轮交互机制。
+- `docs/phase1-scope.md`：Phase 1a / 1b / 1c 收窄切片、样例项目和验收指标。
 - `docs/review-process.md`：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。
+- `docs/review-response-0001.md`：第一次独立 Review Agent 评审的处理决定。
 - `docs/semantic-graph-model.md`：ProjectGraph、StageGraph、ConceptGraph、EvidenceGraph、VisualizationSpec 等语义图对象模型。
 - `docs/toolbox.md`：未来 Agent 可调用的证据抽取、图谱读写、可视化和 Grounding 检查工具箱。
+- `docs/tool-contracts.md`：第一批确定性工具的输入输出、evidence id、错误模式和片段边界规则。
 - `docs/roadmap.md`：从 Understanding Agent 到 Develop-Understand-Verify Agent 的演进路线。
 
 这些文档延续本文档的定位：`fpga_devmind` 应按真正的 Agent 方向设计，普通软件模块只作为 Agent 的确定性基础设施。

@@ -117,6 +117,8 @@ Positive Notes
 
 Findings 应优先于总结。Review Agent 应避免泛泛而谈，尽量引用具体文档位置或具体概念。
 
+注意：这里的 `Findings` 只用于设计文档和架构评审，不代表 `fpga_devmind` Phase 1 面向用户的输出形态。Understanding Agent 的用户输出仍应以解释、语义图、证据锚点和不确定项为主体，不能回退成 finding 列表或 PASS/HOLD 风格报告。
+
 ## 可复制 Prompt 模板
 
 ### 通用架构评审

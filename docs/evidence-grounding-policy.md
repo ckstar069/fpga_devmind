@@ -84,6 +84,8 @@ conflicted
   源码、RTL、文档、测试之间存在冲突。
 ```
 
+运行时中的具体结论应表达为 `CandidateClaim`，并带有 `claim_type`。不同 claim 类型需要不同证据组合，详见 [Runtime Contracts](runtime-contracts.md)。跨阶段或 L6-to-RTL 映射不能因为单一强证据就自动提升为 `confirmed`。
+
 ## 映射规则
 
 ### L6 到 RTL 映射

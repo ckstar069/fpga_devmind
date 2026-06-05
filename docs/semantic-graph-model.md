@@ -16,6 +16,8 @@ ProjectGraph
 - visualizations
 ```
 
+FPGA 领域对象的补充结构见 [FPGA Domain Semantics](domain-semantics.md)。其中 `FixedPointSpec`、`StreamInterfaceSpec`、`PipelineTimingSpec`、`FSMBehaviorSpec`、`RTLSignalSpec`、`TestObservation` 和 `SourceLineage` 用于避免把关键领域语义压成自由文本。
+
 ## ProjectProfile
 
 描述 FPGA 项目在生态中的身份和入口。
