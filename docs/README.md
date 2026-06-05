@@ -5,7 +5,10 @@
 ## 核心文档
 
 - [Agent-first architecture](agent-first-architecture.md)：总体定位、Agent 机制、普通软件底座的职责边界。
+- [Agent runtime](agent-runtime.md)：Agent 运行时组件、任务生命周期和最小可行运行时。
 - [Agent workflows](agent-workflows.md)：第一批核心 Agent 工作流，包括项目理解、阶段理解、概念追踪、L6 到 RTL 映射和验证解释。
+- [Evidence grounding policy](evidence-grounding-policy.md)：证据强度、结论置信、映射规则和冲突处理。
+- [Memory and interaction](memory-and-interaction.md)：程序性记忆、语义记忆、情节记忆和多轮交互机制。
 - [Semantic graph model](semantic-graph-model.md)：ProjectGraph / StageGraph / ConceptGraph / EvidenceGraph / VisualizationSpec 的对象模型草案。
 - [Toolbox](toolbox.md)：未来 Agent 可调用的确定性工具箱边界。
 - [Roadmap](roadmap.md)：从 Understanding Agent 到 Develop-Understand-Verify Agent 的演进路线。
