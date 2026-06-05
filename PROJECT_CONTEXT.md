@@ -223,6 +223,7 @@ FPGA 模板项目通常不是一次性完成的，而是从早期算法模型开
 - `docs/agent-workflows.md`：UnderstandProject、UnderstandStage、TraceConcept、MapL6ToRTL、ExplainVerification 等核心工作流。
 - `docs/evidence-grounding-policy.md`：证据强度、结论置信、映射规则和冲突处理。
 - `docs/memory-and-interaction.md`：程序性记忆、语义记忆、情节记忆和多轮交互机制。
+- `docs/review-process.md`：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。
 - `docs/semantic-graph-model.md`：ProjectGraph、StageGraph、ConceptGraph、EvidenceGraph、VisualizationSpec 等语义图对象模型。
 - `docs/toolbox.md`：未来 Agent 可调用的证据抽取、图谱读写、可视化和 Grounding 检查工具箱。
 - `docs/roadmap.md`：从 Understanding Agent 到 Develop-Understand-Verify Agent 的演进路线。
