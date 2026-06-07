@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["deepseek", "glm", "openai"],
         help="Select a future real provider; currently disabled and never calls external APIs",
     )
+    agent.add_argument(
+        "--allow-external-api",
+        action="store_true",
+        help="Acknowledge external provider intent; current adapters still do not call APIs",
+    )
 
     provider_config = sub.add_parser(
         "provider-config-draft",
@@ -106,6 +111,7 @@ def main(argv: list[str] | None = None) -> int:
             model_result_path=args.model_result,
             use_mock_semantic=args.mock_semantic,
             external_provider=args.external_provider,
+            allow_external_api=args.allow_external_api,
         )
         report = result["grounding_report"]
         print(f"Wrote P1a+ agent dry-run artifacts to {args.out}")

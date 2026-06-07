@@ -32,6 +32,7 @@ def run_p1a_semantic_agent_dry_run(
     model_result_path: Path | None = None,
     use_mock_semantic: bool = False,
     external_provider: str | None = None,
+    allow_external_api: bool = False,
 ) -> dict[str, Any]:
     """Run a provider-free P1a+ Agent shell over P1a artifacts.
 
@@ -50,6 +51,7 @@ def run_p1a_semantic_agent_dry_run(
         model_result_path,
         use_mock_semantic=use_mock_semantic,
         external_provider=external_provider,
+        allow_external_api=allow_external_api,
     )
     runtime_mode = provider.mode
 
@@ -367,20 +369,32 @@ def _build_grounding_report(
 
 
 def _provider_diagnostics(call_record: dict[str, Any]) -> list[dict[str, Any]]:
-    if call_record.get("status") != "blocked_disabled_provider":
+    status = call_record.get("status")
+    if status not in {"blocked_disabled_provider", "blocked_adapter_not_implemented"}:
         return []
+    if status == "blocked_adapter_not_implemented":
+        issue_type = "external_provider_not_implemented"
+        recommended_action = "implement_real_provider_adapter_with_redaction_and_contract_validation"
+        message = (
+            f"Provider `{call_record.get('provider_id')}` was explicitly allowed, "
+            "but the real adapter is not implemented; no external API call was made."
+        )
+    else:
+        issue_type = "external_provider_disabled"
+        recommended_action = "use_noop_mock_fixture_or_enable_real_provider_later"
+        message = (
+            f"Provider `{call_record.get('provider_id')}` is a disabled draft; "
+            "no external API call was made and no model claims were generated."
+        )
     return [
         {
             "diagnostic_id": "PVD001",
             "target_claim_id": None,
             "severity": "blocking",
-            "issue_type": "external_provider_disabled",
-            "recommended_action": "use_noop_mock_fixture_or_enable_real_provider_later",
+            "issue_type": issue_type,
+            "recommended_action": recommended_action,
             "related_evidence_ids": [],
-            "message": (
-                f"Provider `{call_record.get('provider_id')}` is a disabled draft; "
-                "no external API call was made and no model claims were generated."
-            ),
+            "message": message,
         }
     ]
 

@@ -280,6 +280,20 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 
 该模式会写出 `provider_call.json`，其中 `status=blocked_disabled_provider`、`external_api_called=false`、`api_key_used=false`。CLI 返回非零，防止用户误以为已经调用真实模型。
 
+未来真实调用还需要显式启用门控：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6 \
+  --external-provider deepseek \
+  --allow-external-api
+```
+
+当前即使提供 `--allow-external-api`，仍会进入 `external_provider_not_implemented`，不读取 API key、不调用外部 API，并返回非零。该 flag 只是把“用户明确允许未来外部调用”的门控状态落入 artifact。
+
 最小校验规则：
 
 ```text

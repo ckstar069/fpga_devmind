@@ -48,6 +48,7 @@ Implemented:
 - GraphWriter dry-run writes `project_graph_proposed.json` and `graph_write_report.json` without overwriting source `project_graph.json`.
 - Redacted provider configuration drafts for future DeepSeek / GLM / OpenAI adapters, with real API calls disabled by default.
 - Disabled external provider route for DeepSeek / GLM / OpenAI that writes blocked provider_call metadata without loading API keys or calling external APIs.
+- Explicit `--allow-external-api` gate that currently reaches `external_provider_not_implemented` without loading API keys or calling external APIs.
 
 Not implemented yet:
 

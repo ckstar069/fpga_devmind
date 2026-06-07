@@ -361,6 +361,51 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertFalse(provider_call["api_key_used"])
             self.assertFalse(provider_call["api_key_value_included"])
 
+    def test_p1a_plus_external_provider_allow_flag_reaches_not_implemented_gate(self) -> None:
+        if not DEFAULT_PROJECT.exists():
+            self.skipTest(f"target project not found: {DEFAULT_PROJECT}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "agent"
+            result = run_p1a_semantic_agent_dry_run(
+                project_root=DEFAULT_PROJECT,
+                stage_id="L6_resource_opt",
+                question="L6 实现了什么流程",
+                out_dir=out_dir,
+                external_provider="glm",
+                allow_external_api=True,
+            )
+
+            self.assertEqual(result["agent_trace"]["mode"], "external_provider_not_implemented")
+            self.assertEqual(result["grounding_report"]["summary"]["model_output_blocking_diagnostics"], 1)
+            self.assertTrue(
+                any(
+                    d["issue_type"] == "external_provider_not_implemented"
+                    for d in result["grounding_report"]["model_output_diagnostics"]
+                )
+            )
+
+            provider_call = json.loads((out_dir / "provider_call.json").read_text(encoding="utf-8"))
+            self.assertEqual(provider_call["status"], "blocked_adapter_not_implemented")
+            self.assertTrue(provider_call["external_api_allowed"])
+            self.assertFalse(provider_call["external_api_called"])
+            self.assertFalse(provider_call["api_key_used"])
+            self.assertFalse(provider_call["api_key_value_included"])
+
+    def test_p1a_plus_allow_external_api_requires_provider(self) -> None:
+        if not DEFAULT_PROJECT.exists():
+            self.skipTest(f"target project not found: {DEFAULT_PROJECT}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "requires --external-provider"):
+                run_p1a_semantic_agent_dry_run(
+                    project_root=DEFAULT_PROJECT,
+                    stage_id="L6_resource_opt",
+                    question="L6 实现了什么流程",
+                    out_dir=Path(tmp),
+                    allow_external_api=True,
+                )
+
     def test_p1a_plus_agent_rejects_unsafe_output_path(self) -> None:
         if not DEFAULT_PROJECT.exists():
             self.skipTest(f"target project not found: {DEFAULT_PROJECT}")

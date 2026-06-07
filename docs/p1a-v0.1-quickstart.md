@@ -220,6 +220,20 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 
 当前该模式会被 `external_provider_disabled` 阻断，并产生 `model_output_blocking_diagnostics`。
 
+即使显式添加 `--allow-external-api`，当前也仍然不会调用外部 API：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6 \
+  --external-provider deepseek \
+  --allow-external-api
+```
+
+当前结果是 `external_provider_not_implemented`，用于验证真实 provider 接入前的显式门控。
+
 ## Boundaries
 
 P1a V0.1 不做：
