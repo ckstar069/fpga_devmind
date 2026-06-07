@@ -50,6 +50,19 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 
 它的 mode 是 `deterministic_dry_run_no_llm`，用于验证 artifact 形态，不代表 LLM semantic reasoner 已经接入。
 
+当前 dry-run 还会生成 provider contract 相关 artifact：
+
+```text
+prompt_context.json
+  给未来模型调用使用的 redacted context；不包含 API key、provider secret 或完整环境变量。
+
+model_result_normalized.json
+  provider-free 空模型结果的规范化输出；未来真实模型结果也必须先经过同一校验入口。
+
+grounding_report.json
+  同时记录 P1a 图谱 diagnostics 和 model_output_diagnostics。
+```
+
 P1a+ 仍然不是：
 
 ```text
@@ -202,6 +215,20 @@ SemanticReasoningResult
 
 如果 LLM 无法给出 evidence id，默认不能高于 `unknown`。如果只基于命名或结构相似，默认不能高于 `inferred`。
 
+当前代码中该契约由 `src/fpga_devmind/llm_contract.py` 表达。它只定义 prompt context 和 response validation，不调用 provider。
+
+最小校验规则：
+
+```text
+- SemanticReasoningResult 缺少必填字段会产生 blocking diagnostic。
+- candidate_claims 必须是 list。
+- 每个 candidate_claim 必须包含 claim_type / statement / subject_ids / evidence_ids / confidence / required_missing_evidence / generated_from_step。
+- confidence 必须属于 confirmed / supported / inferred / unknown / conflicted。
+- 引用未知 evidence_id 会产生 blocking diagnostic。
+- 没有有效 evidence_id 的高置信 claim 会被降级为 unknown。
+- confirmed model claim 至少需要一个已知 evidence_id。
+```
+
 ## Grounding Rules
 
 P1a+ 继承 [Evidence Grounding Policy](evidence-grounding-policy.md)，并增加 LLM 专项规则：
@@ -223,6 +250,12 @@ P1a+ 可以在现有 artifact 外新增：
 ```text
 agent_trace.json
   ReAct loop trace with redacted model/tool metadata.
+
+prompt_context.json
+  Redacted prompt context and required output schema for future providers.
+
+model_result_normalized.json
+  Validated model result after schema and evidence-id checks.
 
 claim_proposals.json
   CandidateClaims before grounding.
@@ -313,7 +346,8 @@ P1a+ 可称为完成，当它能：
 5. answer.md 中每个主要结论能追溯到 claim/evidence ids。
 6. query 中能区分 confirmed / supported / inferred / unknown。
 7. smoke 覆盖 fine_cfo，且不把 inferred order 说成 proven dataflow。
-8. 不修改目标项目，不运行 Vivado，不泄露 API key。
+8. 模型输出契约能拦截缺字段、未知 evidence id 和无证据高置信 claim。
+9. 不修改目标项目，不运行 Vivado，不泄露 API key。
 ```
 
 ## Defer

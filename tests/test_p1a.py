@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from fpga_devmind.agent import run_p1a_semantic_agent_dry_run
+from fpga_devmind.llm_contract import validate_semantic_reasoning_result
 from fpga_devmind.p1a import DEFAULT_PROJECT, run_p1a
 from fpga_devmind.query import answer_question, check_freshness
 from fpga_devmind.smoke import run_smoke, smoke_exit_code
@@ -137,6 +138,8 @@ class P1aRunnerTest(unittest.TestCase):
             )
 
             self.assertTrue((out_dir / "agent_trace.json").exists())
+            self.assertTrue((out_dir / "prompt_context.json").exists())
+            self.assertTrue((out_dir / "model_result_normalized.json").exists())
             self.assertTrue((out_dir / "claim_proposals.json").exists())
             self.assertTrue((out_dir / "graph_write_proposal.json").exists())
             self.assertTrue((out_dir / "grounding_report.json").exists())
@@ -151,12 +154,57 @@ class P1aRunnerTest(unittest.TestCase):
             grounding = result["grounding_report"]
             self.assertEqual(grounding["freshness"]["status"], "current")
             self.assertEqual(grounding["summary"]["blocking_diagnostics"], 0)
+            self.assertEqual(grounding["summary"]["model_output_blocking_diagnostics"], 0)
             self.assertGreaterEqual(grounding["summary"]["candidate_claims"], 5)
+
+            prompt_context = json.loads((out_dir / "prompt_context.json").read_text(encoding="utf-8"))
+            self.assertFalse(prompt_context["redaction_policy"]["api_keys_included"])
+            self.assertFalse(prompt_context["redaction_policy"]["provider_secrets_included"])
+            self.assertIn("known_evidence_ids", prompt_context)
 
             answer = (out_dir / "answer.md").read_text(encoding="utf-8")
             self.assertIn("deterministic_dry_run_no_llm", answer)
             self.assertIn("## Grounded Answer", answer)
             self.assertIn("S0 AutocorrNorm", answer)
+
+    def test_llm_contract_downgrades_unsupported_model_claims(self) -> None:
+        result = {
+            "request_id": "req-001",
+            "plan_step_id": "S002",
+            "reasoning_summary": "Synthetic model result for validation.",
+            "candidate_claims": [
+                {
+                    "claim_type": "implementation_claim",
+                    "statement": "The stage has proven producer consumer dataflow.",
+                    "subject_ids": ["N001"],
+                    "evidence_ids": ["E:missing"],
+                    "confidence": "confirmed",
+                    "required_missing_evidence": [],
+                    "generated_from_step": "S002",
+                },
+                {
+                    "claim_type": "implementation_claim",
+                    "statement": "The stage has an implementation concept.",
+                    "subject_ids": ["N001"],
+                    "evidence_ids": ["E:known"],
+                    "confidence": "supported",
+                    "required_missing_evidence": [],
+                    "generated_from_step": "S002",
+                },
+            ],
+            "proposed_edges": [],
+            "proposed_uncertainties": [],
+            "requested_followup_tools": [],
+            "self_check_notes": [],
+        }
+
+        normalized, diagnostics = validate_semantic_reasoning_result(result, {"E:known"})
+
+        self.assertEqual(normalized["candidate_claims"][0]["confidence"], "unknown")
+        self.assertEqual(normalized["candidate_claims"][0]["evidence_ids"], [])
+        self.assertEqual(normalized["candidate_claims"][1]["confidence"], "supported")
+        self.assertTrue(any(d["issue_type"] == "unknown_evidence_id" for d in diagnostics))
+        self.assertTrue(any(d["issue_type"] == "model_claim_without_evidence" for d in diagnostics))
 
 
 if __name__ == "__main__":

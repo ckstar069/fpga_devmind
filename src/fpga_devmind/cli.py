@@ -95,8 +95,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Mode: {result['agent_trace']['mode']}")
         print(f"Candidate claims: {report['summary']['candidate_claims']}")
         print(f"Blocking diagnostics: {report['summary']['blocking_diagnostics']}")
+        print(f"Model output blocking diagnostics: {report['summary']['model_output_blocking_diagnostics']}")
         print(f"Freshness: {report['freshness']['status']}")
-        return 1 if report["summary"]["blocking_diagnostics"] else 0
+        return 1 if report["summary"]["blocking_diagnostics"] or report["summary"]["model_output_blocking_diagnostics"] else 0
     parser.error(f"unknown command {args.command}")
     return 2
 

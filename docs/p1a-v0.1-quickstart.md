@@ -155,6 +155,8 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 ```text
 /tmp/fpga_devmind/p1a_agent_l6/
 - agent_trace.json
+- prompt_context.json
+- model_result_normalized.json
 - claim_proposals.json
 - graph_write_proposal.json
 - grounding_report.json
@@ -162,7 +164,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 - p1a_artifacts/
 ```
 
-注意：该命令的 mode 是 `deterministic_dry_run_no_llm`。它不调用 LLM provider，不读取 API key，不生成模型语义结论；它只把 P1a evidence shell 包进 TaskPlan / ToolObservation / CandidateClaim / GroundingDiagnostic / answer 的最小 Agent runtime artifact。
+注意：该命令的 mode 是 `deterministic_dry_run_no_llm`。它不调用 LLM provider，不读取 API key，不生成模型语义结论；它只把 P1a evidence shell 包进 TaskPlan / ToolObservation / CandidateClaim / GroundingDiagnostic / answer 的最小 Agent runtime artifact，并生成未来 provider 必须遵守的 prompt context 和 model result validation 产物。
 
 ## Boundaries
 

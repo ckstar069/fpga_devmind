@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .llm_contract import build_prompt_context, validate_semantic_reasoning_result
 from .p1a import run_p1a
 from .query import answer_question, check_freshness
 
@@ -116,8 +117,21 @@ def run_p1a_semantic_agent_dry_run(
             "Future LLM claims must include evidence_ids before grounding.",
         ],
     }
+    prompt_context = build_prompt_context(
+        project_root=str(project_root),
+        stage_id=stage_id,
+        question=question,
+        graph=graph,
+        trace_index=_read_json(p1a_artifacts / "trace_index.json"),
+        freshness=freshness,
+    )
+    empty_model_result = _empty_model_result(graph["task_request"]["request_id"])
+    normalized_model_result, model_diagnostics = validate_semantic_reasoning_result(
+        empty_model_result,
+        known_evidence_ids=set(prompt_context["known_evidence_ids"]),
+    )
     graph_write_proposal = _build_graph_write_proposal(graph, p1a_artifacts)
-    grounding_report = _build_grounding_report(graph, freshness)
+    grounding_report = _build_grounding_report(graph, freshness, model_diagnostics)
     agent_trace = {
         "schema_version": "p1a-plus-agent-trace-0.1",
         "mode": "deterministic_dry_run_no_llm",
@@ -136,6 +150,8 @@ def run_p1a_semantic_agent_dry_run(
     answer_md = _render_agent_answer(question, p1a_artifacts, grounded_answer, grounding_report)
 
     _write_json(out_dir / "agent_trace.json", agent_trace)
+    _write_json(out_dir / "prompt_context.json", prompt_context)
+    _write_json(out_dir / "model_result_normalized.json", normalized_model_result)
     _write_json(out_dir / "claim_proposals.json", claim_proposals)
     _write_json(out_dir / "graph_write_proposal.json", graph_write_proposal)
     _write_json(out_dir / "grounding_report.json", grounding_report)
@@ -145,6 +161,8 @@ def run_p1a_semantic_agent_dry_run(
         "out_dir": str(out_dir),
         "artifact_dir": str(p1a_artifacts),
         "agent_trace": agent_trace,
+        "prompt_context": prompt_context,
+        "model_result_normalized": normalized_model_result,
         "claim_proposals": claim_proposals,
         "graph_write_proposal": graph_write_proposal,
         "grounding_report": grounding_report,
@@ -266,8 +284,13 @@ def _build_graph_write_proposal(graph: dict[str, Any], artifact_dir: Path) -> di
     }
 
 
-def _build_grounding_report(graph: dict[str, Any], freshness: dict[str, Any]) -> dict[str, Any]:
+def _build_grounding_report(
+    graph: dict[str, Any],
+    freshness: dict[str, Any],
+    model_diagnostics: list[dict[str, Any]],
+) -> dict[str, Any]:
     blocking = [d for d in graph["grounding_diagnostics"] if d.get("severity") == "blocking"]
+    model_blocking = [d for d in model_diagnostics if d.get("severity") == "blocking"]
     unsupported_confirmed = [
         claim["claim_id"]
         for claim in graph["candidate_claims"]
@@ -278,9 +301,11 @@ def _build_grounding_report(graph: dict[str, Any], freshness: dict[str, Any]) ->
         "mode": "deterministic_dry_run_no_llm",
         "freshness": freshness,
         "diagnostics": graph["grounding_diagnostics"],
+        "model_output_diagnostics": model_diagnostics,
         "summary": {
             "candidate_claims": len(graph["candidate_claims"]),
             "blocking_diagnostics": len(blocking),
+            "model_output_blocking_diagnostics": len(model_blocking),
             "unsupported_confirmed_claims": len(unsupported_confirmed),
             "uncertainty_notes": len(graph["uncertainty_notes"]),
         },
@@ -325,3 +350,23 @@ def _has_any(text: str, terms: list[str]) -> bool:
 
 def _write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _empty_model_result(request_id: str) -> dict[str, Any]:
+    return {
+        "request_id": request_id,
+        "plan_step_id": "S002",
+        "reasoning_summary": "No model provider was called in deterministic dry-run mode.",
+        "candidate_claims": [],
+        "proposed_edges": [],
+        "proposed_uncertainties": [],
+        "requested_followup_tools": [],
+        "self_check_notes": [
+            "provider_not_called",
+            "no_model_generated_claims",
+        ],
+    }

@@ -38,7 +38,8 @@ Implemented:
 - Smoke validation on `fpga_project_coarse_sync_glm` and `fpga_project_fine_cfo`.
 - P1a V0.1 quickstart for smoke, single-project run, query and freshness.
 - Explicit uncertainty notes in generated graph, query output and smoke report.
-- Provider-free P1a+ Agent dry-run that writes `agent_trace.json`, `claim_proposals.json`, `graph_write_proposal.json`, `grounding_report.json` and `answer.md`.
+- Provider-free P1a+ Agent dry-run that writes `agent_trace.json`, `prompt_context.json`, `model_result_normalized.json`, `claim_proposals.json`, `graph_write_proposal.json`, `grounding_report.json` and `answer.md`.
+- LLM provider contract helpers that build redacted prompt context and validate model `SemanticReasoningResult` before grounding.
 
 Not implemented yet:
 
@@ -46,6 +47,7 @@ Not implemented yet:
 - Prompted semantic claim generation.
 - Multi-turn ReAct loop.
 - Model-generated CandidateClaims.
+- Provider-backed model calls.
 - Rich AST def-use / dataflow analysis.
 - Proven producer/consumer dataflow extraction.
 - High-quality generic flow ordering for every possible L6 architecture.
