@@ -145,6 +145,7 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertTrue((out_dir / "claim_proposals.json").exists())
             self.assertTrue((out_dir / "graph_write_proposal.json").exists())
             self.assertTrue((out_dir / "project_graph_proposed.json").exists())
+            self.assertTrue((out_dir / "trace_index_proposed.json").exists())
             self.assertTrue((out_dir / "graph_write_report.json").exists())
             self.assertTrue((out_dir / "grounding_report.json").exists())
             self.assertTrue((out_dir / "answer.md").exists())
@@ -297,12 +298,21 @@ class P1aRunnerTest(unittest.TestCase):
             graph_write_report = json.loads((out_dir / "graph_write_report.json").read_text(encoding="utf-8"))
             self.assertEqual(graph_write_report["claims_added"], ["M001"])
             self.assertFalse(graph_write_report["project_graph_mutated"])
+            self.assertTrue(graph_write_report["proposed_trace_index_complete"])
+            self.assertEqual(graph_write_report["proposed_trace_index_artifact"], "trace_index_proposed.json")
 
             original_graph = json.loads((artifact_dir / "project_graph.json").read_text(encoding="utf-8"))
             proposed_graph = json.loads((out_dir / "project_graph_proposed.json").read_text(encoding="utf-8"))
             self.assertEqual(len(original_graph["candidate_claims"]), len(graph.candidate_claims))
             self.assertEqual(len(proposed_graph["candidate_claims"]), len(graph.candidate_claims) + 1)
             self.assertEqual(proposed_graph["candidate_claims"][-1]["claim_layer"], "p1a_plus_model_proposal")
+
+            proposed_trace = json.loads((out_dir / "trace_index_proposed.json").read_text(encoding="utf-8"))
+            self.assertIn("M001", proposed_trace["claims"])
+            self.assertEqual(proposed_trace["claims"]["M001"]["evidence_ids"], [evidence_id])
+            self.assertIn(evidence_id, proposed_trace["evidence"])
+            self.assertIn("M001", proposed_trace["evidence"][evidence_id]["supporting_claim_ids"])
+            self.assertIn({"output_id": "N001", "output_type": "concept"}, proposed_trace["claims"]["M001"]["linked_outputs"])
 
     def test_p1a_plus_agent_blocks_all_graph_writes_when_model_result_is_globally_invalid(self) -> None:
         if not DEFAULT_PROJECT.exists():
@@ -360,6 +370,8 @@ class P1aRunnerTest(unittest.TestCase):
             original_graph = json.loads((artifact_dir / "project_graph.json").read_text(encoding="utf-8"))
             proposed_graph = json.loads((out_dir / "project_graph_proposed.json").read_text(encoding="utf-8"))
             self.assertEqual(len(proposed_graph["candidate_claims"]), len(original_graph["candidate_claims"]))
+            proposed_trace = json.loads((out_dir / "trace_index_proposed.json").read_text(encoding="utf-8"))
+            self.assertNotIn("M001", proposed_trace["claims"])
 
     def test_llm_contract_rejects_schema_invalid_model_claims(self) -> None:
         result = {
@@ -422,6 +434,14 @@ class P1aRunnerTest(unittest.TestCase):
 
             report = json.loads((out_dir / "graph_write_report.json").read_text(encoding="utf-8"))
             self.assertEqual(report["claims_added"], ["M001"])
+            self.assertEqual(report["proposed_trace_index_artifact"], "trace_index_proposed.json")
+            proposed_trace = json.loads((out_dir / "trace_index_proposed.json").read_text(encoding="utf-8"))
+            self.assertIn("M001", proposed_trace["claims"])
+            self.assertIn("M001", proposed_trace["evidence"][proposed_trace["claims"]["M001"]["evidence_ids"][0]]["supporting_claim_ids"])
+            self.assertIn(
+                {"output_id": "L6_resource_opt", "output_type": "stage"},
+                proposed_trace["claims"]["M001"]["linked_outputs"],
+            )
 
     def test_p1a_plus_external_provider_is_disabled_by_default(self) -> None:
         if not DEFAULT_PROJECT.exists():

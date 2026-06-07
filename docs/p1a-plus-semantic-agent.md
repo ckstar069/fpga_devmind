@@ -359,12 +359,16 @@ graph_write_proposal.json
 
 project_graph_proposed.json
   Dry-run graph copy with accepted model claim candidates merged. The original
-  p1a_artifacts/project_graph.json is not overwritten. This is not yet a
-  trace/query-complete semantic memory artifact because trace_index_proposed.json
-  is not generated in the current slice.
+  p1a_artifacts/project_graph.json is not overwritten.
+
+trace_index_proposed.json
+  Reverse index derived from project_graph_proposed.json. It records proposed
+  claim -> evidence refs, evidence -> supporting claim ids and claim -> linked
+  outputs without modifying p1a_artifacts/trace_index.json.
 
 graph_write_report.json
-  GraphWriter dry-run report listing added, skipped and rejected model claims.
+  GraphWriter dry-run report listing added, skipped and rejected model claims,
+  plus the proposed trace index artifact.
 
 grounding_report.json
   Diagnostics and reflection decisions.

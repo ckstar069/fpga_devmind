@@ -160,7 +160,7 @@ def run_p1a_semantic_agent_dry_run(
         normalized_model_result,
         model_diagnostics,
     )
-    proposed_graph, graph_write_report = apply_graph_write_proposal_dry_run(graph, graph_write_proposal)
+    proposed_graph, proposed_trace_index, graph_write_report = apply_graph_write_proposal_dry_run(graph, graph_write_proposal)
     provider_diagnostics = _provider_diagnostics(provider_response.call_record)
     grounding_report = _build_grounding_report(
         graph,
@@ -194,6 +194,7 @@ def run_p1a_semantic_agent_dry_run(
     _write_json(out_dir / "claim_proposals.json", claim_proposals)
     _write_json(out_dir / "graph_write_proposal.json", graph_write_proposal)
     _write_json(out_dir / "project_graph_proposed.json", proposed_graph)
+    _write_json(out_dir / "trace_index_proposed.json", proposed_trace_index)
     _write_json(out_dir / "graph_write_report.json", graph_write_report)
     _write_json(out_dir / "grounding_report.json", grounding_report)
     (out_dir / "answer.md").write_text(answer_md, encoding="utf-8")
@@ -208,6 +209,7 @@ def run_p1a_semantic_agent_dry_run(
         "claim_proposals": claim_proposals,
         "graph_write_proposal": graph_write_proposal,
         "project_graph_proposed": proposed_graph,
+        "trace_index_proposed": proposed_trace_index,
         "graph_write_report": graph_write_report,
         "grounding_report": grounding_report,
         "answer_md": str(out_dir / "answer.md"),

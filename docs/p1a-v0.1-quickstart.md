@@ -161,6 +161,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 - claim_proposals.json
 - graph_write_proposal.json
 - project_graph_proposed.json
+- trace_index_proposed.json
 - graph_write_report.json
 - grounding_report.json
 - answer.md
@@ -180,7 +181,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
   --model-result /tmp/fpga_devmind/model_result_fixture.json
 ```
 
-该 fixture 只用于 validation，不代表已经接入 provider；未知 evidence id、缺字段、schema/domain 不合格 claim 或无证据高置信 claim 会进入 `model_output_diagnostics`。只要存在 blocking `model_output_diagnostics`，`graph_write_proposal.json` 会设置 `graph_write_blocked=true` 且 `model_claims_to_create=[]`。
+该 fixture 只用于 validation，不代表已经接入 provider；未知 evidence id、缺字段、schema/domain 不合格 claim 或无证据高置信 claim 会进入 `model_output_diagnostics`。只要存在 blocking `model_output_diagnostics`，`graph_write_proposal.json` 会设置 `graph_write_blocked=true` 且 `model_claims_to_create=[]`，`trace_index_proposed.json` 也不会包含被拒绝的模型 claim。
 
 也可以使用内置 mock semantic provider 走一条正向模型路径：
 

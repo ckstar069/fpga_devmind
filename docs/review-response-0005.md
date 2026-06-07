@@ -80,15 +80,25 @@ test_llm_contract_rejects_schema_invalid_model_claims
 
 ## P2: Proposed Graph Is Not Trace / Query Complete
 
-Status: documented and deferred.
+Status: fixed in the next slice.
 
-Current dry-run keeps `project_graph_proposed.json` as a proposal artifact, not a reusable semantic memory artifact. Documentation now explicitly says it is not trace/query complete until a future `trace_index_proposed.json` slice exists.
-
-Deferred next slice:
+Current dry-run now writes:
 
 ```text
-GraphWriter should generate trace_index_proposed.json or another explicit EvidenceGraph reverse-index proposal.
+project_graph_proposed.json
+trace_index_proposed.json
+graph_write_report.json
 ```
+
+`trace_index_proposed.json` is derived from `project_graph_proposed.json` and records:
+
+```text
+- claim -> evidence refs
+- evidence -> supporting claim ids
+- claim -> linked outputs
+```
+
+The source `p1a_artifacts/trace_index.json` is not overwritten.
 
 ## P3: Provider Call Safety Metadata
 
