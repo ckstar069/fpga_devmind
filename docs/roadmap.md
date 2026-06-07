@@ -26,6 +26,7 @@ Review 0001 后，Phase 1 已收窄为 P1a / P1b / P1c 三个可验收切片，�
 - MapL6ToRTL。
 - ExplainVerification。
 - EvidenceGraph / ConceptGraph / VisualizationSpec。
+- 本地 GUI artifact viewer，用于查看图、证据、诊断和不确定项。
 
 这一阶段不追求自动开发，也不以审计结论为主。
 
@@ -99,7 +100,7 @@ fpga_devmind 把偏差 / 决策反馈给开发 Agent
 - P1c: not implemented yet.
 ```
 
-下一步可编码实施应从 P1b 单概念 L5/L6-to-RTL trace 开始，详见 [P1b Implementation Plan](implementation-plan-p1b.md) 和 [Agent Handoff: Claude + Kimi Implementation](agent-handoff-claude-kimi.md)。不要在 P1b 前抢先接真实 provider 或扩大成通用 RTL 审计工具。
+下一步可编码实施应从 P1b 单概念 L5/L6-to-RTL trace 开始，详见 [P1b Implementation Plan](implementation-plan-p1b.md) 和 [Agent Handoff: Claude + Kimi Implementation](agent-handoff-claude-kimi.md)。用户希望有图形界面，因此 P1b 之后应进入 [UI Prototype Plan](ui-prototype-plan.md)，实现本地只读 artifact viewer。GUI 目标同时包括 Web GUI 和桌面端软件，桌面优先 macOS / Linux，Windows 次之。不要在 P1b 前抢先接真实 provider 或扩大成通用 RTL 审计工具。
 
 硬边界：
 

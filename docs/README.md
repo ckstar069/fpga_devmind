@@ -19,6 +19,7 @@
 - [P1a V0.1 acceptance](p1a-v0.1-acceptance.md)：P1a V0.1 的验收标准、已知限制和进入下一阶段的判定规则。
 - [P1a+ Semantic Agent Layer](p1a-plus-semantic-agent.md)：P1a V0.1 后的 LLM/ReAct 语义 Agent 层设计。
 - [P1b Implementation Plan](implementation-plan-p1b.md)：P1b 单概念 L5/L6-to-RTL trace 的受控实施计划。
+- [UI Prototype Plan](ui-prototype-plan.md)：本地图形界面原型计划，用于浏览结构化 artifact、图、证据和不确定项。
 - [Agent Handoff: Claude + Kimi Implementation](agent-handoff-claude-kimi.md)：交给外部编码 Agent 的约束、验证命令和任务执行规则。
 - [P1a implementation prep](p1a-implementation-prep.md)：P1a 实现前清单、代码切片顺序和最小 grounding 检查。
 - [Implementation status](implementation-status.md)：当前 P1a 最小代码骨架状态和验证命令。
@@ -43,6 +44,10 @@
 - [T005: P1b Mapping Claim Builder](tasks/T005-p1b-mapping-claim-builder.md)
 - [T006: P1b Grounding Checker And Report](tasks/T006-p1b-grounding-report.md)
 - [T007: P1b CLI, Rendering And Smoke](tasks/T007-p1b-cli-render-smoke.md)
+- [T008: UI Artifact Viewer Contract](tasks/T008-ui-artifact-viewer-contract.md)
+- [T009: UI Local Web Prototype](tasks/T009-ui-local-web-prototype.md)
+- [T010: UI P1b Concept Trace View](tasks/T010-ui-p1b-concept-trace-view.md)
+- [T011: UI Desktop App Packaging](tasks/T011-ui-desktop-app-packaging.md)
 
 ## 评审记录
 

@@ -126,6 +126,20 @@ Agents should not expand beyond the task card. If a broader refactor seems usefu
 
 Unit tests should use synthetic fixtures when possible. Tests that depend on `/Users/ckstar/Repo/znxt_ofdm/fpga_project_*` must skip cleanly when the target project is absent.
 
+## GUI Direction
+
+The product should eventually have a graphical interface. GUI work is covered by:
+
+```text
+docs/ui-prototype-plan.md
+docs/tasks/T008-ui-artifact-viewer-contract.md
+docs/tasks/T009-ui-local-web-prototype.md
+docs/tasks/T010-ui-p1b-concept-trace-view.md
+docs/tasks/T011-ui-desktop-app-packaging.md
+```
+
+Do not start GUI work before the assigned task says so. The GUI must support both Web and desktop directions, with macOS / Linux desktop first and Windows second. Web and desktop must share the same artifact contract and view model. The first GUI must be a read-only artifact viewer over generated JSON / Markdown / Mermaid artifacts. It must not become the semantic source of truth, and it must not run Vivado, mutate target projects or call external provider APIs.
+
 ## Review Requirement
 
 After each meaningful slice:
