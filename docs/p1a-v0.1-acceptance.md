@@ -72,6 +72,7 @@ read L6 evidence
 [x] Blocking diagnostics cause non-zero p1a-understand-stage exit.
 [x] Query answers are derived from ProjectGraph and TraceIndex.
 [x] Stale memory produces explicit Freshness Warning.
+[x] Query exposes recorded uncertainty notes.
 ```
 
 ### Smoke Samples
@@ -105,6 +106,7 @@ Required query types:
 [x] resource estimates.
 [x] claim id drill-down.
 [x] evidence id drill-down.
+[x] uncertainty / known limitations.
 ```
 
 ## Known Limitations

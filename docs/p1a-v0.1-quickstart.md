@@ -116,9 +116,18 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-query \
 - resource estimates
 - claim id drill-down, such as C001
 - evidence id drill-down
+- uncertainty / known limitations
 ```
 
 注意：P1a V0.1 的 `flow.mmd` 展示的是 grounded concepts 的 inferred implementation order，不是已证明的 producer/consumer dataflow。
+
+查询不确定项：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-query \
+  --artifacts /tmp/fpga_devmind/p1a_fine_cfo_l6 \
+  --question "有哪些不确定"
+```
 
 ## Freshness
 

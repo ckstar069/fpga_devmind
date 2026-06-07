@@ -30,6 +30,8 @@ def answer_question(artifact_dir: Path, question: str) -> str:
 
     if _has_any(normalized, ["resource", "lut", "ff", "dsp", "bram", "资源"]):
         return _with_freshness(_answer_resource(graph, trace), freshness)
+    if _has_any(normalized, ["uncertainty", "unknown", "不确定", "风险", "限制"]):
+        return _with_freshness(_answer_uncertainties(graph), freshness)
     if _has_any(normalized, ["fixed", "q(", "q格式", "定点", "位宽", "scale"]):
         return _with_freshness(_answer_fixed_point(graph, trace), freshness)
     if _has_any(normalized, ["interface", "axis", "valid", "ready", "tvalid", "接口"]):
@@ -201,6 +203,7 @@ def _answer_flow(graph: dict[str, Any], trace: dict[str, Any]) -> str:
     for claim_id, claim in trace["claims"].items():
         if claim_id == "C001" or claim["claim_type"] in {"dataflow_claim", "implementation_order_claim"}:
             lines.append(f"- `{claim_id}`: {claim['statement']}")
+    lines.extend(_format_uncertainties(graph))
     return "\n".join(lines) + "\n"
 
 
@@ -263,6 +266,7 @@ def _answer_pipeline(graph: dict[str, Any], trace: dict[str, Any]) -> str:
         )
     lines.append("")
     lines.append("Exact latency is not confirmed by the deterministic P1a extraction.")
+    lines.extend(_format_uncertainties(graph, topic_filter="implementation order"))
     lines.extend(["", "## Evidence"])
     claim = _first_claim_by_type(trace, "pipeline_timing_claim")
     lines.extend(_format_evidence_refs(claim["evidence_refs"] if claim else []))
@@ -281,7 +285,26 @@ def _answer_topics(graph: dict[str, Any]) -> str:
         "- resource estimates\n"
         "- specific claim ids such as `C001`\n"
         "- specific evidence ids from `trace_index.json`\n"
+        "- uncertainty / unknown limitations\n"
     )
+
+
+def _answer_uncertainties(graph: dict[str, Any]) -> str:
+    lines = ["# Query Answer", "", "Uncertainties recorded in P1a:"]
+    uncertainties = graph.get("uncertainty_notes", [])
+    if not uncertainties:
+        lines.append("- No uncertainty notes recorded.")
+        return "\n".join(lines) + "\n"
+    for uncertainty in uncertainties:
+        lines.append(
+            f"- `{uncertainty['uncertainty_id']}` {uncertainty['topic']} "
+            f"({uncertainty['severity_for_understanding']}): {uncertainty['current_interpretation']}"
+        )
+        if uncertainty.get("needed_evidence"):
+            lines.append(f"  - needed evidence: {uncertainty['needed_evidence']}")
+        if uncertainty.get("source_claim_ids"):
+            lines.append(f"  - related claims: {', '.join(uncertainty['source_claim_ids'])}")
+    return "\n".join(lines) + "\n"
 
 
 def _claim_ids_for_subject(trace: dict[str, Any], subject_id: str) -> list[str]:
@@ -308,4 +331,21 @@ def _format_evidence_refs(evidence_refs: list[dict[str, Any]], limit: int = 6) -
         lines.append(f"- `{evidence['evidence_id']}` `{loc}` {evidence['excerpt_summary']}")
     if len(evidence_refs) > limit:
         lines.append(f"- ... {len(evidence_refs) - limit} more evidence items")
+    return lines
+
+
+def _format_uncertainties(graph: dict[str, Any], topic_filter: str | None = None) -> list[str]:
+    uncertainties = graph.get("uncertainty_notes", [])
+    if topic_filter:
+        uncertainties = [
+            item for item in uncertainties if topic_filter.lower() in item.get("topic", "").lower()
+        ]
+    if not uncertainties:
+        return []
+    lines = ["", "## Uncertainties"]
+    for uncertainty in uncertainties:
+        lines.append(
+            f"- `{uncertainty['uncertainty_id']}` {uncertainty['topic']}: "
+            f"{uncertainty['current_interpretation']}"
+        )
     return lines

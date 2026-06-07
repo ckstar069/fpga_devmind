@@ -54,6 +54,7 @@ def run_smoke(out_root: Path = DEFAULT_SMOKE_OUT) -> dict[str, Any]:
                     "reason": "project_root_missing",
                     "claims": 0,
                     "evidence_items": 0,
+                    "uncertainty_notes": 0,
                     "blocking_diagnostics": 0,
                     "freshness_status": "unknown",
                 }
@@ -75,6 +76,7 @@ def run_smoke(out_root: Path = DEFAULT_SMOKE_OUT) -> dict[str, Any]:
                     "reason": "ok" if status == "passed" else "blocking_or_stale",
                     "claims": len(graph.candidate_claims),
                     "evidence_items": len(graph.evidence_items),
+                    "uncertainty_notes": len(graph.uncertainty_notes),
                     "blocking_diagnostics": len(blocking),
                     "freshness_status": freshness["status"],
                     "source_snapshot_id": freshness.get("source_snapshot_id"),
@@ -92,6 +94,7 @@ def run_smoke(out_root: Path = DEFAULT_SMOKE_OUT) -> dict[str, Any]:
                     "message": str(exc),
                     "claims": 0,
                     "evidence_items": 0,
+                    "uncertainty_notes": 0,
                     "blocking_diagnostics": 1,
                     "freshness_status": "unknown",
                 }
@@ -134,6 +137,7 @@ def render_smoke_report(report: dict[str, Any]) -> str:
         lines.append(f"  - artifacts: `{result['artifact_dir']}`")
         lines.append(f"  - claims: {result['claims']}")
         lines.append(f"  - evidence_items: {result['evidence_items']}")
+        lines.append(f"  - uncertainty_notes: {result.get('uncertainty_notes', 0)}")
         lines.append(f"  - blocking_diagnostics: {result['blocking_diagnostics']}")
         lines.append(f"  - freshness: {result['freshness_status']}")
         if result.get("message"):

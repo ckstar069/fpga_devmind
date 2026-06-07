@@ -94,6 +94,12 @@ class P1aRunnerTest(unittest.TestCase):
             answer = answer_question(out_dir, "L6 实现了什么流程")
             self.assertIn("Streaming Correlator Opt", answer)
             self.assertIn("Streaming CFO Opt", answer)
+            self.assertIn("## Uncertainties", answer)
+            self.assertIn("implementation order versus dataflow", answer)
+
+            uncertainty_answer = answer_question(out_dir, "有哪些不确定")
+            self.assertIn("Uncertainties recorded", uncertainty_answer)
+            self.assertIn("producer/consumer dataflow", uncertainty_answer)
 
             resource_answer = answer_question(out_dir, "资源估计 LUT DSP BRAM 来自哪里")
             self.assertIn("estimate_sync", resource_answer)
@@ -111,6 +117,9 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertTrue((out_root / "smoke_report.md").exists())
             self.assertEqual(len(report["samples"]), 2)
             self.assertEqual(report["summary"]["failed"], 0)
+            for sample in report["samples"]:
+                if sample["status"] == "passed":
+                    self.assertGreaterEqual(sample["uncertainty_notes"], 1)
             self.assertEqual(smoke_exit_code(report), 0)
 
 
