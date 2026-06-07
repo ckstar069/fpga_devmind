@@ -139,6 +139,7 @@ class P1aRunnerTest(unittest.TestCase):
 
             self.assertTrue((out_dir / "agent_trace.json").exists())
             self.assertTrue((out_dir / "prompt_context.json").exists())
+            self.assertTrue((out_dir / "provider_call.json").exists())
             self.assertTrue((out_dir / "model_result_normalized.json").exists())
             self.assertTrue((out_dir / "claim_proposals.json").exists())
             self.assertTrue((out_dir / "graph_write_proposal.json").exists())
@@ -147,9 +148,16 @@ class P1aRunnerTest(unittest.TestCase):
 
             trace = json.loads((out_dir / "agent_trace.json").read_text(encoding="utf-8"))
             self.assertEqual(trace["mode"], "deterministic_dry_run_no_llm")
+            self.assertEqual(trace["provider_id"], "noop")
             self.assertFalse(trace["safety"]["api_key_used"])
             self.assertFalse(trace["safety"]["vivado_run"])
             self.assertGreaterEqual(len(trace["events"]), 2)
+
+            provider_call = json.loads((out_dir / "provider_call.json").read_text(encoding="utf-8"))
+            self.assertEqual(provider_call["provider_id"], "noop")
+            self.assertFalse(provider_call["external_api_called"])
+            self.assertFalse(provider_call["api_key_used"])
+            self.assertFalse(provider_call["api_key_logged"])
 
             grounding = result["grounding_report"]
             self.assertEqual(grounding["freshness"]["status"], "current")
@@ -206,7 +214,13 @@ class P1aRunnerTest(unittest.TestCase):
 
             trace = json.loads((out_dir / "agent_trace.json").read_text(encoding="utf-8"))
             self.assertEqual(trace["mode"], "deterministic_dry_run_with_model_fixture")
+            self.assertEqual(trace["provider_id"], "fixture")
             self.assertEqual(trace["model_result_source"], str(fixture_path))
+
+            provider_call = json.loads((out_dir / "provider_call.json").read_text(encoding="utf-8"))
+            self.assertEqual(provider_call["provider_id"], "fixture")
+            self.assertEqual(provider_call["source"], str(fixture_path))
+            self.assertFalse(provider_call["external_api_called"])
 
             normalized = json.loads((out_dir / "model_result_normalized.json").read_text(encoding="utf-8"))
             self.assertEqual(normalized["candidate_claims"][0]["confidence"], "unknown")

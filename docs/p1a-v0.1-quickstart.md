@@ -156,6 +156,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 /tmp/fpga_devmind/p1a_agent_l6/
 - agent_trace.json
 - prompt_context.json
+- provider_call.json
 - model_result_normalized.json
 - claim_proposals.json
 - graph_write_proposal.json

@@ -69,6 +69,9 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 prompt_context.json
   给未来模型调用使用的 redacted context；不包含 API key、provider secret 或完整环境变量。
 
+provider_call.json
+  provider adapter 调用记录；当前只支持 noop / fixture，external_api_called=false。
+
 model_result_normalized.json
   provider-free 空模型结果的规范化输出；未来真实模型结果也必须先经过同一校验入口。
 
@@ -230,6 +233,18 @@ SemanticReasoningResult
 
 当前代码中该契约由 `src/fpga_devmind/llm_contract.py` 表达。它只定义 prompt context 和 response validation，不调用 provider。
 
+provider adapter 边界由 `src/fpga_devmind/providers.py` 表达。当前只有：
+
+```text
+NoopSemanticProvider
+  不调用模型，返回空 SemanticReasoningResult。
+
+FixtureSemanticProvider
+  从本地 JSON fixture 读取 SemanticReasoningResult，用于测试 validation 和 grounding。
+```
+
+真实 provider 后续必须实现同一接口，并继续写出 `provider_call.json`。任何 provider 输出都不能绕过 `validate_semantic_reasoning_result()`。
+
 最小校验规则：
 
 ```text
@@ -267,6 +282,9 @@ agent_trace.json
 
 prompt_context.json
   Redacted prompt context and required output schema for future providers.
+
+provider_call.json
+  Provider adapter call record with external_api_called/api_key_used/api_key_logged flags.
 
 model_result_normalized.json
   Validated model result after schema and evidence-id checks.

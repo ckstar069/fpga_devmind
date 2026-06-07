@@ -14,6 +14,7 @@ from typing import Any
 
 from .llm_contract import build_prompt_context, validate_semantic_reasoning_result
 from .p1a import run_p1a
+from .providers import provider_for_fixture, response_to_dict
 from .query import answer_question, check_freshness
 
 
@@ -40,7 +41,8 @@ def run_p1a_semantic_agent_dry_run(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     p1a_artifacts = artifact_dir or (out_dir / "p1a_artifacts")
-    runtime_mode = "deterministic_dry_run_with_model_fixture" if model_result_path else "deterministic_dry_run_no_llm"
+    provider = provider_for_fixture(model_result_path)
+    runtime_mode = provider.mode
 
     plan = _build_task_plan(project_root, stage_id, question, out_dir, p1a_artifacts)
     trace_events: list[dict[str, Any]] = []
@@ -128,11 +130,9 @@ def run_p1a_semantic_agent_dry_run(
         trace_index=_read_json(p1a_artifacts / "trace_index.json"),
         freshness=freshness,
     )
-    model_input_result = (
-        _read_json(model_result_path) if model_result_path else _empty_model_result(graph["task_request"]["request_id"])
-    )
+    provider_response = provider.run(prompt_context)
     normalized_model_result, model_diagnostics = validate_semantic_reasoning_result(
-        model_input_result,
+        provider_response.result,
         known_evidence_ids=set(prompt_context["known_evidence_ids"]),
     )
     claim_proposals["model_candidate_claims"] = normalized_model_result.get("candidate_claims", [])
@@ -147,7 +147,8 @@ def run_p1a_semantic_agent_dry_run(
         "schema_version": "p1a-plus-agent-trace-0.1",
         "mode": runtime_mode,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "model_result_source": str(model_result_path) if model_result_path else None,
+        "provider_id": provider_response.provider_id,
+        "model_result_source": provider_response.call_record.get("source"),
         "task_plan": plan,
         "events": trace_events,
         "safety": {
@@ -163,6 +164,7 @@ def run_p1a_semantic_agent_dry_run(
 
     _write_json(out_dir / "agent_trace.json", agent_trace)
     _write_json(out_dir / "prompt_context.json", prompt_context)
+    _write_json(out_dir / "provider_call.json", response_to_dict(provider_response)["call_record"])
     _write_json(out_dir / "model_result_normalized.json", normalized_model_result)
     _write_json(out_dir / "claim_proposals.json", claim_proposals)
     _write_json(out_dir / "graph_write_proposal.json", graph_write_proposal)
@@ -174,6 +176,7 @@ def run_p1a_semantic_agent_dry_run(
         "artifact_dir": str(p1a_artifacts),
         "agent_trace": agent_trace,
         "prompt_context": prompt_context,
+        "provider_call": provider_response.call_record,
         "model_result_normalized": normalized_model_result,
         "claim_proposals": claim_proposals,
         "graph_write_proposal": graph_write_proposal,
@@ -368,19 +371,3 @@ def _write_json(path: Path, data: object) -> None:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _empty_model_result(request_id: str) -> dict[str, Any]:
-    return {
-        "request_id": request_id,
-        "plan_step_id": "S002",
-        "reasoning_summary": "No model provider was called in deterministic dry-run mode.",
-        "candidate_claims": [],
-        "proposed_edges": [],
-        "proposed_uncertainties": [],
-        "requested_followup_tools": [],
-        "self_check_notes": [
-            "provider_not_called",
-            "no_model_generated_claims",
-        ],
-    }
