@@ -26,6 +26,7 @@ def run_p1a_semantic_agent_dry_run(
     question: str,
     out_dir: Path = DEFAULT_AGENT_OUT,
     artifact_dir: Path | None = None,
+    model_result_path: Path | None = None,
 ) -> dict[str, Any]:
     """Run a provider-free P1a+ Agent shell over P1a artifacts.
 
@@ -39,6 +40,7 @@ def run_p1a_semantic_agent_dry_run(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     p1a_artifacts = artifact_dir or (out_dir / "p1a_artifacts")
+    runtime_mode = "deterministic_dry_run_with_model_fixture" if model_result_path else "deterministic_dry_run_no_llm"
 
     plan = _build_task_plan(project_root, stage_id, question, out_dir, p1a_artifacts)
     trace_events: list[dict[str, Any]] = []
@@ -109,9 +111,10 @@ def run_p1a_semantic_agent_dry_run(
 
     claim_proposals = {
         "schema_version": "p1a-plus-claim-proposals-0.1",
-        "mode": "deterministic_dry_run_no_llm",
+        "mode": runtime_mode,
         "source_project_graph": str(p1a_artifacts / "project_graph.json"),
         "candidate_claims": graph["candidate_claims"],
+        "model_candidate_claims": [],
         "notes": [
             "No model-generated claims are present in this dry-run.",
             "Future LLM claims must include evidence_ids before grounding.",
@@ -125,17 +128,26 @@ def run_p1a_semantic_agent_dry_run(
         trace_index=_read_json(p1a_artifacts / "trace_index.json"),
         freshness=freshness,
     )
-    empty_model_result = _empty_model_result(graph["task_request"]["request_id"])
+    model_input_result = (
+        _read_json(model_result_path) if model_result_path else _empty_model_result(graph["task_request"]["request_id"])
+    )
     normalized_model_result, model_diagnostics = validate_semantic_reasoning_result(
-        empty_model_result,
+        model_input_result,
         known_evidence_ids=set(prompt_context["known_evidence_ids"]),
     )
+    claim_proposals["model_candidate_claims"] = normalized_model_result.get("candidate_claims", [])
+    if model_result_path:
+        claim_proposals["notes"] = [
+            f"Model result fixture read from {model_result_path}.",
+            "Fixture claims are validated but not written to ProjectGraph in this slice.",
+        ]
     graph_write_proposal = _build_graph_write_proposal(graph, p1a_artifacts)
     grounding_report = _build_grounding_report(graph, freshness, model_diagnostics)
     agent_trace = {
         "schema_version": "p1a-plus-agent-trace-0.1",
-        "mode": "deterministic_dry_run_no_llm",
+        "mode": runtime_mode,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "model_result_source": str(model_result_path) if model_result_path else None,
         "task_plan": plan,
         "events": trace_events,
         "safety": {
@@ -147,7 +159,7 @@ def run_p1a_semantic_agent_dry_run(
         },
     }
 
-    answer_md = _render_agent_answer(question, p1a_artifacts, grounded_answer, grounding_report)
+    answer_md = _render_agent_answer(question, p1a_artifacts, grounded_answer, grounding_report, runtime_mode)
 
     _write_json(out_dir / "agent_trace.json", agent_trace)
     _write_json(out_dir / "prompt_context.json", prompt_context)
@@ -318,6 +330,7 @@ def _render_agent_answer(
     artifact_dir: Path,
     grounded_answer: str,
     grounding_report: dict[str, Any],
+    runtime_mode: str,
 ) -> str:
     summary = grounding_report["summary"]
     lines = [
@@ -325,7 +338,7 @@ def _render_agent_answer(
         "",
         f"Question: {question}",
         "",
-        "Mode: `deterministic_dry_run_no_llm`.",
+        f"Mode: `{runtime_mode}`.",
         "",
         "This run exercises the Agent runtime artifact shape over P1a evidence. It does not call an LLM provider.",
         "",
@@ -335,6 +348,7 @@ def _render_agent_answer(
         f"- Freshness: `{grounding_report['freshness']['status']}`",
         f"- Candidate claims: {summary['candidate_claims']}",
         f"- Blocking diagnostics: {summary['blocking_diagnostics']}",
+        f"- Model output blocking diagnostics: {summary['model_output_blocking_diagnostics']}",
         f"- Uncertainty notes: {summary['uncertainty_notes']}",
         "",
         "## Grounded Answer",

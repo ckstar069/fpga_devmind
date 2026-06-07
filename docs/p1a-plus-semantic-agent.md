@@ -50,6 +50,19 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 
 它的 mode 是 `deterministic_dry_run_no_llm`，用于验证 artifact 形态，不代表 LLM semantic reasoner 已经接入。
 
+也可以传入本地模型输出 fixture：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6 \
+  --model-result /tmp/fpga_devmind/model_result_fixture.json
+```
+
+此时 mode 是 `deterministic_dry_run_with_model_fixture`。fixture 只用于验证 schema、evidence id 和 confidence downgrade，不会被写入 `ProjectGraph`。
+
 当前 dry-run 还会生成 provider contract 相关 artifact：
 
 ```text
@@ -227,6 +240,7 @@ SemanticReasoningResult
 - 引用未知 evidence_id 会产生 blocking diagnostic。
 - 没有有效 evidence_id 的高置信 claim 会被降级为 unknown。
 - confirmed model claim 至少需要一个已知 evidence_id。
+- 带 blocking `model_output_diagnostics` 的 fixture 会让 CLI 返回非零退出码。
 ```
 
 ## Grounding Rules

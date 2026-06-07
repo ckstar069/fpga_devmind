@@ -166,6 +166,19 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 
 注意：该命令的 mode 是 `deterministic_dry_run_no_llm`。它不调用 LLM provider，不读取 API key，不生成模型语义结论；它只把 P1a evidence shell 包进 TaskPlan / ToolObservation / CandidateClaim / GroundingDiagnostic / answer 的最小 Agent runtime artifact，并生成未来 provider 必须遵守的 prompt context 和 model result validation 产物。
 
+如果需要提前验证模型输出格式，可以传入本地 fixture：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6 \
+  --model-result /tmp/fpga_devmind/model_result_fixture.json
+```
+
+该 fixture 只用于 validation，不代表已经接入 provider；未知 evidence id、缺字段或无证据高置信 claim 会进入 `model_output_diagnostics`。
+
 ## Boundaries
 
 P1a V0.1 不做：

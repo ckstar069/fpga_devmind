@@ -108,6 +108,17 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
   --out /tmp/fpga_devmind/p1a_agent_l6
 ```
 
+Validate a local model output fixture without calling a provider:
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6 \
+  --model-result /tmp/fpga_devmind/model_result_fixture.json
+```
+
 Supported deterministic query topics:
 
 ```text

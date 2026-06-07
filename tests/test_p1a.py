@@ -167,6 +167,55 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertIn("## Grounded Answer", answer)
             self.assertIn("S0 AutocorrNorm", answer)
 
+    def test_p1a_plus_agent_validates_model_result_fixture(self) -> None:
+        if not DEFAULT_PROJECT.exists():
+            self.skipTest(f"target project not found: {DEFAULT_PROJECT}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "agent"
+            fixture_path = Path(tmp) / "model_result.json"
+            fixture = {
+                "request_id": "fixture-001",
+                "plan_step_id": "S002",
+                "reasoning_summary": "Synthetic fixture for model validation.",
+                "candidate_claims": [
+                    {
+                        "claim_type": "implementation_claim",
+                        "statement": "The stage has proven producer consumer dataflow.",
+                        "subject_ids": ["N001"],
+                        "evidence_ids": ["E:not-known"],
+                        "confidence": "confirmed",
+                        "required_missing_evidence": [],
+                        "generated_from_step": "S002",
+                    }
+                ],
+                "proposed_edges": [],
+                "proposed_uncertainties": [],
+                "requested_followup_tools": [],
+                "self_check_notes": [],
+            }
+            fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+
+            result = run_p1a_semantic_agent_dry_run(
+                project_root=DEFAULT_PROJECT,
+                stage_id="L6_resource_opt",
+                question="L6 实现了什么流程",
+                out_dir=out_dir,
+                model_result_path=fixture_path,
+            )
+
+            trace = json.loads((out_dir / "agent_trace.json").read_text(encoding="utf-8"))
+            self.assertEqual(trace["mode"], "deterministic_dry_run_with_model_fixture")
+            self.assertEqual(trace["model_result_source"], str(fixture_path))
+
+            normalized = json.loads((out_dir / "model_result_normalized.json").read_text(encoding="utf-8"))
+            self.assertEqual(normalized["candidate_claims"][0]["confidence"], "unknown")
+            self.assertEqual(normalized["candidate_claims"][0]["evidence_ids"], [])
+
+            grounding = result["grounding_report"]
+            self.assertGreaterEqual(grounding["summary"]["model_output_blocking_diagnostics"], 1)
+            self.assertTrue(any(d["issue_type"] == "unknown_evidence_id" for d in grounding["model_output_diagnostics"]))
+
     def test_llm_contract_downgrades_unsupported_model_claims(self) -> None:
         result = {
             "request_id": "req-001",
