@@ -128,6 +128,57 @@ class ImplementationView:
 
 
 @dataclass
+class FixedPointSpec:
+    spec_id: str
+    signal_or_concept_id: str
+    q_format: str
+    signedness: str
+    total_bits: int | None
+    integer_bits: int | None
+    fractional_bits: int | None
+    scale: int | None
+    rounding_mode: str | None
+    overflow_mode: str | None
+    source_claim_ids: list[str] = field(default_factory=list)
+    evidence_ids: list[str] = field(default_factory=list)
+    confidence: str = "supported"
+
+
+@dataclass
+class StreamInterfaceSpec:
+    interface_id: str
+    protocol: str
+    data_signal: str | None
+    valid_signal: str | None
+    ready_signal: str | None
+    last_signal: str | None
+    sideband_signals: list[str] = field(default_factory=list)
+    producer: str | None = None
+    consumer: str | None = None
+    valid_condition: str | None = None
+    ready_backpressure_behavior: str | None = None
+    packet_boundary_behavior: str | None = None
+    source_claim_ids: list[str] = field(default_factory=list)
+    evidence_ids: list[str] = field(default_factory=list)
+    confidence: str = "supported"
+
+
+@dataclass
+class PipelineTimingSpec:
+    timing_id: str
+    stage_or_module_id: str
+    latency_cycles: int | None
+    register_boundaries: list[str] = field(default_factory=list)
+    alignment_requirements: list[str] = field(default_factory=list)
+    valid_propagation: str | None = None
+    reset_behavior: str | None = None
+    clock_domain: str | None = None
+    source_claim_ids: list[str] = field(default_factory=list)
+    evidence_ids: list[str] = field(default_factory=list)
+    confidence: str = "supported"
+
+
+@dataclass
 class VizNode:
     node_id: str
     label: str
@@ -179,6 +230,9 @@ class ProjectGraph:
     stage: StageNode
     concepts: list[ConceptNode]
     implementation_views: list[ImplementationView]
+    fixed_point_specs: list[FixedPointSpec]
+    stream_interface_specs: list[StreamInterfaceSpec]
+    pipeline_timing_specs: list[PipelineTimingSpec]
     evidence_items: list[EvidenceItem]
     candidate_claims: list[CandidateClaim]
     grounding_diagnostics: list[GroundingDiagnostic]

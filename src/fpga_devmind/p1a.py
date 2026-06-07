@@ -11,11 +11,14 @@ from typing import Iterable
 from .schema import (
     CandidateClaim,
     ConceptNode,
+    FixedPointSpec,
     GroundingDiagnostic,
     ImplementationView,
+    PipelineTimingSpec,
     ProjectGraph,
     ProjectProfile,
     StageNode,
+    StreamInterfaceSpec,
     TaskRequest,
     UncertaintyNote,
     VisualizationSpec,
@@ -120,6 +123,7 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
     l6_files = sorted(p for p in l6_path.glob("*.py") if p.name != "__init__.py")
     py_obs = extract_python_stage_patterns(l6_files)
     params, param_evidence = extract_parameters(project_root)
+    param_by_name = {p["name"]: p for p in params}
     evidence_items = py_obs.evidence_items + param_evidence
     evidence_strength = {e.evidence_id: e.evidence_strength for e in evidence_items}
 
@@ -216,18 +220,46 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
         dataflow_claim_ids_by_pair[(edge["from_symbol"], edge["to_symbol"])] = [claim_id]
         claim_idx += 1
 
+    fixed_point_specs: list[FixedPointSpec] = []
+    stream_interface_specs: list[StreamInterfaceSpec] = []
+    pipeline_timing_specs: list[PipelineTimingSpec] = []
+
     # Fixed-point and interface/resource claims are conditional.
     q_eids = []
     for event in py_obs.q_operations + py_obs.width_growth_events:
         q_eids.extend(event["evidence_ids"])
+    for name in ("q_int_bits", "q_frac_bits", "data_width", "rounding_mode", "saturation"):
+        if name in param_by_name:
+            q_eids.extend(param_by_name[name]["evidence_ids"])
     if q_eids:
+        q_int_bits = _param_int(param_by_name, "q_int_bits")
+        q_frac_bits = _param_int(param_by_name, "q_frac_bits")
+        total_bits = q_int_bits + q_frac_bits if q_int_bits is not None and q_frac_bits is not None else _param_int(param_by_name, "data_width")
+        scale = 1 << q_frac_bits if q_frac_bits is not None else None
         claims.append(
             _claim(
                 claim_idx,
                 "fixed_point_claim",
                 "conditional",
-                "L6 evidence contains fixed-point/Q-format behavior markers.",
+                f"L6 evidence contains fixed-point/Q-format behavior markers ({_q_format(q_int_bits, q_frac_bits)}).",
                 q_eids,
+                confidence="supported",
+            )
+        )
+        fixed_point_specs.append(
+            FixedPointSpec(
+                spec_id="FP001",
+                signal_or_concept_id="stage:L6_resource_opt",
+                q_format=_q_format(q_int_bits, q_frac_bits),
+                signedness="signed",
+                total_bits=total_bits,
+                integer_bits=q_int_bits,
+                fractional_bits=q_frac_bits,
+                scale=scale,
+                rounding_mode=str(param_by_name.get("rounding_mode", {}).get("value_repr", "unknown")),
+                overflow_mode="saturate" if param_by_name.get("saturation", {}).get("value_repr") is True else "unknown",
+                source_claim_ids=[f"C{claim_idx:03d}"],
+                evidence_ids=list(dict.fromkeys(q_eids)),
                 confidence="supported",
             )
         )
@@ -236,14 +268,66 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
     interface_eids = []
     for event in py_obs.interface_events:
         interface_eids.extend(event["evidence_ids"])
+    for name in ("interface_type", "axis_data_width", "axis_has_tlast"):
+        if name in param_by_name:
+            interface_eids.extend(param_by_name[name]["evidence_ids"])
     if interface_eids:
+        protocol = str(param_by_name.get("interface_type", {}).get("value_repr", "unknown"))
         claims.append(
             _claim(
                 claim_idx,
                 "interface_claim",
                 "conditional",
-                "L6 evidence contains valid-only stream interface markers.",
+                f"L6 evidence contains {protocol} stream interface markers.",
                 interface_eids,
+                confidence="supported",
+            )
+        )
+        stream_interface_specs.append(
+            StreamInterfaceSpec(
+                interface_id="IF001",
+                protocol=protocol,
+                data_signal="tdata",
+                valid_signal="tvalid",
+                ready_signal=None if protocol == "axis_valid_only" else "tready",
+                last_signal="tlast" if param_by_name.get("axis_has_tlast", {}).get("value_repr") is True else None,
+                producer="s_axis",
+                consumer="m_axis",
+                valid_condition="AxisValidOnly.transfer() returns tvalid",
+                ready_backpressure_behavior="no backpressure" if protocol == "axis_valid_only" else "unknown",
+                packet_boundary_behavior="tlast present" if param_by_name.get("axis_has_tlast", {}).get("value_repr") is True else "unknown",
+                source_claim_ids=[f"C{claim_idx:03d}"],
+                evidence_ids=list(dict.fromkeys(interface_eids)),
+                confidence="supported",
+            )
+        )
+        claim_idx += 1
+
+    pipeline_eids = []
+    for event in py_obs.pipeline_events:
+        pipeline_eids.extend(event["evidence_ids"])
+    if pipeline_eids:
+        claims.append(
+            _claim(
+                claim_idx,
+                "pipeline_timing_claim",
+                "conditional",
+                "L6 evidence contains pipeline/cycle behavior markers; exact latency is not confirmed by P1a deterministic extraction.",
+                pipeline_eids,
+                confidence="supported",
+            )
+        )
+        pipeline_timing_specs.append(
+            PipelineTimingSpec(
+                timing_id="PT001",
+                stage_or_module_id="L6_resource_opt",
+                latency_cycles=None,
+                register_boundaries=["S0", "S1", "S2", "S3"],
+                valid_propagation="_s0_out_valid -> _s1_out_valid -> _s2_out_valid -> _s3_out_valid",
+                reset_behavior="stage reset methods and AxisValidOnly.reset",
+                clock_domain="modeled by step() calls",
+                source_claim_ids=[f"C{claim_idx:03d}"],
+                evidence_ids=list(dict.fromkeys(pipeline_eids)),
                 confidence="supported",
             )
         )
@@ -377,6 +461,9 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
         stage=stage,
         concepts=concepts,
         implementation_views=views,
+        fixed_point_specs=fixed_point_specs,
+        stream_interface_specs=stream_interface_specs,
+        pipeline_timing_specs=pipeline_timing_specs,
         evidence_items=evidence_items,
         candidate_claims=claims,
         grounding_diagnostics=diagnostics,
@@ -426,6 +513,17 @@ def _diagnose_visualization(viz_specs: list[VisualizationSpec]) -> list[Groundin
     return diagnostics
 
 
+def _param_int(param_by_name: dict[str, dict], name: str) -> int | None:
+    value = param_by_name.get(name, {}).get("value_repr")
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _q_format(q_int_bits: int | None, q_frac_bits: int | None) -> str:
+    if q_int_bits is None or q_frac_bits is None:
+        return "unknown"
+    return f"Q({q_int_bits},{q_frac_bits})"
+
+
 def _write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -454,9 +552,25 @@ def _render_summary(graph: ProjectGraph) -> str:
         ]
         lines.append(f"- {concept.canonical_name}: {concept.meaning} [{', '.join(refs) or 'no-claim'}]")
     lines.extend(["", "## Conditional Findings"])
-    for key in ("fixed_point_claim", "interface_claim", "resource_refinement_claim"):
+    for key in ("fixed_point_claim", "interface_claim", "pipeline_timing_claim", "resource_refinement_claim"):
         for claim in claims_by_type.get(key, []):
             lines.append(f"- {claim.statement} [{claim.claim_id}]")
+    if graph.fixed_point_specs:
+        spec = graph.fixed_point_specs[0]
+        lines.append(
+            f"- Fixed-point spec: {spec.q_format}, total_bits={spec.total_bits}, scale={spec.scale} [{','.join(spec.source_claim_ids)}]"
+        )
+    if graph.stream_interface_specs:
+        spec = graph.stream_interface_specs[0]
+        lines.append(
+            f"- Stream interface: {spec.protocol}, valid={spec.valid_signal}, ready={spec.ready_signal or 'none'} [{','.join(spec.source_claim_ids)}]"
+        )
+    if graph.pipeline_timing_specs:
+        spec = graph.pipeline_timing_specs[0]
+        latency = spec.latency_cycles if spec.latency_cycles is not None else "unknown"
+        lines.append(
+            f"- Pipeline timing: latency={latency}, valid propagation={spec.valid_propagation} [{','.join(spec.source_claim_ids)}]"
+        )
     lines.extend(["", "## Uncertainties"])
     if graph.uncertainty_notes:
         for uncertainty in graph.uncertainty_notes:

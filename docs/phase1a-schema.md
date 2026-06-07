@@ -181,6 +181,7 @@ CandidateClaimP1a
   - fixed_point_claim
   - resource_refinement_claim
   - interface_claim
+  - pipeline_timing_claim
   - uncertainty_claim
 - claim_layer
   - mandatory

@@ -13,6 +13,7 @@ Implemented:
 - Read-only config parameter extraction.
 - Deterministic P1a claim generation for `coarse_sync_glm` L6.
 - Basic grounding checks for unsupported confirmed claims and unsupported visualization nodes/edges.
+- Structured fixed-point, stream interface, and pipeline timing specs in `project_graph.json`.
 - Artifact writing to `/tmp/fpga_devmind/p1a_coarse_sync_l6`.
 - Rendered `project_graph.json`, `summary.md`, `flow.mmd`, `run_metadata.json`.
 

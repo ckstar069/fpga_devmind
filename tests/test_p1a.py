@@ -24,6 +24,9 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertEqual(blocking, [])
             self.assertGreaterEqual(len(graph.candidate_claims), 5)
             self.assertGreaterEqual(len(graph.evidence_items), 1)
+            self.assertGreaterEqual(len(graph.fixed_point_specs), 1)
+            self.assertGreaterEqual(len(graph.stream_interface_specs), 1)
+            self.assertGreaterEqual(len(graph.pipeline_timing_specs), 1)
 
 
 if __name__ == "__main__":
