@@ -143,6 +143,8 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertTrue((out_dir / "model_result_normalized.json").exists())
             self.assertTrue((out_dir / "claim_proposals.json").exists())
             self.assertTrue((out_dir / "graph_write_proposal.json").exists())
+            self.assertTrue((out_dir / "project_graph_proposed.json").exists())
+            self.assertTrue((out_dir / "graph_write_report.json").exists())
             self.assertTrue((out_dir / "grounding_report.json").exists())
             self.assertTrue((out_dir / "answer.md").exists())
 
@@ -289,6 +291,15 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertEqual(len(graph_write["model_claims_to_create"]), 1)
             self.assertEqual(graph_write["rejected_model_claim_ids"], [])
             self.assertEqual(graph_write["model_claims_to_create"][0]["validation_status"], "accepted_for_grounding")
+            graph_write_report = json.loads((out_dir / "graph_write_report.json").read_text(encoding="utf-8"))
+            self.assertEqual(graph_write_report["claims_added"], ["M001"])
+            self.assertFalse(graph_write_report["project_graph_mutated"])
+
+            original_graph = json.loads((artifact_dir / "project_graph.json").read_text(encoding="utf-8"))
+            proposed_graph = json.loads((out_dir / "project_graph_proposed.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(original_graph["candidate_claims"]), len(graph.candidate_claims))
+            self.assertEqual(len(proposed_graph["candidate_claims"]), len(graph.candidate_claims) + 1)
+            self.assertEqual(proposed_graph["candidate_claims"][-1]["claim_layer"], "p1a_plus_model_proposal")
 
     def test_p1a_plus_agent_rejects_unsafe_output_path(self) -> None:
         if not DEFAULT_PROJECT.exists():

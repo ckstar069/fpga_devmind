@@ -44,6 +44,7 @@ Implemented:
 - Output path safety guard for P1a, P1a smoke and P1a+ generated artifacts.
 - Model output validation for schema_version, claims, requested follow-up tools, proposed edges and proposed uncertainties.
 - Graph write proposal now separates accepted model claims from rejected model claims without mutating ProjectGraph.
+- GraphWriter dry-run writes `project_graph_proposed.json` and `graph_write_report.json` without overwriting source `project_graph.json`.
 
 Not implemented yet:
 

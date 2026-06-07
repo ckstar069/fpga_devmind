@@ -300,6 +300,13 @@ graph_write_proposal.json
   model_claims_to_create and rejected model claim ids, but does not mutate
   ProjectGraph.
 
+project_graph_proposed.json
+  Dry-run graph copy with accepted model claim candidates merged. The original
+  p1a_artifacts/project_graph.json is not overwritten.
+
+graph_write_report.json
+  GraphWriter dry-run report listing added, skipped and rejected model claims.
+
 grounding_report.json
   Diagnostics and reflection decisions.
 

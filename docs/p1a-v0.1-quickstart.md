@@ -160,6 +160,8 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 - model_result_normalized.json
 - claim_proposals.json
 - graph_write_proposal.json
+- project_graph_proposed.json
+- graph_write_report.json
 - grounding_report.json
 - answer.md
 - p1a_artifacts/

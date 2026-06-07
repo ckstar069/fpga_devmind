@@ -14,6 +14,7 @@ from typing import Any
 
 from .llm_contract import build_prompt_context, validate_semantic_reasoning_result
 from .p1a import run_p1a
+from .graph_writer import apply_graph_write_proposal_dry_run
 from .providers import provider_for_fixture, response_to_dict
 from .query import answer_question, check_freshness
 from .safety import ensure_safe_output_dir
@@ -145,6 +146,7 @@ def run_p1a_semantic_agent_dry_run(
             "Fixture claims are validated but not written to ProjectGraph in this slice.",
         ]
     graph_write_proposal = _build_graph_write_proposal(graph, p1a_artifacts, runtime_mode, normalized_model_result)
+    proposed_graph, graph_write_report = apply_graph_write_proposal_dry_run(graph, graph_write_proposal)
     grounding_report = _build_grounding_report(graph, freshness, model_diagnostics, runtime_mode)
     agent_trace = {
         "schema_version": "p1a-plus-agent-trace-0.1",
@@ -171,6 +173,8 @@ def run_p1a_semantic_agent_dry_run(
     _write_json(out_dir / "model_result_normalized.json", normalized_model_result)
     _write_json(out_dir / "claim_proposals.json", claim_proposals)
     _write_json(out_dir / "graph_write_proposal.json", graph_write_proposal)
+    _write_json(out_dir / "project_graph_proposed.json", proposed_graph)
+    _write_json(out_dir / "graph_write_report.json", graph_write_report)
     _write_json(out_dir / "grounding_report.json", grounding_report)
     (out_dir / "answer.md").write_text(answer_md, encoding="utf-8")
 
@@ -183,6 +187,8 @@ def run_p1a_semantic_agent_dry_run(
         "model_result_normalized": normalized_model_result,
         "claim_proposals": claim_proposals,
         "graph_write_proposal": graph_write_proposal,
+        "project_graph_proposed": proposed_graph,
+        "graph_write_report": graph_write_report,
         "grounding_report": grounding_report,
         "answer_md": str(out_dir / "answer.md"),
     }
