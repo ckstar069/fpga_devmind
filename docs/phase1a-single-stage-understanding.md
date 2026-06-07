@@ -15,7 +15,7 @@ P1a 不是完整产品，也不是审计工具。它只证明 `fpga_devmind` 可
 
 ## Target Slice
 
-固定样例：
+主样例：
 
 ```text
 project_root:
@@ -34,6 +34,18 @@ question:
 - L6 阶段包含资源优化、定点、stage pipeline 等硬件化语义。
 - 该项目的主线可抽象为 S0/S1/S2/S3，适合验证流程图和数据流图。
 - P1a 暂不要求完整 L6-to-RTL 映射，但允许把 RTL 作为弱辅助证据或后续 P1b 入口。
+
+Smoke 样例：
+
+```text
+project_root:
+  /Users/ckstar/Repo/znxt_ofdm/fpga_project_fine_cfo
+
+stage:
+  L6_resource_opt
+```
+
+使用第二样例的目的不是扩展成“支持所有项目”，而是防止 P1a 过拟合 `coarse_sync_glm` 的 S0/S1/S2/S3 结构。`fine_cfo` 的 L6 使用 streaming correlator、FPD、CFO、FIFO 和 pipeline top 等不同组织方式，适合检验 generic concept inference、trace 和 query 是否仍然 grounded。
 
 ## Out of Scope
 
@@ -95,7 +107,7 @@ Agent 必须优先读取：
 目标证据：
 
 - L6 顶层文件。
-- S0/S1/S2/S3 或等价 stage 类/函数。
+- S0/S1/S2/S3 或等价 stage 类/函数；若不存在该模式，应从 L6 public classes / pipeline classes 中提取 grounded implementation concepts。
 - `step()`、`process_block()`、状态变量、接口定义。
 - Q 格式、位宽、shift、scale、truncate、saturate。
 - resource notes、DSP、LUT、latency、pipeline 信息。

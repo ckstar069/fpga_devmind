@@ -13,7 +13,8 @@ Implemented:
 - Read-only project tree scan.
 - Read-only L6 Python symbol and evidence extraction.
 - Read-only config parameter extraction.
-- Deterministic P1a claim generation for `coarse_sync_glm` L6.
+- Deterministic P1a claim generation for L6 resource optimized stages.
+- Generic L6 concept inference when the project does not match the coarse-sync S0-S3 pattern.
 - Basic grounding checks for unsupported confirmed claims and unsupported visualization nodes/edges.
 - Structured fixed-point, stream interface, and pipeline timing specs in `project_graph.json`.
 - Structured resource estimate specs extracted from L6 `ResourceEstimate(...)` evidence.
@@ -23,6 +24,7 @@ Implemented:
 - Freshness warning in query answers when generated artifacts are stale or unverifiable.
 - Artifact writing to `/tmp/fpga_devmind/p1a_coarse_sync_l6`.
 - Rendered `project_graph.json`, `trace_index.json`, `memory_manifest.json`, `summary.md`, `flow.mmd`, `trace.md`, `run_metadata.json`.
+- Smoke validation on `fpga_project_coarse_sync_glm` and `fpga_project_fine_cfo`.
 
 Not implemented yet:
 
@@ -30,6 +32,7 @@ Not implemented yet:
 - Prompted semantic claim generation.
 - Multi-turn ReAct loop.
 - Rich AST def-use / dataflow analysis.
+- High-quality generic flow ordering for every possible L6 architecture.
 - Full fixed-point spec extraction.
 - Full interface / pipeline / state event extraction.
 - Full symbolic resource total evaluation.
@@ -44,6 +47,15 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-understand-stage \
   --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
   --stage L6_resource_opt \
   --out /tmp/fpga_devmind/p1a_coarse_sync_l6
+```
+
+Second smoke sample:
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_fine_cfo \
+  --stage L6_resource_opt \
+  --out /tmp/fpga_devmind/p1a_fine_cfo_l6
 ```
 
 Query generated artifacts:

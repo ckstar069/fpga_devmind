@@ -25,11 +25,20 @@ stage: L6_resource_opt
 question: L6 资源优化阶段实际实现了什么？
 ```
 
+Smoke 样例：
+
+```text
+project: fpga_project_fine_cfo
+stage: L6_resource_opt
+question: L6 resource-optimized streaming pipeline 实际实现了什么？
+```
+
 原因：
 
 - L6 有明确资源化语义。
 - coarse sync 有 S0-S3 多 stage 结构。
 - 适合验证主流程、数据流、Q 格式、资源化说明和不确定项。
+- fine_cfo 用不同的 streaming correlator / FPD / CFO / FIFO 组织方式，用于防止 P1a 过拟合 S0-S3。
 
 输出：
 

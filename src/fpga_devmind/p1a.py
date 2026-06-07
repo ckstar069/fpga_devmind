@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +29,7 @@ from .schema import (
     VizNode,
 )
 from .tools import extract_parameters, extract_python_stage_patterns, scan_project_tree
+from .tools import PythonStageObservation, SymbolInfo
 
 
 DEFAULT_PROJECT = Path("/Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm")
@@ -66,6 +68,147 @@ def _concept(idx: int, name: str, domain_type: str, meaning: str, evidence_ids: 
         evidence_ids=evidence_ids,
         confidence="supported" if evidence_ids else "unknown",
     )
+
+
+def _display_name(symbol_name: str) -> str:
+    name = symbol_name.strip("_")
+    name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", name)
+    name = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)
+    return name.replace("_", " ").strip() or symbol_name
+
+
+def _first_doc_line(symbol: SymbolInfo) -> str:
+    if symbol.docstring:
+        for line in symbol.docstring.splitlines():
+            text = line.strip()
+            if text:
+                return text.rstrip(".")
+    return f"L6 concept represented by {symbol.name}"
+
+
+def _symbol_score(symbol: SymbolInfo) -> int:
+    text = f"{symbol.name}\n{symbol.docstring or ''}\n{Path(symbol.file_path).name}".lower()
+    if symbol.kind != "class":
+        return -100
+    if symbol.name.startswith("_"):
+        return -10
+    if any(token in symbol.name.lower() for token in ("config", "result", "estimate", "estimator", "state", "constants")):
+        return -10
+    score = 0
+    for token, value in (
+        ("pipeline", 5),
+        ("sync", 4),
+        ("cfo", 4),
+        ("correlator", 4),
+        ("fpd", 4),
+        ("fifo", 3),
+        ("buffer", 3),
+        ("cordic", 3),
+        ("stream", 2),
+        ("opt", 1),
+    ):
+        if token in text:
+            score += value
+    if "resource" in text:
+        score -= 3
+    return score
+
+
+def _flow_order(symbol: SymbolInfo) -> tuple[int, int]:
+    text = f"{symbol.name}\n{symbol.docstring or ''}".lower()
+    if "pipeline" in symbol.name.lower():
+        return (60, symbol.start_line)
+    if "fifo1" in text or "circular" in text:
+        return (10, symbol.start_line)
+    if "correlator" in text or "correlation" in text:
+        return (20, symbol.start_line)
+    if "fpd" in text or "first path" in text:
+        return (30, symbol.start_line)
+    if "sync" in text:
+        return (35, symbol.start_line)
+    if "cfo" in text or "cordic" in text:
+        return (40, symbol.start_line)
+    if "fifo2" in text:
+        return (50, symbol.start_line)
+    return (45, symbol.start_line)
+
+
+def _infer_stage_roles(
+    project_root: Path,
+    py_obs: PythonStageObservation,
+    role_to_symbol: dict[str, SymbolInfo],
+) -> list[tuple[str, str, str, SymbolInfo | None]]:
+    coarse_roles = [
+        ("stage_s0_autocorr_norm", "S0 AutocorrNorm", "autocorrelation and normalization"),
+        ("stage_s1_merge", "S1 Merge", "multi-delay metric merge"),
+        ("stage_s2_smooth_detect", "S2 SmoothDetect", "smoothing and peak detection"),
+        ("stage_s3_cfo", "S3 CFO", "CFO estimation"),
+    ]
+    if project_root.name.endswith("coarse_sync_glm") and all(role in role_to_symbol for role, _, _ in coarse_roles):
+        return [(role, label, meaning, role_to_symbol.get(role)) for role, label, meaning in coarse_roles]
+
+    scored = [(_symbol_score(symbol), symbol) for symbol in py_obs.symbols]
+    candidates = [symbol for score, symbol in scored if score >= 3]
+    by_file: dict[str, list[SymbolInfo]] = {}
+    for symbol in candidates:
+        by_file.setdefault(symbol.file_path, []).append(symbol)
+
+    if by_file:
+        selected_file = sorted(
+            by_file,
+            key=lambda file_path: (
+                0 if "streaming_pipeline" in Path(file_path).name else 1,
+                -len(by_file[file_path]),
+                file_path,
+            ),
+        )[0]
+        selected = sorted(by_file[selected_file], key=_flow_order)
+    else:
+        selected = [
+            symbol
+            for symbol in py_obs.symbols
+            if symbol.kind == "class"
+            and not symbol.name.startswith("_")
+            and not any(token in symbol.name.lower() for token in ("config", "result", "estimate", "estimator", "state"))
+        ][:6]
+
+    selected = selected[:8]
+    return [
+        (
+            f"generic_{idx:02d}_{symbol.name}",
+            _display_name(symbol.name),
+            _first_doc_line(symbol),
+            symbol,
+        )
+        for idx, symbol in enumerate(selected, start=1)
+    ]
+
+
+def _resource_concept_id(method_name: str, concepts: list[ConceptNode], views: list[ImplementationView]) -> str:
+    method_text = method_name.lower().replace("estimate_", "")
+    concept_text_by_id = {
+        concept.concept_id: f"{concept.canonical_name} {concept.meaning}".lower()
+        for concept in concepts
+    }
+    for view in views:
+        concept_text_by_id.setdefault(view.concept_id, "")
+        concept_text_by_id[view.concept_id] += " " + " ".join(view.symbol_refs).lower()
+
+    token_groups = [
+        ("autocorr", ("autocorr", "correlator", "correlation")),
+        ("sync", ("sync", "fpd", "first path")),
+        ("merge", ("merge",)),
+        ("smooth", ("smooth", "detect", "fpd")),
+        ("cfo", ("cfo", "cordic")),
+        ("fifo", ("fifo", "buffer")),
+        ("pipeline", ("pipeline",)),
+    ]
+    for method_token, concept_tokens in token_groups:
+        if method_token in method_text:
+            for concept_id, text in concept_text_by_id.items():
+                if any(token in text for token in concept_tokens):
+                    return concept_id
+    return "stage:L6_resource_opt"
 
 
 def _diagnose_claims(claims: list[CandidateClaim], evidence_strength: dict[str, str]) -> list[GroundingDiagnostic]:
@@ -130,41 +273,37 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
     evidence_strength = {e.evidence_id: e.evidence_strength for e in evidence_items}
 
     role_to_symbol = {s.role_hint: s for s in py_obs.symbols}
-    stage_roles = [
-        ("stage_s0_autocorr_norm", "S0 AutocorrNorm", "autocorrelation and normalization"),
-        ("stage_s1_merge", "S1 Merge", "multi-delay metric merge"),
-        ("stage_s2_smooth_detect", "S2 SmoothDetect", "smoothing and peak detection"),
-        ("stage_s3_cfo", "S3 CFO", "CFO estimation"),
-    ]
+    stage_roles = _infer_stage_roles(project_root, py_obs, role_to_symbol)
 
     concepts: list[ConceptNode] = []
     views: list[ImplementationView] = []
     claims: list[CandidateClaim] = []
 
     stage_eids = []
-    for role, _label, _meaning in stage_roles:
-        if role in role_to_symbol:
-            stage_eids.extend(role_to_symbol[role].evidence_ids)
+    for _role, _label, _meaning, symbol in stage_roles:
+        if symbol is not None:
+            stage_eids.extend(symbol.evidence_ids)
 
     claims.append(
         _claim(
             1,
             "implementation_claim",
             "mandatory",
-            "L6_resource_opt implements a four-stage coarse synchronization pipeline when S0/S1/S2/S3 stage classes are present.",
+            f"L6_resource_opt exposes {len(stage_roles)} grounded implementation concept(s) in the selected L6 evidence.",
             stage_eids,
-            confidence="confirmed" if len(stage_eids) >= 4 else "supported",
+            confidence="confirmed" if stage_eids else "unknown",
         )
     )
 
     idx = 1
     claim_idx = 2
-    for role, label, meaning in stage_roles:
-        symbol = role_to_symbol.get(role)
+    symbol_by_concept: dict[str, SymbolInfo] = {}
+    for _role, label, meaning, symbol in stage_roles:
         eids = symbol.evidence_ids if symbol else []
         concept = _concept(idx, label, "algorithm_concept", meaning, eids)
         concepts.append(concept)
         if symbol:
+            symbol_by_concept[concept.concept_id] = symbol
             views.append(
                 ImplementationView(
                     view_id=f"V{idx:03d}",
@@ -207,14 +346,23 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
 
     # Dataflow claims from deterministic stage order.
     dataflow_claim_ids_by_pair: dict[tuple[str, str], list[str]] = {}
-    for edge in py_obs.dataflow_edges:
+    selected_symbols = [symbol for _role, _label, _meaning, symbol in stage_roles if symbol is not None]
+    inferred_edges = [
+        {
+            "from_symbol": src.name,
+            "to_symbol": dst.name,
+            "evidence_ids": src.evidence_ids + dst.evidence_ids,
+        }
+        for src, dst in zip(selected_symbols, selected_symbols[1:])
+    ]
+    for edge in inferred_edges:
         claim_id = f"C{claim_idx:03d}"
         claims.append(
             _claim(
                 claim_idx,
                 "dataflow_claim",
                 "mandatory",
-                f"{edge['from_symbol']} feeds {edge['to_symbol']} in the coarse S0-S3 pipeline order.",
+                f"{edge['from_symbol']} precedes {edge['to_symbol']} in the selected L6 implementation flow.",
                 edge["evidence_ids"],
                 confidence="supported",
             )
@@ -325,8 +473,8 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
                 timing_id="PT001",
                 stage_or_module_id="L6_resource_opt",
                 latency_cycles=None,
-                register_boundaries=["S0", "S1", "S2", "S3"],
-                valid_propagation="_s0_out_valid -> _s1_out_valid -> _s2_out_valid -> _s3_out_valid",
+                register_boundaries=[concept.canonical_name for concept in concepts],
+                valid_propagation=" -> ".join(concept.canonical_name for concept in concepts) if concepts else None,
                 reset_behavior="stage reset methods and AxisValidOnly.reset",
                 clock_domain="modeled by step() calls",
                 source_claim_ids=[f"C{claim_idx:03d}"],
@@ -362,22 +510,16 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
             )
         )
         claim_idx += 1
-        method_to_concept = {
-            "estimate_s0_autocorr": "N001",
-            "estimate_s1_merge": "N002",
-            "estimate_s2_smooth_detect": "N003",
-            "estimate_s3_cfo": "N004",
-        }
         stage_estimates = [
             e
             for e in py_obs.resource_estimates
-            if e["method_name"] in method_to_concept and e["estimate_kind"] in {"stage_return", "stage_return_scaled"}
+            if e["estimate_kind"] in {"stage_return", "stage_return_scaled"}
         ]
         for spec_idx, estimate in enumerate(stage_estimates, start=1):
             resource_estimate_specs.append(
                 ResourceEstimateSpec(
                     spec_id=f"RE{spec_idx:03d}",
-                    stage_or_concept_id=method_to_concept[estimate["method_name"]],
+                    stage_or_concept_id=_resource_concept_id(estimate["method_name"], concepts, views),
                     estimate_name=estimate["method_name"],
                     lut=estimate.get("lut"),
                     ff=estimate.get("ff"),
@@ -426,10 +568,18 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
         stage_id="L6_resource_opt",
         stage_name="L6 Resource Optimization",
         expected_role="resource_optimized",
-        actual_role_summary="Deterministic extractor found L6 stage classes and resource/fixed-point/interface markers.",
+        actual_role_summary=f"Deterministic extractor found {len(concepts)} L6 implementation concept(s) plus resource/fixed-point/interface markers.",
         source_files=[str(p) for p in l6_files],
-        main_entry_candidates=[s.name for s in py_obs.symbols if s.role_hint in {"pipeline_top", *[r for r, _, _ in stage_roles]}],
-        selected_main_entries=[s.name for s in py_obs.symbols if s.name == "CoarseSyncPipelineL6"],
+        main_entry_candidates=[
+            s.name
+            for s in py_obs.symbols
+            if "pipeline" in s.name.lower() or s.role_hint == "pipeline_top"
+        ],
+        selected_main_entries=[
+            s.name
+            for s in selected_symbols
+            if "pipeline" in s.name.lower()
+        ],
         key_concept_ids=[c.concept_id for c in concepts],
         implementation_style="fixed_point_resource_pipeline",
         evidence_ids=stage_eids,
@@ -455,14 +605,14 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
             )
         )
     viz_edges: list[VizEdge] = []
-    symbol_by_concept = {
+    symbol_name_by_concept = {
         view.concept_id: view.symbol_refs[0]
         for view in views
         if view.symbol_refs
     }
     for i in range(len(viz_nodes) - 1):
-        from_symbol = symbol_by_concept.get(viz_nodes[i].source_concept_id, "")
-        to_symbol = symbol_by_concept.get(viz_nodes[i + 1].source_concept_id, "")
+        from_symbol = symbol_name_by_concept.get(viz_nodes[i].source_concept_id, "")
+        to_symbol = symbol_name_by_concept.get(viz_nodes[i + 1].source_concept_id, "")
         edge_claims = dataflow_claim_ids_by_pair.get((from_symbol, to_symbol), [])
         viz_edges.append(
             VizEdge(
@@ -478,7 +628,7 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
     visualizations = [
         VisualizationSpec(
             viz_id="Z001",
-            title="coarse_sync_glm L6 stage flow",
+            title=f"{project_root.name} L6 stage flow",
             viz_type="stage_flow",
             nodes=viz_nodes,
             edges=viz_edges,
@@ -489,7 +639,7 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
     diagnostics.extend(_diagnose_visualization(visualizations))
 
     task = TaskRequest(
-        request_id="p1a-coarse-sync-l6",
+        request_id=f"p1a-{project_root.name}-l6",
         workflow="UnderstandStage",
         project_root=str(project_root),
         stage_id="L6_resource_opt",
@@ -729,7 +879,7 @@ def _render_summary(graph: ProjectGraph) -> str:
         return ", ".join(c.claim_id for c in claims) or "no-claim"
 
     lines = [
-        "# P1a Coarse Sync L6 Understanding",
+        f"# P1a {graph.project_profile.name} L6 Understanding",
         "",
         "## Stage Purpose",
         f"{graph.stage.actual_role_summary} [{claim_refs(claims_by_type.get('implementation_claim', [])[:1])}]",

@@ -141,12 +141,25 @@ def _resource_call_values(call: ast.Call) -> dict[str, Any] | None:
     if not isinstance(call.func, ast.Name) or call.func.id != "ResourceEstimate":
         return None
     values: dict[str, Any] = {"lut": 0, "ff": 0, "dsp": 0, "bram": 0}
+    aliases = {
+        "lut": "lut",
+        "luts": "lut",
+        "ff": "ff",
+        "ffs": "ff",
+        "dsp": "dsp",
+        "dsps": "dsp",
+        "dsp48": "dsp",
+        "bram": "bram",
+        "brams": "bram",
+        "bram18k": "bram",
+    }
     positional = ["lut", "ff", "dsp", "bram"]
     for idx, arg in enumerate(call.args[:4]):
         values[positional[idx]] = _safe_expr(arg)
     for keyword in call.keywords:
-        if keyword.arg in values:
-            values[keyword.arg] = _safe_expr(keyword.value)
+        key = aliases.get(keyword.arg or "")
+        if key in values:
+            values[key] = _safe_expr(keyword.value)
     return values
 
 

@@ -8,6 +8,8 @@ from pathlib import Path
 from fpga_devmind.p1a import DEFAULT_PROJECT, run_p1a
 from fpga_devmind.query import answer_question, check_freshness
 
+FINE_CFO_PROJECT = Path("/Users/ckstar/Repo/znxt_ofdm/fpga_project_fine_cfo")
+
 
 class P1aRunnerTest(unittest.TestCase):
     def test_default_project_generates_grounded_artifacts(self) -> None:
@@ -69,6 +71,32 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertEqual(stale["status"], "stale")
             stale_answer = answer_question(out_dir, "C001 的证据在哪里")
             self.assertIn("Freshness Warning", stale_answer)
+
+    def test_fine_cfo_project_generates_grounded_artifacts(self) -> None:
+        if not FINE_CFO_PROJECT.exists():
+            self.skipTest(f"target project not found: {FINE_CFO_PROJECT}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp)
+            graph = run_p1a(FINE_CFO_PROJECT, out_dir)
+
+            blocking = [d for d in graph.grounding_diagnostics if d.severity == "blocking"]
+            self.assertEqual(blocking, [])
+            self.assertGreaterEqual(len(graph.concepts), 4)
+            self.assertGreaterEqual(len(graph.resource_estimate_specs), 2)
+
+            names = [concept.canonical_name for concept in graph.concepts]
+            self.assertIn("Streaming Correlator Opt", names)
+            self.assertIn("Streaming FPD Opt", names)
+            self.assertIn("Streaming CFO Opt", names)
+
+            answer = answer_question(out_dir, "L6 实现了什么流程")
+            self.assertIn("Streaming Correlator Opt", answer)
+            self.assertIn("Streaming CFO Opt", answer)
+
+            resource_answer = answer_question(out_dir, "资源估计 LUT DSP BRAM 来自哪里")
+            self.assertIn("estimate_sync", resource_answer)
+            self.assertIn("fine_cfo_estimator_resource_est.py", resource_answer)
 
 
 if __name__ == "__main__":

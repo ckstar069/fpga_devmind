@@ -198,9 +198,8 @@ def _answer_flow(graph: dict[str, Any], trace: dict[str, Any]) -> str:
         refs = f" [{', '.join(claim_ids)}]" if claim_ids else ""
         lines.append(f"- {concept['canonical_name']}: {concept['meaning']}{refs}")
     lines.extend(["", "## Evidence"])
-    for claim_id in ["C001", "C006", "C007", "C008"]:
-        claim = trace["claims"].get(claim_id)
-        if claim:
+    for claim_id, claim in trace["claims"].items():
+        if claim_id == "C001" or claim["claim_type"] == "dataflow_claim":
             lines.append(f"- `{claim_id}`: {claim['statement']}")
     return "\n".join(lines) + "\n"
 
@@ -216,7 +215,7 @@ def _answer_resource(graph: dict[str, Any], trace: dict[str, Any]) -> str:
             f"DSP48={spec['dsp48']}, BRAM18K={spec['bram18k']}{scale}{condition} [{claim_ids}]"
         )
     lines.extend(["", "## Evidence"])
-    claim = trace["claims"].get("C012")
+    claim = _first_claim_by_type(trace, "resource_refinement_claim")
     lines.extend(_format_evidence_refs(claim["evidence_refs"] if claim else []))
     return "\n".join(lines) + "\n"
 

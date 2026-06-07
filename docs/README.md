@@ -13,7 +13,7 @@
 - [Domain semantics](domain-semantics.md)：StageContract、FixedPointSpec、StreamInterfaceSpec、PipelineTimingSpec、RTLSignalSpec、TestObservation、SourceLineage 等 FPGA 领域对象。
 - [Memory and interaction](memory-and-interaction.md)：程序性记忆、语义记忆、情节记忆和多轮交互机制。
 - [Phase 1 scope](phase1-scope.md)：Phase 1a / 1b / 1c 收窄切片、样例项目和验收指标。
-- [Phase 1a single stage understanding](phase1a-single-stage-understanding.md)：`coarse_sync_glm` L6 单阶段 Understanding Agent 的详细规格。
+- [Phase 1a single stage understanding](phase1a-single-stage-understanding.md)：`coarse_sync_glm` 主样例和 `fine_cfo` smoke 样例的 L6 单阶段 Understanding Agent 规格。
 - [Phase 1a schema](phase1a-schema.md)：P1a 的最小 JSON schema、artifact layout、summary/visual grounding contract。
 - [P1a implementation prep](p1a-implementation-prep.md)：P1a 实现前清单、代码切片顺序和最小 grounding 检查。
 - [Implementation status](implementation-status.md)：当前 P1a 最小代码骨架状态和验证命令。
