@@ -1,6 +1,6 @@
 # fpga_devmind 文档索引
 
-`fpga_devmind` 的方向是 FPGA 开发-理解一体 Agent 的理解层原型。当前阶段仍是总体架构、调研和规划，不急于实现。
+`fpga_devmind` 的方向是 FPGA 开发-理解一体 Agent 的理解层原型。当前阶段仍以总体架构和方向护栏为主，但已经落地 P1a V0.1 候选：一个只读、确定性、无 LLM 的单阶段理解层原型，用来验证 read / graph / explain / trace / query / freshness 基线。
 
 ## 核心文档
 

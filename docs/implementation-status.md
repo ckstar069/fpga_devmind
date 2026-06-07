@@ -2,7 +2,15 @@
 
 ## Current State
 
-P1a has a minimal deterministic implementation shell.
+P1a has a minimal deterministic implementation shell and is currently a V0.1 candidate.
+
+V0.1 candidate means:
+
+```text
+- It is usable for read-only L6_resource_opt understanding smoke runs.
+- It produces grounded artifacts that later Agent layers can consume.
+- It is not yet a full FPGA Agent, LLM/ReAct reasoner, audit tool, or RTL mapper.
+```
 
 Implemented:
 
@@ -28,6 +36,7 @@ Implemented:
 - Rendered `project_graph.json`, `trace_index.json`, `memory_manifest.json`, `summary.md`, `flow.mmd`, `trace.md`, `run_metadata.json`.
 - Smoke validation on `fpga_project_coarse_sync_glm` and `fpga_project_fine_cfo`.
 - P1a V0.1 quickstart for smoke, single-project run, query and freshness.
+- Explicit uncertainty notes in generated graph, query output and smoke report.
 
 Not implemented yet:
 
@@ -94,6 +103,7 @@ Supported deterministic query topics:
 - resource estimates
 - specific claim ids such as C001
 - specific evidence ids from trace_index.json
+- uncertainty / known limitations
 ```
 
 ## Verification
