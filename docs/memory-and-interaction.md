@@ -91,6 +91,44 @@ Update memory
   把确认或纠偏写入语义记忆。
 ```
 
+## P1a Minimal Query Shell
+
+P1a 当前实现了一个确定性的查询壳：
+
+```text
+fpga-devmind p1a-query --artifacts <artifact_dir> --question <question>
+```
+
+它读取：
+
+```text
+project_graph.json
+trace_index.json
+```
+
+并回答以下问题类型：
+
+```text
+Explain stage flow
+Explain fixed-point / Q format
+Explain stream interface
+Explain pipeline timing
+Explain resource estimates
+Drill down claim id
+Drill down evidence id
+```
+
+约束：
+
+```text
+- p1a-query 不重新扫描目标项目。
+- p1a-query 不引入新 claim。
+- p1a-query 不调用 LLM。
+- p1a-query 的回答必须来自 ProjectGraph 和 TraceIndex。
+```
+
+这个查询壳不是最终交互体验，而是 Human Interaction Layer 的最小垂直切片。后续 LLM/Agent 可以把自然语言问题解析成更丰富的图查询，但仍应保持同样的 grounding 规则。
+
 ## 用户反馈类型
 
 ```text

@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from fpga_devmind.p1a import DEFAULT_PROJECT, run_p1a
+from fpga_devmind.query import answer_question
 
 
 class P1aRunnerTest(unittest.TestCase):
@@ -40,6 +41,19 @@ class P1aRunnerTest(unittest.TestCase):
                 trace_index["claims"]["C001"]["linked_outputs"],
             )
             self.assertGreaterEqual(len(trace_index["evidence"]), len(graph.evidence_items))
+
+            flow_answer = answer_question(out_dir, "L6 实现了什么流程")
+            self.assertIn("S0 AutocorrNorm", flow_answer)
+            self.assertIn("C001", flow_answer)
+
+            resource_answer = answer_question(out_dir, "资源估计 LUT DSP BRAM 来自哪里")
+            self.assertIn("Resource estimates observed", resource_answer)
+            self.assertIn("estimate_s0_autocorr", resource_answer)
+            self.assertIn("## Evidence", resource_answer)
+
+            claim_answer = answer_question(out_dir, "C001 的证据在哪里")
+            self.assertIn("Claim `C001` is `confirmed`", claim_answer)
+            self.assertIn("coarse_sync_optimized.py", claim_answer)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from .p1a import DEFAULT_OUT, DEFAULT_PROJECT, run_p1a
+from .query import answer_question
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -16,6 +17,10 @@ def build_parser() -> argparse.ArgumentParser:
     p1a.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     p1a.add_argument("--stage", default="L6_resource_opt")
     p1a.add_argument("--out", type=Path, default=DEFAULT_OUT)
+
+    query = sub.add_parser("p1a-query", help="Query generated P1a graph and trace artifacts")
+    query.add_argument("--artifacts", type=Path, default=DEFAULT_OUT)
+    query.add_argument("--question", required=True)
     return parser
 
 
@@ -32,6 +37,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Evidence items: {len(graph.evidence_items)}")
         print(f"Blocking diagnostics: {len(blocking)}")
         return 1 if blocking else 0
+    if args.command == "p1a-query":
+        print(answer_question(args.artifacts, args.question), end="")
+        return 0
     parser.error(f"unknown command {args.command}")
     return 2
 

@@ -50,6 +50,8 @@ P1a 不做：
 - Vivado / synthesis / implementation / bitstream。
 - 修改目标项目。
 
+P1a 允许一个确定性的查询壳读取已生成的语义图和 trace index。这属于 Human Interaction Layer 的最小原型，不等同于完整 UI 或 LLM Agent。
+
 ## Inputs
 
 ```text
@@ -183,6 +185,9 @@ P1a 只做必要引用，不做完整 SourceLineageGraph。
 
 11. render summary.md and flow.mmd
    从图谱生成解释和 Mermaid。
+
+12. answer p1a-query
+   从 ProjectGraph 和 TraceIndex 回答阶段流程、资源估计、定点、接口、时序、claim/evidence drill-down。
 ```
 
 每轮 ReAct 必须记录：

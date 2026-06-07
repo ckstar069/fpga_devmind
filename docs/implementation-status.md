@@ -7,6 +7,7 @@ P1a has a minimal deterministic implementation shell.
 Implemented:
 
 - CLI entry point: `fpga-devmind p1a-understand-stage`
+- CLI entry point: `fpga-devmind p1a-query`
 - P1a dataclass schema objects.
 - Read-only project tree scan.
 - Read-only L6 Python symbol and evidence extraction.
@@ -16,6 +17,7 @@ Implemented:
 - Structured fixed-point, stream interface, and pipeline timing specs in `project_graph.json`.
 - Structured resource estimate specs extracted from L6 `ResourceEstimate(...)` evidence.
 - `trace_index.json` and `trace.md` for claim/spec/evidence back-tracing.
+- Deterministic query shell over generated ProjectGraph and TraceIndex artifacts.
 - Artifact writing to `/tmp/fpga_devmind/p1a_coarse_sync_l6`.
 - Rendered `project_graph.json`, `trace_index.json`, `summary.md`, `flow.mmd`, `trace.md`, `run_metadata.json`.
 
@@ -23,6 +25,7 @@ Not implemented yet:
 
 - LLM provider integration.
 - Prompted semantic claim generation.
+- Multi-turn ReAct loop.
 - Rich AST def-use / dataflow analysis.
 - Full fixed-point spec extraction.
 - Full interface / pipeline / state event extraction.
@@ -38,6 +41,26 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-understand-stage \
   --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
   --stage L6_resource_opt \
   --out /tmp/fpga_devmind/p1a_coarse_sync_l6
+```
+
+Query generated artifacts:
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-query \
+  --artifacts /tmp/fpga_devmind/p1a_coarse_sync_l6 \
+  --question "L6 实现了什么流程"
+```
+
+Supported deterministic query topics:
+
+```text
+- stage flow
+- fixed-point / Q format
+- stream interface
+- pipeline timing
+- resource estimates
+- specific claim ids such as C001
+- specific evidence ids from trace_index.json
 ```
 
 ## Verification
