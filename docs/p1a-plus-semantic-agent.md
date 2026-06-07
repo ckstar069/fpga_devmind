@@ -38,6 +38,18 @@ P1a+ 在此基础上增加：
 - user-question-driven graph proposal
 ```
 
+当前已落地一个 provider-free dry-run 命令：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6
+```
+
+它的 mode 是 `deterministic_dry_run_no_llm`，用于验证 artifact 形态，不代表 LLM semantic reasoner 已经接入。
+
 P1a+ 仍然不是：
 
 ```text

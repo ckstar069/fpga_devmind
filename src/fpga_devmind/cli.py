@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .agent import DEFAULT_AGENT_OUT, run_p1a_semantic_agent_dry_run
 from .p1a import DEFAULT_OUT, DEFAULT_PROJECT, run_p1a
 from .query import answer_question, check_freshness
 from .smoke import DEFAULT_SMOKE_OUT, run_smoke, smoke_exit_code
@@ -28,6 +29,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     smoke = sub.add_parser("p1a-smoke", help="Run P1a smoke validation on representative samples")
     smoke.add_argument("--out-root", type=Path, default=DEFAULT_SMOKE_OUT)
+
+    agent = sub.add_parser(
+        "p1a-agent-understand-stage",
+        help="Run provider-free P1a+ semantic Agent dry-run over P1a artifacts",
+    )
+    agent.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
+    agent.add_argument("--stage", default="L6_resource_opt")
+    agent.add_argument("--question", required=True)
+    agent.add_argument("--out", type=Path, default=DEFAULT_AGENT_OUT)
+    agent.add_argument("--artifacts", type=Path)
     return parser
 
 
@@ -70,6 +81,22 @@ def main(argv: list[str] | None = None) -> int:
                 f"blocking={sample['blocking_diagnostics']} freshness={sample['freshness_status']}"
             )
         return smoke_exit_code(report)
+    if args.command == "p1a-agent-understand-stage":
+        result = run_p1a_semantic_agent_dry_run(
+            project_root=args.project,
+            stage_id=args.stage,
+            question=args.question,
+            out_dir=args.out,
+            artifact_dir=args.artifacts,
+        )
+        report = result["grounding_report"]
+        print(f"Wrote P1a+ agent dry-run artifacts to {args.out}")
+        print(f"P1a artifacts: {result['artifact_dir']}")
+        print(f"Mode: {result['agent_trace']['mode']}")
+        print(f"Candidate claims: {report['summary']['candidate_claims']}")
+        print(f"Blocking diagnostics: {report['summary']['blocking_diagnostics']}")
+        print(f"Freshness: {report['freshness']['status']}")
+        return 1 if report["summary"]["blocking_diagnostics"] else 0
     parser.error(f"unknown command {args.command}")
     return 2
 

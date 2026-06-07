@@ -138,6 +138,32 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-freshness \
 
 如果目标源码变化，状态会变为 `stale`。`p1a-query` 会继续显示历史解释，但会先输出 `Freshness Warning`，提醒不要把旧 confirmed claim 当作当前理解。
 
+## P1a+ Agent Dry Run
+
+P1a V0.1 之后已经有一个 provider-free 的 P1a+ Agent dry-run 命令：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6
+```
+
+输出：
+
+```text
+/tmp/fpga_devmind/p1a_agent_l6/
+- agent_trace.json
+- claim_proposals.json
+- graph_write_proposal.json
+- grounding_report.json
+- answer.md
+- p1a_artifacts/
+```
+
+注意：该命令的 mode 是 `deterministic_dry_run_no_llm`。它不调用 LLM provider，不读取 API key，不生成模型语义结论；它只把 P1a evidence shell 包进 TaskPlan / ToolObservation / CandidateClaim / GroundingDiagnostic / answer 的最小 Agent runtime artifact。
+
 ## Boundaries
 
 P1a V0.1 不做：

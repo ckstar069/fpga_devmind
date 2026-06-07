@@ -71,6 +71,18 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-freshness \
   --artifacts /tmp/fpga_devmind/p1a_coarse_sync_l6
 ```
 
+运行 P1a+ Agent dry-run：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6
+```
+
+该命令不调用 LLM provider，不读取 API key，只验证 Agent runtime artifact 形态。
+
 更完整的说明见 [P1a V0.1 quickstart](docs/p1a-v0.1-quickstart.md)。
 
 ## Direction Guardrails

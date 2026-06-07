@@ -18,6 +18,7 @@ Implemented:
 - CLI entry point: `fpga-devmind p1a-query`
 - CLI entry point: `fpga-devmind p1a-freshness`
 - CLI entry point: `fpga-devmind p1a-smoke`
+- CLI entry point: `fpga-devmind p1a-agent-understand-stage`
 - P1a dataclass schema objects.
 - Read-only project tree scan.
 - Read-only L6 Python symbol and evidence extraction.
@@ -37,12 +38,14 @@ Implemented:
 - Smoke validation on `fpga_project_coarse_sync_glm` and `fpga_project_fine_cfo`.
 - P1a V0.1 quickstart for smoke, single-project run, query and freshness.
 - Explicit uncertainty notes in generated graph, query output and smoke report.
+- Provider-free P1a+ Agent dry-run that writes `agent_trace.json`, `claim_proposals.json`, `graph_write_proposal.json`, `grounding_report.json` and `answer.md`.
 
 Not implemented yet:
 
 - LLM provider integration.
 - Prompted semantic claim generation.
 - Multi-turn ReAct loop.
+- Model-generated CandidateClaims.
 - Rich AST def-use / dataflow analysis.
 - Proven producer/consumer dataflow extraction.
 - High-quality generic flow ordering for every possible L6 architecture.
@@ -91,6 +94,16 @@ Run P1a smoke validation:
 ```bash
 PYTHONPATH=src python3 -m fpga_devmind.cli p1a-smoke \
   --out-root /tmp/fpga_devmind/p1a_smoke
+```
+
+Run P1a+ Agent dry-run:
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6
 ```
 
 Supported deterministic query topics:

@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fpga_devmind.agent import run_p1a_semantic_agent_dry_run
 from fpga_devmind.p1a import DEFAULT_PROJECT, run_p1a
 from fpga_devmind.query import answer_question, check_freshness
 from fpga_devmind.smoke import run_smoke, smoke_exit_code
@@ -121,6 +122,41 @@ class P1aRunnerTest(unittest.TestCase):
                 if sample["status"] == "passed":
                     self.assertGreaterEqual(sample["uncertainty_notes"], 1)
             self.assertEqual(smoke_exit_code(report), 0)
+
+    def test_p1a_plus_agent_dry_run_writes_runtime_artifacts(self) -> None:
+        if not DEFAULT_PROJECT.exists():
+            self.skipTest(f"target project not found: {DEFAULT_PROJECT}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp)
+            result = run_p1a_semantic_agent_dry_run(
+                project_root=DEFAULT_PROJECT,
+                stage_id="L6_resource_opt",
+                question="L6 实现了什么流程",
+                out_dir=out_dir,
+            )
+
+            self.assertTrue((out_dir / "agent_trace.json").exists())
+            self.assertTrue((out_dir / "claim_proposals.json").exists())
+            self.assertTrue((out_dir / "graph_write_proposal.json").exists())
+            self.assertTrue((out_dir / "grounding_report.json").exists())
+            self.assertTrue((out_dir / "answer.md").exists())
+
+            trace = json.loads((out_dir / "agent_trace.json").read_text(encoding="utf-8"))
+            self.assertEqual(trace["mode"], "deterministic_dry_run_no_llm")
+            self.assertFalse(trace["safety"]["api_key_used"])
+            self.assertFalse(trace["safety"]["vivado_run"])
+            self.assertGreaterEqual(len(trace["events"]), 2)
+
+            grounding = result["grounding_report"]
+            self.assertEqual(grounding["freshness"]["status"], "current")
+            self.assertEqual(grounding["summary"]["blocking_diagnostics"], 0)
+            self.assertGreaterEqual(grounding["summary"]["candidate_claims"], 5)
+
+            answer = (out_dir / "answer.md").read_text(encoding="utf-8")
+            self.assertIn("deterministic_dry_run_no_llm", answer)
+            self.assertIn("## Grounded Answer", answer)
+            self.assertIn("S0 AutocorrNorm", answer)
 
 
 if __name__ == "__main__":
