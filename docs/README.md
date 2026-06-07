@@ -17,6 +17,7 @@
 - [Phase 1a schema](phase1a-schema.md)：P1a 的最小 JSON schema、artifact layout、summary/visual grounding contract。
 - [P1a V0.1 quickstart](p1a-v0.1-quickstart.md)：当前可试用原型的 smoke、单项目运行、query、freshness 和边界说明。
 - [P1a V0.1 acceptance](p1a-v0.1-acceptance.md)：P1a V0.1 的验收标准、已知限制和进入下一阶段的判定规则。
+- [P1a+ Semantic Agent Layer](p1a-plus-semantic-agent.md)：P1a V0.1 后的 LLM/ReAct 语义 Agent 层设计。
 - [P1a implementation prep](p1a-implementation-prep.md)：P1a 实现前清单、代码切片顺序和最小 grounding 检查。
 - [Implementation status](implementation-status.md)：当前 P1a 最小代码骨架状态和验证命令。
 - [Review process](review-process.md)：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。

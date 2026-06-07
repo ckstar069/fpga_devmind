@@ -91,5 +91,6 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-freshness \
 - [Agent-first architecture](docs/agent-first-architecture.md)
 - [P1a V0.1 quickstart](docs/p1a-v0.1-quickstart.md)
 - [P1a V0.1 acceptance](docs/p1a-v0.1-acceptance.md)
+- [P1a+ Semantic Agent Layer](docs/p1a-plus-semantic-agent.md)
 - [Implementation status](docs/implementation-status.md)
 - [Review process](docs/review-process.md)

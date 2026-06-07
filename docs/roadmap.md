@@ -88,7 +88,15 @@ fpga_devmind 把偏差 / 决策反馈给开发 Agent
 
 ## 当前边界
 
-当前只推进规划和架构文档，不实现代码。
+当前已经完成 P1a V0.1 候选的确定性 evidence shell。下一步不是继续扩大普通静态分析功能，而是在该 shell 外增加 P1a+ Semantic Agent Layer，让 LLM/ReAct 负责语义理解、claim 生成、reflection 和图谱写入提案。
+
+当前代码能力仍限制在只读理解原型：
+
+```text
+- P1a V0.1: deterministic read / graph / trace / query / freshness.
+- P1a+: planned LLM/ReAct semantic layer over P1a artifacts.
+- P1b/P1c: not implemented yet.
+```
 
 硬边界：
 
