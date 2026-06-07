@@ -81,8 +81,10 @@ question: 这个概念如何从 L5/L6 映射到 RTL？哪些 RTL 细节是资源
 ```text
 project: fpga_project_fine_cfo
 concept: lts_start
-question: lts_start 在 L1/L4/L6/RTL 中如何演化？
+question: lts_start 在 L6/RTL 中有哪些可追踪证据？
 ```
+
+`fine_cfo` 的完整 L1/L4/L6/RTL 演化追踪推迟到 P1b+ 或后续多阶段 TraceConcept 切片。P1b 只要求 L5/L6-to-RTL 的单概念映射闭环。
 
 输出：
 
@@ -102,7 +104,7 @@ UncertaintyNotes
 - 别名映射不只基于名字相似。
 - L6-to-RTL mapping claim 使用 mapping_claim 规则判定。
 - RTL-only / resource refinement 节点单独标注。
-- weak mapping 必须降级为 inferred 或 supported。
+- weak mapping 必须降级为 inferred 或 unknown；supported 需要非命名桥接证据。
 - 至少生成一张 Concept Evolution Graph 或 L6-to-RTL Mapping Graph。
 ```
 
@@ -157,7 +159,7 @@ Phase 1 不做：
 1. coarse_sync_glm 的 L6 做了什么？
 2. coarse_sync_glm 的 peak_idx 如何从 L6 映射到 RTL？
 3. coarse_sync_glm 的 RTL 中哪些 S0-S3 信号被 cocotb 观察？
-4. fine_cfo 的 lts_start 在 L1/L4/L6/RTL 中如何演化？
+4. fine_cfo 的 lts_start 在 L6/RTL 中有哪些可追踪证据？
 ```
 
 这些问题覆盖：
@@ -165,6 +167,7 @@ Phase 1 不做：
 - single-stage understanding。
 - concept trace。
 - L6-to-RTL mapping。
+- multi-stage concept evolution remains deferred beyond P1b.
 - verification coverage。
 - source evidence and uncertainty。
 

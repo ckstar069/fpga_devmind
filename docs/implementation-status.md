@@ -69,6 +69,12 @@ Not implemented yet:
 - P1c verification coverage.
 - UI or interactive memory.
 
+Ready for controlled implementation planning:
+
+- P1b one-concept L5/L6-to-RTL trace.
+- Claude / Kimi implementation handoff using task cards under `docs/tasks/`.
+- Review gate before marking P1b complete.
+
 ## Current Command
 
 ```bash

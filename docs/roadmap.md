@@ -88,15 +88,18 @@ fpga_devmind 把偏差 / 决策反馈给开发 Agent
 
 ## 当前边界
 
-当前已经完成 P1a V0.1 候选的确定性 evidence shell。下一步不是继续扩大普通静态分析功能，而是在该 shell 外增加 P1a+ Semantic Agent Layer，让 LLM/ReAct 负责语义理解、claim 生成、reflection 和图谱写入提案。
+当前已经完成 P1a V0.1 候选的确定性 evidence shell，并已落地 P1a+ external-API-free Agent dry-run。P1a+ 现在可以生成 provider contract、model result validation、graph write proposal、`project_graph_proposed.json` 和 `trace_index_proposed.json`，但仍未接入真实 LLM provider。
 
 当前代码能力仍限制在只读理解原型：
 
 ```text
 - P1a V0.1: deterministic read / graph / trace / query / freshness.
-- P1a+: planned LLM/ReAct semantic layer over P1a artifacts.
-- P1b/P1c: not implemented yet.
+- P1a+: external-API-free Agent runtime and provider contract dry-run over P1a artifacts.
+- P1b: ready for controlled implementation planning; not implemented yet.
+- P1c: not implemented yet.
 ```
+
+下一步可编码实施应从 P1b 单概念 L5/L6-to-RTL trace 开始，详见 [P1b Implementation Plan](implementation-plan-p1b.md) 和 [Agent Handoff: Claude + Kimi Implementation](agent-handoff-claude-kimi.md)。不要在 P1b 前抢先接真实 provider 或扩大成通用 RTL 审计工具。
 
 硬边界：
 

@@ -18,6 +18,8 @@
 - [P1a V0.1 quickstart](p1a-v0.1-quickstart.md)：当前可试用原型的 smoke、单项目运行、query、freshness 和边界说明。
 - [P1a V0.1 acceptance](p1a-v0.1-acceptance.md)：P1a V0.1 的验收标准、已知限制和进入下一阶段的判定规则。
 - [P1a+ Semantic Agent Layer](p1a-plus-semantic-agent.md)：P1a V0.1 后的 LLM/ReAct 语义 Agent 层设计。
+- [P1b Implementation Plan](implementation-plan-p1b.md)：P1b 单概念 L5/L6-to-RTL trace 的受控实施计划。
+- [Agent Handoff: Claude + Kimi Implementation](agent-handoff-claude-kimi.md)：交给外部编码 Agent 的约束、验证命令和任务执行规则。
 - [P1a implementation prep](p1a-implementation-prep.md)：P1a 实现前清单、代码切片顺序和最小 grounding 检查。
 - [Implementation status](implementation-status.md)：当前 P1a 最小代码骨架状态和验证命令。
 - [Review process](review-process.md)：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。
@@ -26,10 +28,21 @@
 - [Review response 0003](review-response-0003.md)：P1a V0.1 readiness 评审的处理决定。
 - [Review response 0004](review-response-0004.md)：P1a+ provider contract 评审的处理决定。
 - [Review response 0005](review-response-0005.md)：P1a+ graph write safety 评审的处理决定。
+- [Review response 0006](review-response-0006.md)：P1b handoff readiness 评审的处理决定。
 - [Semantic graph model](semantic-graph-model.md)：ProjectGraph / StageGraph / ConceptGraph / EvidenceGraph / VisualizationSpec 的对象模型草案。
 - [Toolbox](toolbox.md)：未来 Agent 可调用的确定性工具箱边界。
 - [Tool contracts](tool-contracts.md)：第一批确定性工具的输入输出、evidence id、错误模式和片段边界规则。
 - [Roadmap](roadmap.md)：从 Understanding Agent 到 Develop-Understand-Verify Agent 的演进路线。
+
+## 实施任务卡
+
+- [T001: P1b Schema And Artifact Contract](tasks/T001-p1b-schema-artifact-contract.md)
+- [T002: P1b Read-Only Source Collector](tasks/T002-p1b-readonly-source-collector.md)
+- [T003: P1b Concept Evidence Collector](tasks/T003-p1b-concept-evidence-collector.md)
+- [T004: P1b RTL Evidence Collector](tasks/T004-p1b-rtl-evidence-collector.md)
+- [T005: P1b Mapping Claim Builder](tasks/T005-p1b-mapping-claim-builder.md)
+- [T006: P1b Grounding Checker And Report](tasks/T006-p1b-grounding-report.md)
+- [T007: P1b CLI, Rendering And Smoke](tasks/T007-p1b-cli-render-smoke.md)
 
 ## 评审记录
 
@@ -38,6 +51,7 @@
 - [Review 0003: P1a V0.1 Readiness](reviews/0003-p1a-v0.1-review.md)
 - [Review 0004: P1a+ Provider Contract Readiness](reviews/0004-p1a-plus-provider-contract-review.md)
 - [Review 0005: P1a+ Graph Write Safety](reviews/0005-p1a-plus-graph-write-safety-review.md)
+- [Review 0006: P1b Handoff Readiness](reviews/0006-p1b-handoff-readiness-review.md)
 
 ## 约束
 
