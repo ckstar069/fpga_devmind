@@ -56,7 +56,7 @@ class NoopSemanticProvider:
             provider_id=self.provider_id,
             mode=self.mode,
             result=result,
-            call_record=_offline_call_record(
+            call_record=_offline_only_call_record(
                 provider_id=self.provider_id,
                 mode=self.mode,
                 prompt_context=prompt_context,
@@ -79,7 +79,7 @@ class FixtureSemanticProvider:
             provider_id=self.provider_id,
             mode=self.mode,
             result=result,
-            call_record=_offline_call_record(
+                call_record=_offline_only_call_record(
                 provider_id=self.provider_id,
                 mode=self.mode,
                 prompt_context=prompt_context,
@@ -132,7 +132,7 @@ class MockSemanticProvider:
             provider_id=self.provider_id,
             mode=self.mode,
             result=result,
-            call_record=_offline_call_record(
+                call_record=_offline_only_call_record(
                 provider_id=self.provider_id,
                 mode=self.mode,
                 prompt_context=prompt_context,
@@ -192,7 +192,7 @@ class ExternalProviderStub:
             mode=self.mode,
             result=result,
             call_record={
-                **_offline_call_record(
+                **_offline_only_call_record(
                     provider_id=self.provider_id,
                     mode=self.mode,
                     prompt_context=prompt_context,
@@ -231,7 +231,7 @@ def response_to_dict(response: SemanticProviderResponse) -> dict[str, Any]:
     return asdict(response)
 
 
-def _offline_call_record(
+def _offline_only_call_record(
     provider_id: str,
     mode: str,
     prompt_context: dict[str, Any],

@@ -35,7 +35,16 @@ REQUIRED_CLAIM_FIELDS = {
     "generated_from_step",
 }
 
+ALLOWED_CLAIM_TYPES = {
+    "implementation_claim",
+    "implementation_order_claim",
+    "resource_refinement_claim",
+    "fixed_point_claim",
+    "interface_claim",
+    "model_semantic_claim",
+}
 ALLOWED_CONFIDENCE = {"confirmed", "supported", "inferred", "unknown", "conflicted"}
+ALLOWED_SUBJECT_PREFIXES = ("N", "C", "stage:", "concept:", "module:", "signal:", "formula:", "state:", "test:")
 ALLOWED_FOLLOWUP_TOOLS = {
     "p1a-understand-stage",
     "p1a-freshness",
@@ -225,6 +234,104 @@ def _normalize_claim(
             )
         )
 
+    claim_type = claim.get("claim_type")
+    if claim_type not in ALLOWED_CLAIM_TYPES:
+        diagnostics.append(
+            _diagnostic(
+                f"MVC{idx + 50:03d}",
+                target_claim_id=claim["claim_id"],
+                severity="blocking",
+                issue_type="model_claim_type_not_allowed",
+                message=f"Model claim_type `{claim_type}` is not allowed in the P1a+ graph contract.",
+                recommended_action="drop_or_retry_claim",
+            )
+        )
+
+    subject_ids = claim.get("subject_ids", [])
+    if not isinstance(subject_ids, list):
+        claim["subject_ids"] = []
+        diagnostics.append(
+            _diagnostic(
+                f"MVC{idx + 60:03d}",
+                target_claim_id=claim["claim_id"],
+                severity="blocking",
+                issue_type="model_claim_subject_ids_not_list",
+                message="subject_ids must be a list.",
+                recommended_action="drop_or_retry_claim",
+            )
+        )
+    elif not subject_ids:
+        diagnostics.append(
+            _diagnostic(
+                f"MVC{idx + 70:03d}",
+                target_claim_id=claim["claim_id"],
+                severity="blocking",
+                issue_type="model_claim_subject_ids_empty",
+                message="Model claim must identify at least one graph subject.",
+                recommended_action="drop_or_retry_claim",
+            )
+        )
+    else:
+        invalid_subjects = [
+            subject_id
+            for subject_id in subject_ids
+            if not isinstance(subject_id, str) or not subject_id.startswith(ALLOWED_SUBJECT_PREFIXES)
+        ]
+        if invalid_subjects:
+            diagnostics.append(
+                _diagnostic(
+                    f"MVC{idx + 80:03d}",
+                    target_claim_id=claim["claim_id"],
+                    severity="blocking",
+                    issue_type="model_claim_subject_namespace_not_allowed",
+                    message=f"Model claim has unsupported subject ids: {', '.join(str(item) for item in invalid_subjects)}.",
+                    recommended_action="drop_or_retry_claim",
+                )
+            )
+
+    required_missing_evidence = claim.get("required_missing_evidence", [])
+    if not isinstance(required_missing_evidence, list):
+        claim["required_missing_evidence"] = []
+        diagnostics.append(
+            _diagnostic(
+                f"MVC{idx + 90:03d}",
+                target_claim_id=claim["claim_id"],
+                severity="blocking",
+                issue_type="model_claim_missing_evidence_not_list",
+                message="required_missing_evidence must be a list.",
+                recommended_action="drop_or_retry_claim",
+            )
+        )
+
+    counter_evidence_ids = claim.get("counter_evidence_ids", [])
+    if not isinstance(counter_evidence_ids, list):
+        claim["counter_evidence_ids"] = []
+        diagnostics.append(
+            _diagnostic(
+                f"MVC{idx + 95:03d}",
+                target_claim_id=claim["claim_id"],
+                severity="blocking",
+                issue_type="model_claim_counter_evidence_ids_not_list",
+                message="counter_evidence_ids must be a list when present.",
+                recommended_action="drop_or_retry_claim",
+            )
+        )
+    else:
+        unknown_counter_evidence = [eid for eid in counter_evidence_ids if eid not in known_evidence_ids]
+        if unknown_counter_evidence:
+            diagnostics.append(
+                _diagnostic(
+                    f"MVC{idx + 96:03d}",
+                    target_claim_id=claim["claim_id"],
+                    severity="blocking",
+                    issue_type="unknown_counter_evidence_id",
+                    message=f"Model referenced unknown counter evidence ids: {', '.join(unknown_counter_evidence)}.",
+                    recommended_action="collect_more_evidence_or_drop_claim",
+                    related_evidence_ids=unknown_counter_evidence,
+                )
+            )
+            claim["counter_evidence_ids"] = [eid for eid in counter_evidence_ids if eid in known_evidence_ids]
+
     confidence = claim.get("confidence", "unknown")
     if confidence not in ALLOWED_CONFIDENCE:
         diagnostics.append(
@@ -392,9 +499,12 @@ def _validate_evidence_list_objects(
 def _attach_claim_validation_status(normalized: dict[str, Any], diagnostics: list[dict[str, Any]]) -> None:
     diagnostics_by_claim: dict[str, list[str]] = {}
     blocking_by_claim: set[str] = set()
+    global_blocking_diagnostics: list[str] = []
     for diagnostic in diagnostics:
         claim_id = diagnostic.get("target_claim_id")
         if not claim_id:
+            if diagnostic.get("severity") == "blocking":
+                global_blocking_diagnostics.append(diagnostic["diagnostic_id"])
             continue
         diagnostics_by_claim.setdefault(claim_id, []).append(diagnostic["diagnostic_id"])
         if diagnostic.get("severity") == "blocking":
@@ -403,8 +513,12 @@ def _attach_claim_validation_status(normalized: dict[str, Any], diagnostics: lis
         if not isinstance(claim, dict):
             continue
         claim_id = claim.get("claim_id")
-        claim["diagnostic_ids"] = diagnostics_by_claim.get(claim_id, [])
-        claim["validation_status"] = "rejected" if claim_id in blocking_by_claim else "accepted_for_grounding"
+        claim["diagnostic_ids"] = diagnostics_by_claim.get(claim_id, []) + global_blocking_diagnostics
+        claim["validation_status"] = (
+            "rejected"
+            if claim_id in blocking_by_claim or global_blocking_diagnostics
+            else "accepted_for_grounding"
+        )
 
 
 def _diagnostic(

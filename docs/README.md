@@ -25,6 +25,7 @@
 - [Review response 0002](review-response-0002.md)：P1a 专项评审的处理决定。
 - [Review response 0003](review-response-0003.md)：P1a V0.1 readiness 评审的处理决定。
 - [Review response 0004](review-response-0004.md)：P1a+ provider contract 评审的处理决定。
+- [Review response 0005](review-response-0005.md)：P1a+ graph write safety 评审的处理决定。
 - [Semantic graph model](semantic-graph-model.md)：ProjectGraph / StageGraph / ConceptGraph / EvidenceGraph / VisualizationSpec 的对象模型草案。
 - [Toolbox](toolbox.md)：未来 Agent 可调用的确定性工具箱边界。
 - [Tool contracts](tool-contracts.md)：第一批确定性工具的输入输出、evidence id、错误模式和片段边界规则。
@@ -36,6 +37,7 @@
 - [Review 0002: Phase 1a Single Stage Understanding](reviews/0002-phase1a-review.md)
 - [Review 0003: P1a V0.1 Readiness](reviews/0003-p1a-v0.1-review.md)
 - [Review 0004: P1a+ Provider Contract Readiness](reviews/0004-p1a-plus-provider-contract-review.md)
+- [Review 0005: P1a+ Graph Write Safety](reviews/0005-p1a-plus-graph-write-safety-review.md)
 
 ## 约束
 

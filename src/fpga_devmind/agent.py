@@ -1,8 +1,8 @@
 """P1a+ semantic agent dry-run runtime.
 
-This module is intentionally provider-free. It exercises the Agent runtime
-artifact shape around the deterministic P1a evidence shell before any LLM is
-connected.
+This module is intentionally external-API-free. It exercises the Agent runtime
+artifact shape around the deterministic P1a evidence shell before any real LLM
+provider is connected.
 """
 
 from __future__ import annotations
@@ -34,11 +34,11 @@ def run_p1a_semantic_agent_dry_run(
     external_provider: str | None = None,
     allow_external_api: bool = False,
 ) -> dict[str, Any]:
-    """Run a provider-free P1a+ Agent shell over P1a artifacts.
+    """Run an external-API-free P1a+ Agent shell over P1a artifacts.
 
-    The result is not an LLM semantic interpretation. It is a deterministic
-    runtime scaffold that records the future Agent loop artifacts and reuses the
-    existing grounded P1a graph/query behavior.
+    The default result is not an LLM semantic interpretation. It is a
+    deterministic runtime scaffold that records the future Agent loop artifacts
+    and reuses the existing grounded P1a graph/query behavior.
     """
 
     if stage_id != "L6_resource_opt":
@@ -153,7 +153,13 @@ def run_p1a_semantic_agent_dry_run(
             f"Model result fixture read from {model_result_path}.",
             "Fixture claims are validated but not written to ProjectGraph in this slice.",
         ]
-    graph_write_proposal = _build_graph_write_proposal(graph, p1a_artifacts, runtime_mode, normalized_model_result)
+    graph_write_proposal = _build_graph_write_proposal(
+        graph,
+        p1a_artifacts,
+        runtime_mode,
+        normalized_model_result,
+        model_diagnostics,
+    )
     proposed_graph, graph_write_report = apply_graph_write_proposal_dry_run(graph, graph_write_proposal)
     provider_diagnostics = _provider_diagnostics(provider_response.call_record)
     grounding_report = _build_grounding_report(
@@ -174,8 +180,8 @@ def run_p1a_semantic_agent_dry_run(
             "target_project_modified": False,
             "vivado_run": False,
             "synthesis_or_bitstream_run": False,
-            "api_key_used": False,
-            "api_key_logged": False,
+            "api_key_used": provider_response.call_record.get("api_key_used", False),
+            "api_key_logged": provider_response.call_record.get("api_key_logged", False),
         },
     }
 
@@ -220,7 +226,7 @@ def _build_task_plan(
         "workflow": "UnderstandStage",
         "objective": question,
         "assumptions": [
-            "P1a+ dry-run does not call an LLM provider.",
+            "Default P1a+ dry-run does not call an LLM provider.",
             "Existing deterministic P1a artifacts are the evidence shell.",
             "Confirmed semantic expansion is deferred until model output is grounded.",
         ],
@@ -310,21 +316,32 @@ def _build_graph_write_proposal(
     artifact_dir: Path,
     runtime_mode: str,
     model_result: dict[str, Any],
+    model_diagnostics: list[dict[str, Any]],
 ) -> dict[str, Any]:
     model_claims = [claim for claim in model_result.get("candidate_claims", []) if isinstance(claim, dict)]
-    accepted_model_claims = [
-        claim for claim in model_claims if claim.get("validation_status") == "accepted_for_grounding"
+    blocking_model_diagnostic_ids = [
+        diagnostic["diagnostic_id"]
+        for diagnostic in model_diagnostics
+        if diagnostic.get("severity") == "blocking"
     ]
+    graph_write_blocked = bool(blocking_model_diagnostic_ids)
+    accepted_model_claims = []
+    if not graph_write_blocked:
+        accepted_model_claims = [
+            claim for claim in model_claims if claim.get("validation_status") == "accepted_for_grounding"
+        ]
     rejected_model_claim_ids = [
         claim.get("claim_id", "unknown")
         for claim in model_claims
-        if claim.get("validation_status") == "rejected"
+        if claim.get("validation_status") == "rejected" or graph_write_blocked
     ]
     return {
         "schema_version": "p1a-plus-graph-write-proposal-0.1",
         "mode": runtime_mode,
         "source_project_graph": str(artifact_dir / "project_graph.json"),
         "source_claim_ids": [claim["claim_id"] for claim in graph["candidate_claims"]],
+        "graph_write_blocked": graph_write_blocked,
+        "blocking_model_diagnostic_ids": blocking_model_diagnostic_ids,
         "model_claims_to_create": accepted_model_claims,
         "rejected_model_claim_ids": rejected_model_claim_ids,
         "nodes_to_create": [],
@@ -334,7 +351,11 @@ def _build_graph_write_proposal(
         "visualizations_to_create": [],
         "stale_nodes_to_mark": [],
         "confidence": "supported",
-        "note": "Dry-run records accepted model claims as graph-write candidates but does not mutate ProjectGraph.",
+        "note": (
+            "Dry-run records accepted model claims as graph-write candidates but does not mutate ProjectGraph."
+            if not graph_write_blocked
+            else "Model output has blocking diagnostics; no model claims are eligible for graph write."
+        ),
     }
 
 
@@ -414,7 +435,7 @@ def _render_agent_answer(
         "",
         f"Mode: `{runtime_mode}`.",
         "",
-        "This run exercises the Agent runtime artifact shape over P1a evidence. It does not call an LLM provider.",
+        "This run exercises the Agent runtime artifact shape over P1a evidence. It does not call an external API.",
         "",
         "## Runtime Status",
         "",

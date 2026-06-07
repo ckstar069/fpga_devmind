@@ -38,7 +38,7 @@ P1a+ 在此基础上增加：
 - user-question-driven graph proposal
 ```
 
-当前已落地一个 provider-free dry-run 命令：
+当前已落地一个默认不调用 provider 的 dry-run 命令：
 
 ```bash
 PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
@@ -48,7 +48,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
   --out /tmp/fpga_devmind/p1a_agent_l6
 ```
 
-它的 mode 是 `deterministic_dry_run_no_llm`，用于验证 artifact 形态，不代表 LLM semantic reasoner 已经接入。
+默认 mode 是 `deterministic_dry_run_no_llm`，用于验证 artifact 形态，不代表 LLM semantic reasoner 已经接入。
 
 也可以传入本地模型输出 fixture：
 
@@ -70,10 +70,13 @@ prompt_context.json
   给未来模型调用使用的 redacted context；不包含 API key、provider secret 或完整环境变量。
 
 provider_call.json
-  provider adapter 调用记录；当前只支持 noop / fixture，external_api_called=false。
+  provider adapter 调用记录；当前支持 noop / fixture / mock_semantic，
+  以及 deepseek / glm / openai 的 disabled external route。当前
+  external_api_called=false。
 
 model_result_normalized.json
-  provider-free 空模型结果的规范化输出；未来真实模型结果也必须先经过同一校验入口。
+  noop 空模型结果、fixture 或 mock_semantic 结果的规范化输出；未来真实模型
+  结果也必须先经过同一校验入口。
 
 grounding_report.json
   同时记录 P1a 图谱 diagnostics 和 model_output_diagnostics。
@@ -300,6 +303,9 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 - SemanticReasoningResult 缺少必填字段会产生 blocking diagnostic。
 - candidate_claims 必须是 list。
 - 每个 candidate_claim 必须包含 claim_type / statement / subject_ids / evidence_ids / confidence / required_missing_evidence / generated_from_step。
+- claim_type 必须属于 P1a+ 允许的语义 claim 类型，不能输出 audit/PASS-HOLD/finding 类 claim。
+- subject_ids 必须是 list，且使用已知图谱命名空间，如 N / C / stage: / concept: / module: / signal: / formula: / state: / test:。
+- required_missing_evidence 和可选 counter_evidence_ids 必须是 list。
 - confidence 必须属于 confirmed / supported / inferred / unknown / conflicted。
 - 引用未知 evidence_id 会产生 blocking diagnostic。
 - 没有有效 evidence_id 的高置信 claim 会被降级为 unknown。
@@ -307,7 +313,8 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 - requested_followup_tools 必须在安全工具 allowlist 中。
 - proposed_edges / proposed_uncertainties 的 evidence_ids 必须已知。
 - 每个 model claim 会标注 validation_status 和 diagnostic_ids。
-- 带 blocking `model_output_diagnostics` 的 fixture 会让 CLI 返回非零退出码。
+- 任意 blocking `model_output_diagnostics` 都会阻断 model claim 写图提案。
+- 带 blocking `model_output_diagnostics` 的 fixture 或 external provider route 会让 CLI 返回非零退出码。
 ```
 
 ## Grounding Rules
@@ -347,11 +354,14 @@ claim_proposals.json
 graph_write_proposal.json
   Proposed graph writes. Current dry-run records accepted model claims as
   model_claims_to_create and rejected model claim ids, but does not mutate
-  ProjectGraph.
+  ProjectGraph. If model output has any blocking diagnostic,
+  graph_write_blocked=true and model_claims_to_create=[].
 
 project_graph_proposed.json
   Dry-run graph copy with accepted model claim candidates merged. The original
-  p1a_artifacts/project_graph.json is not overwritten.
+  p1a_artifacts/project_graph.json is not overwritten. This is not yet a
+  trace/query-complete semantic memory artifact because trace_index_proposed.json
+  is not generated in the current slice.
 
 graph_write_report.json
   GraphWriter dry-run report listing added, skipped and rejected model claims.

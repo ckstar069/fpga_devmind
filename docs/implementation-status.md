@@ -38,14 +38,16 @@ Implemented:
 - Smoke validation on `fpga_project_coarse_sync_glm` and `fpga_project_fine_cfo`.
 - P1a V0.1 quickstart for smoke, single-project run, query and freshness.
 - Explicit uncertainty notes in generated graph, query output and smoke report.
-- Provider-free P1a+ Agent dry-run that writes `agent_trace.json`, `prompt_context.json`, `provider_call.json`, `model_result_normalized.json`, `claim_proposals.json`, `graph_write_proposal.json`, `grounding_report.json` and `answer.md`.
+- External-API-free P1a+ Agent dry-run that writes `agent_trace.json`, `prompt_context.json`, `provider_call.json`, `model_result_normalized.json`, `claim_proposals.json`, `graph_write_proposal.json`, `project_graph_proposed.json`, `graph_write_report.json`, `grounding_report.json` and `answer.md`.
 - LLM provider contract helpers that build redacted prompt context and validate model `SemanticReasoningResult` before grounding.
 - Noop and fixture semantic provider adapters for testing provider boundaries without external API calls.
 - Built-in mock semantic provider for positive validation / GraphWriter dry-run path without external API calls.
 - Output path safety guard for P1a, P1a smoke and P1a+ generated artifacts.
-- Model output validation for schema_version, claims, requested follow-up tools, proposed edges and proposed uncertainties.
+- Model output validation for schema_version, claims, claim types, subject namespaces, requested follow-up tools, proposed edges and proposed uncertainties.
+- Global model-output blocking diagnostics block all model claim graph-write proposals.
 - Graph write proposal now separates accepted model claims from rejected model claims without mutating ProjectGraph.
 - GraphWriter dry-run writes `project_graph_proposed.json` and `graph_write_report.json` without overwriting source `project_graph.json`.
+- `project_graph_proposed.json` is explicitly not trace/query complete until a future `trace_index_proposed.json` slice exists.
 - Redacted provider configuration drafts for future DeepSeek / GLM / OpenAI adapters, with real API calls disabled by default.
 - Disabled external provider route for DeepSeek / GLM / OpenAI that writes blocked provider_call metadata without loading API keys or calling external APIs.
 - Explicit `--allow-external-api` gate that currently reaches `external_provider_not_implemented` without loading API keys or calling external APIs.

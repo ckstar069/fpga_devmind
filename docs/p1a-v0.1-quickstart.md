@@ -140,7 +140,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-freshness \
 
 ## P1a+ Agent Dry Run
 
-P1a V0.1 之后已经有一个 provider-free 的 P1a+ Agent dry-run 命令：
+P1a V0.1 之后已经有一个默认不调用 provider 的 P1a+ Agent dry-run 命令：
 
 ```bash
 PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
@@ -167,7 +167,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 - p1a_artifacts/
 ```
 
-注意：该命令的 mode 是 `deterministic_dry_run_no_llm`。它不调用 LLM provider，不读取 API key，不生成模型语义结论；它只把 P1a evidence shell 包进 TaskPlan / ToolObservation / CandidateClaim / GroundingDiagnostic / answer 的最小 Agent runtime artifact，并生成未来 provider 必须遵守的 prompt context 和 model result validation 产物。
+注意：默认 mode 是 `deterministic_dry_run_no_llm`。它不调用 LLM provider，不读取 API key，不生成模型语义结论；它只把 P1a evidence shell 包进 TaskPlan / ToolObservation / CandidateClaim / GroundingDiagnostic / answer 的最小 Agent runtime artifact，并生成未来 provider 必须遵守的 prompt context 和 model result validation 产物。
 
 如果需要提前验证模型输出格式，可以传入本地 fixture：
 
@@ -180,7 +180,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
   --model-result /tmp/fpga_devmind/model_result_fixture.json
 ```
 
-该 fixture 只用于 validation，不代表已经接入 provider；未知 evidence id、缺字段或无证据高置信 claim 会进入 `model_output_diagnostics`。
+该 fixture 只用于 validation，不代表已经接入 provider；未知 evidence id、缺字段、schema/domain 不合格 claim 或无证据高置信 claim 会进入 `model_output_diagnostics`。只要存在 blocking `model_output_diagnostics`，`graph_write_proposal.json` 会设置 `graph_write_blocked=true` 且 `model_claims_to_create=[]`。
 
 也可以使用内置 mock semantic provider 走一条正向模型路径：
 
@@ -232,7 +232,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
   --allow-external-api
 ```
 
-当前结果是 `external_provider_not_implemented`，用于验证真实 provider 接入前的显式门控。
+当前结果是 `external_provider_not_implemented`，用于验证真实 provider 接入前的显式门控。该路径同样会阻断 model claim 写图提案。
 
 ## Boundaries
 

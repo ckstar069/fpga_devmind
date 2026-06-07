@@ -56,8 +56,9 @@ Decision: accepted.
 Changes:
 
 ```text
-- Renamed the provider call-record helper to _offline_call_record.
-- The helper is now explicitly scoped to noop / fixture providers.
+- Renamed the provider call-record helper to an offline-scoped helper.
+- Review 0005 later tightened the name to _offline_only_call_record.
+- The helper is now explicitly scoped to noop / fixture / mock / disabled stub providers.
 - Docs state that real providers must implement the same interface but must not
   bypass validation or reuse offline-only metadata incorrectly.
 ```
@@ -128,7 +129,7 @@ The following remain future work:
 
 ## Impact
 
-P1a+ remains provider-free, but its model boundary is now stricter:
+P1a+ remains external-API-free, and its model boundary is now stricter:
 
 ```text
 provider result

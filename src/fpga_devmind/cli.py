@@ -33,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     agent = sub.add_parser(
         "p1a-agent-understand-stage",
-        help="Run provider-free P1a+ semantic Agent dry-run over P1a artifacts",
+        help="Run external-API-free P1a+ semantic Agent dry-run over P1a artifacts",
     )
     agent.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     agent.add_argument("--stage", default="L6_resource_opt")

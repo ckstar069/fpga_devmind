@@ -241,6 +241,8 @@ class P1aRunnerTest(unittest.TestCase):
 
             graph_write = json.loads((out_dir / "graph_write_proposal.json").read_text(encoding="utf-8"))
             self.assertEqual(graph_write["mode"], "deterministic_dry_run_with_model_fixture")
+            self.assertTrue(graph_write["graph_write_blocked"])
+            self.assertEqual(graph_write["model_claims_to_create"], [])
             proposals = json.loads((out_dir / "claim_proposals.json").read_text(encoding="utf-8"))
             self.assertEqual(proposals["model_claim_summary"]["rejected"], 1)
             self.assertEqual(proposals["model_candidate_claims"][0]["validation_status"], "rejected")
@@ -301,6 +303,96 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertEqual(len(original_graph["candidate_claims"]), len(graph.candidate_claims))
             self.assertEqual(len(proposed_graph["candidate_claims"]), len(graph.candidate_claims) + 1)
             self.assertEqual(proposed_graph["candidate_claims"][-1]["claim_layer"], "p1a_plus_model_proposal")
+
+    def test_p1a_plus_agent_blocks_all_graph_writes_when_model_result_is_globally_invalid(self) -> None:
+        if not DEFAULT_PROJECT.exists():
+            self.skipTest(f"target project not found: {DEFAULT_PROJECT}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "agent"
+            artifact_dir = Path(tmp) / "artifacts"
+            graph = run_p1a(DEFAULT_PROJECT, artifact_dir)
+            evidence_id = graph.evidence_items[0].evidence_id
+            fixture_path = Path(tmp) / "model_result.json"
+            fixture = {
+                "schema_version": "p1a-plus-semantic-result-0.1",
+                "request_id": "fixture-global-block",
+                "plan_step_id": "S002",
+                "reasoning_summary": "Synthetic fixture with a valid-looking claim but forbidden tool request.",
+                "candidate_claims": [
+                    {
+                        "claim_type": "implementation_claim",
+                        "statement": "The model proposes a grounded semantic reading of the first observed evidence item.",
+                        "subject_ids": ["N001"],
+                        "evidence_ids": [evidence_id],
+                        "confidence": "supported",
+                        "required_missing_evidence": [],
+                        "generated_from_step": "S002",
+                    }
+                ],
+                "proposed_edges": [],
+                "proposed_uncertainties": [],
+                "requested_followup_tools": [{"tool_name": "run_vivado"}],
+                "self_check_notes": [],
+            }
+            fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+
+            result = run_p1a_semantic_agent_dry_run(
+                project_root=DEFAULT_PROJECT,
+                stage_id="L6_resource_opt",
+                question="L6 实现了什么流程",
+                out_dir=out_dir,
+                artifact_dir=artifact_dir,
+                model_result_path=fixture_path,
+            )
+
+            self.assertGreaterEqual(result["grounding_report"]["summary"]["model_output_blocking_diagnostics"], 1)
+            normalized = json.loads((out_dir / "model_result_normalized.json").read_text(encoding="utf-8"))
+            self.assertEqual(normalized["candidate_claims"][0]["validation_status"], "rejected")
+            self.assertIn("MVT001", normalized["candidate_claims"][0]["diagnostic_ids"])
+
+            graph_write = json.loads((out_dir / "graph_write_proposal.json").read_text(encoding="utf-8"))
+            self.assertTrue(graph_write["graph_write_blocked"])
+            self.assertEqual(graph_write["blocking_model_diagnostic_ids"], ["MVT001"])
+            self.assertEqual(graph_write["model_claims_to_create"], [])
+            self.assertEqual(graph_write["rejected_model_claim_ids"], ["M001"])
+
+            original_graph = json.loads((artifact_dir / "project_graph.json").read_text(encoding="utf-8"))
+            proposed_graph = json.loads((out_dir / "project_graph_proposed.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(proposed_graph["candidate_claims"]), len(original_graph["candidate_claims"]))
+
+    def test_llm_contract_rejects_schema_invalid_model_claims(self) -> None:
+        result = {
+            "schema_version": "p1a-plus-semantic-result-0.1",
+            "request_id": "req-invalid-claim",
+            "plan_step_id": "S002",
+            "reasoning_summary": "Synthetic model result with invalid claim schema.",
+            "candidate_claims": [
+                {
+                    "claim_type": "audit_finding",
+                    "statement": "This should not enter the semantic graph.",
+                    "subject_ids": "N001",
+                    "evidence_ids": ["E001"],
+                    "confidence": "supported",
+                    "required_missing_evidence": "none",
+                    "generated_from_step": "S002",
+                }
+            ],
+            "proposed_edges": [],
+            "proposed_uncertainties": [],
+            "requested_followup_tools": [],
+            "self_check_notes": [],
+        }
+
+        normalized, diagnostics = validate_semantic_reasoning_result(result, {"E001"})
+
+        claim = normalized["candidate_claims"][0]
+        self.assertEqual(claim["validation_status"], "rejected")
+        self.assertEqual(claim["subject_ids"], [])
+        self.assertEqual(claim["required_missing_evidence"], [])
+        self.assertTrue(any(d["issue_type"] == "model_claim_type_not_allowed" for d in diagnostics))
+        self.assertTrue(any(d["issue_type"] == "model_claim_subject_ids_not_list" for d in diagnostics))
+        self.assertTrue(any(d["issue_type"] == "model_claim_missing_evidence_not_list" for d in diagnostics))
 
     def test_p1a_plus_agent_mock_semantic_provider_generates_proposed_graph_claim(self) -> None:
         if not DEFAULT_PROJECT.exists():

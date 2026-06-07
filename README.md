@@ -81,7 +81,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
   --out /tmp/fpga_devmind/p1a_agent_l6
 ```
 
-该命令不调用 LLM provider，不读取 API key，只验证 Agent runtime artifact 形态。
+默认 mode 不调用 LLM provider，不读取 API key，只验证 Agent runtime artifact 形态；fixture / mock / disabled external route 只用于验证 provider 边界，不会调用外部 API。
 
 更完整的说明见 [P1a V0.1 quickstart](docs/p1a-v0.1-quickstart.md)。
 
