@@ -15,6 +15,8 @@ fpga_devmind 能基于证据完成一次真实 FPGA 项目的 Agent-style 理解
 
 目标：分析一个真实项目的单个阶段，生成 evidence-grounded Mermaid 和解释。
 
+详细规格见 [Phase 1a: Single Stage Understanding](phase1a-single-stage-understanding.md)。
+
 推荐样例：
 
 ```text

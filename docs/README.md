@@ -12,6 +12,7 @@
 - [Domain semantics](domain-semantics.md)：StageContract、FixedPointSpec、StreamInterfaceSpec、PipelineTimingSpec、RTLSignalSpec、TestObservation、SourceLineage 等 FPGA 领域对象。
 - [Memory and interaction](memory-and-interaction.md)：程序性记忆、语义记忆、情节记忆和多轮交互机制。
 - [Phase 1 scope](phase1-scope.md)：Phase 1a / 1b / 1c 收窄切片、样例项目和验收指标。
+- [Phase 1a single stage understanding](phase1a-single-stage-understanding.md)：`coarse_sync_glm` L6 单阶段 Understanding Agent 的详细规格。
 - [Review process](review-process.md)：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。
 - [Review response 0001](review-response-0001.md)：第一次独立 Review Agent 评审的处理决定。
 - [Semantic graph model](semantic-graph-model.md)：ProjectGraph / StageGraph / ConceptGraph / EvidenceGraph / VisualizationSpec 的对象模型草案。
