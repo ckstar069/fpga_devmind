@@ -13,8 +13,10 @@
 - [Memory and interaction](memory-and-interaction.md)：程序性记忆、语义记忆、情节记忆和多轮交互机制。
 - [Phase 1 scope](phase1-scope.md)：Phase 1a / 1b / 1c 收窄切片、样例项目和验收指标。
 - [Phase 1a single stage understanding](phase1a-single-stage-understanding.md)：`coarse_sync_glm` L6 单阶段 Understanding Agent 的详细规格。
+- [Phase 1a schema](phase1a-schema.md)：P1a 的最小 JSON schema、artifact layout、summary/visual grounding contract。
 - [Review process](review-process.md)：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。
 - [Review response 0001](review-response-0001.md)：第一次独立 Review Agent 评审的处理决定。
+- [Review response 0002](review-response-0002.md)：P1a 专项评审的处理决定。
 - [Semantic graph model](semantic-graph-model.md)：ProjectGraph / StageGraph / ConceptGraph / EvidenceGraph / VisualizationSpec 的对象模型草案。
 - [Toolbox](toolbox.md)：未来 Agent 可调用的确定性工具箱边界。
 - [Tool contracts](tool-contracts.md)：第一批确定性工具的输入输出、evidence id、错误模式和片段边界规则。
@@ -23,6 +25,7 @@
 ## 评审记录
 
 - [Review 0001: Agent Architecture and Grounding](reviews/0001-agent-architecture-review.md)
+- [Review 0002: Phase 1a Single Stage Understanding](reviews/0002-phase1a-review.md)
 
 ## 约束
 

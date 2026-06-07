@@ -68,6 +68,19 @@ TaskRequest
 
 ## Evidence Plan
 
+P1a 使用三层证据边界，避免滑入跨阶段、RTL 或验证分析。
+
+```text
+mandatory
+  必须读取，用于 confirmed claim。
+
+conditional
+  只有在 mandatory evidence 无法解释 L6 本身时读取；通常不能单独生成 confirmed claim。
+
+prohibited_for_confirmed
+  可以作为 future-entry uncertainty 或后续 P1b/P1c 入口，但不能用于 P1a confirmed claim。
+```
+
 ### Primary Evidence
 
 Agent 必须优先读取：
@@ -88,21 +101,32 @@ Agent 必须优先读取：
 
 ### Secondary Evidence
 
-Agent 可以读取：
+Conditional evidence：
 
 ```text
 <project>/src/python_model/L5_fixedpoint/
 <project>/docs/
-<project>/src/verilog_model/rtl/
-<project>/tests/
 ```
 
 用途：
 
 - L5 用于理解 L6 相比 fixed-point 阶段的资源化变化，但 P1a 不做完整跨阶段映射。
 - docs 用于补充架构说明，但不能单独作为强证据。
-- RTL 只用于发现 L6 可能指向的后续实现，不在 P1a 中确认映射。
-- tests 只作为辅助背景，不输出完整 verification coverage。
+
+### Prohibited for Confirmed Claims
+
+P1a 默认不使用以下证据生成 `confirmed` claim：
+
+```text
+<project>/src/verilog_model/rtl/
+<project>/tests/
+```
+
+用途仅限：
+
+- 生成 future-entry uncertainty。
+- 说明 P1b/P1c 后续入口。
+- 作为 weak context，不确认 L6 行为。
 
 ### External Evidence
 
@@ -148,16 +172,36 @@ P1a 只做必要引用，不做完整 SourceLineageGraph。
 7. run check_evidence_coverage
    检查 claim 是否满足 evidence 规则。
 
-8. write GraphWriteProposal
+8. reflection loop
+   对 GroundingDiagnostic 执行 collect_more_evidence / downgrade_confidence / create_uncertainty / stop_insufficient_evidence。
+
+9. recheck claims
+   只有 unsupported_confirmed_claim_count = 0 且无 blocking diagnostic 才进入写图。
+
+10. write GraphWriteProposal
    写 StageNode、ConceptNode、ImplementationView、EvidenceItem、UncertaintyNote、VisualizationSpec。
 
-9. render summary.md and flow.mmd
+11. render summary.md and flow.mmd
    从图谱生成解释和 Mermaid。
+```
+
+每轮 ReAct 必须记录：
+
+```text
+- plan_step
+- tool_observation
+- claim_delta
+- grounding_diagnostics
+- reflection_decision
 ```
 
 ## Required Claims
 
-P1a 至少应产生以下 claim：
+P1a claim 分为 mandatory、conditional、prohibited 三层。
+
+### Mandatory Claims
+
+必须尝试生成：
 
 ```text
 stage_purpose_claim
@@ -169,17 +213,34 @@ main_flow_claims
 dataflow_claims
   输入、中间数据、输出之间的主要流向。
 
+uncertainty_claims
+  证据不足、注释与代码不完全一致、主入口不明确等。
+```
+
+### Conditional Claims
+
+仅当 L6 evidence 中实际出现对应内容时生成；没有出现时输出 `unknown` 或 `not_observed_in_p1a_evidence`，不视为验收失败。
+
+```text
 fixed_point_claims
   Q 格式、位宽、定点运算、缩放或截断。
+
 
 resource_refinement_claims
   DSP、LUT、reciprocal、pipeline、资源复用或延迟相关细化。
 
 interface_claims
   L6 输入输出接口和 valid / ready / data / state 行为。
+```
 
-uncertainty_claims
-  证据不足、注释与代码不完全一致、主入口不明确等。
+### Prohibited Claims
+
+P1a 不生成：
+
+```text
+rtl_mapping_claim
+verification_coverage_claim
+cross_stage_equivalence_claim
 ```
 
 ## Claim Confidence Requirements
@@ -196,8 +257,8 @@ fixed_point_claim
   confirmed 需要明确 Q format、位宽或运算证据。
 
 resource_refinement_claim
-  confirmed 需要 L6 source_code 或明确 resource note strong/medium evidence。
-  仅注释声明时最多 supported。
+  confirmed 需要 L6 executable source_code、配置参数、资源估算表达式或结构化 resource table。
+  仅 doc/comment/resource note 最多 supported。
 
 dataflow_claim
   confirmed 需要 producer/consumer 或函数输入输出证据。
@@ -216,7 +277,52 @@ uncertainty_claim
 - 只有注释就 confirmed。
 - 只有 L5 或 RTL 证据就确认 L6 行为。
 - 把 L6 和 RTL 自动说成等价。
+- 用 RTL/tests 证据生成 P1a confirmed claim。
 ```
+
+## P1a Coarse Sync Domain Checklist
+
+Agent 应检查以下 coarse sync L6 候选语义，并为每项输出 `confirmed`、`supported`、`inferred`、`unknown` 或 `not_observed_in_p1a_evidence`。
+
+```text
+expected_stage_concepts
+- S0 autocorrelation / normalization candidate
+- S1 merge candidate
+- S2 smooth / peak detect candidate
+- S3 CFO candidate
+
+expected_algorithm_concepts
+- metric
+- peak_idx
+- cfo
+- autocorrelation
+- normalization
+- smoothing / moving average
+- detection threshold
+
+fixed_point_markers
+- Q format
+- signedness
+- width growth
+- shift / alignment
+- truncate / saturate
+
+resource_refinement_markers
+- DSP / multiplier reuse
+- LUT
+- reciprocal / divide approximation
+- pipeline latency
+- resource estimate
+
+interface_timing_markers
+- valid propagation
+- state exposure
+- step() cycle behavior
+- reset behavior
+- producer / consumer alignment
+```
+
+Checklist 项不能直接成为事实。每项都必须通过 L6 evidence 生成 claim，或输出 unknown。
 
 ## Graph Output Contract
 
@@ -298,6 +404,9 @@ flow.mmd
 - 节点标签表达工程含义，不是纯函数名。
 - 不确定节点或推断节点应显式标记。
 - 图不追求覆盖所有代码。
+- VisualizationSpec 的每个 node / edge 必须绑定 `source_claim_ids` 和 `evidence_ids`。
+- `summary.md` 每个主要段落必须引用 claim ids。
+- Grounding checker 必须检查 `unsupported_visual_node`、`unsupported_visual_edge`、`unsupported_summary_statement`。
 
 ## Failure Handling
 
@@ -350,10 +459,13 @@ P1a 通过条件：
 3. unsupported_confirmed_claim_count = 0。
 4. 所有 confirmed claim 符合 claim_type 证据组合规则。
 5. 至少一个 VisualizationSpec 被生成。
-6. 至少列出 main path、fixed-point/resource/interface 中的两个维度。
-7. 不确定项不为空时必须显式输出；证据不足时不得强行确定。
-8. 不修改目标 fpga_project_coarse_sync_glm。
-9. 不运行 Vivado / synthesis / implementation / bitstream。
+6. main path 必须有。
+7. auxiliary / resource refinement 必须区分；如果 L6 evidence 中未出现，输出 unknown 或 not_observed_in_p1a_evidence。
+8. fixed-point / interface / pipeline 按证据存在情况输出 confirmed / supported / inferred / unknown。
+9. summary.md 和 flow.mmd 不得包含未绑定 claim/evidence 的主要结论。
+10. 不确定项不为空时必须显式输出；证据不足时不得强行确定。
+11. 不修改目标 fpga_project_coarse_sync_glm。
+12. 不运行 Vivado / synthesis / implementation / bitstream。
 ```
 
 建议人工抽样检查：
@@ -372,9 +484,8 @@ P1a 通过条件：
 ```text
 1. 选定 graph artifact 输出位置，默认 /tmp/fpga_devmind/p1a_coarse_sync_l6。
 2. 明确模型 provider 配置方式，但不写入 API key。
-3. 明确 evidence pack token 裁剪策略。
-4. 定义 JSON schema 或 Pydantic schema。
-5. 确定是否先用 CLI 触发 Agent session。
+3. 按 phase1a-schema.md 实现 JSON schema 或 Pydantic schema。
+4. 确定是否先用 CLI 触发 Agent session。
 ```
 
 这些属于实现准备，不在本文继续展开。

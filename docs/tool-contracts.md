@@ -92,6 +92,12 @@ ExtractPythonStagePatternsOutput
 - methods
 - imports
 - call_edges
+- dataflow_edges
+- state_transitions
+- interface_events
+- q_operations
+- width_growth_events
+- pipeline_events
 - constants
 - formulas
 - q_format_candidates
@@ -113,6 +119,45 @@ ExtractPythonStagePatternsOutput
 - start_line
 - end_line
 - role_hint
+- evidence_ids
+```
+
+## extract_rtl_instances
+
+## extract_parameters
+
+输入：
+
+```text
+ExtractParametersInput
+- project_root
+- config_files
+- include_derived_values
+```
+
+输出：
+
+```text
+ExtractParametersOutput
+- parameter_files
+- parameters
+- derived_parameters
+- q_format_candidates
+- interface_parameter_candidates
+- pipeline_parameter_candidates
+- evidence_items
+- warnings
+```
+
+每个 parameter 输出：
+
+```text
+- name
+- value_repr
+- value_type
+- file_path
+- start_line
+- end_line
 - evidence_ids
 ```
 

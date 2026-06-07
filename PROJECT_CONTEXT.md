@@ -227,8 +227,10 @@ FPGA 模板项目通常不是一次性完成的，而是从早期算法模型开
 - `docs/memory-and-interaction.md`：程序性记忆、语义记忆、情节记忆和多轮交互机制。
 - `docs/phase1-scope.md`：Phase 1a / 1b / 1c 收窄切片、样例项目和验收指标。
 - `docs/phase1a-single-stage-understanding.md`：`coarse_sync_glm` L6 单阶段 Understanding Agent 的详细规格。
+- `docs/phase1a-schema.md`：P1a 的最小 JSON schema、artifact layout、summary/visual grounding contract。
 - `docs/review-process.md`：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。
 - `docs/review-response-0001.md`：第一次独立 Review Agent 评审的处理决定。
+- `docs/review-response-0002.md`：P1a 专项评审的处理决定。
 - `docs/semantic-graph-model.md`：ProjectGraph、StageGraph、ConceptGraph、EvidenceGraph、VisualizationSpec 等语义图对象模型。
 - `docs/toolbox.md`：未来 Agent 可调用的证据抽取、图谱读写、可视化和 Grounding 检查工具箱。
 - `docs/tool-contracts.md`：第一批确定性工具的输入输出、evidence id、错误模式和片段边界规则。
