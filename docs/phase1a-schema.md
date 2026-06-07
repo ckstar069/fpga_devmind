@@ -26,6 +26,10 @@ ProjectGraphP1a
 - stage
 - concepts
 - implementation_views
+- fixed_point_specs
+- stream_interface_specs
+- pipeline_timing_specs
+- resource_estimate_specs
 - evidence_items
 - candidate_claims
 - grounding_diagnostics
@@ -139,9 +143,37 @@ ImplementationViewP1a
 - fixed_point_spec_ids
 - stream_interface_spec_ids
 - pipeline_timing_spec_ids
+- resource_estimate_spec_ids
 - source_claim_ids
 - evidence_ids
 - confidence
+```
+
+## ResourceEstimateSpecP1a
+
+```text
+ResourceEstimateSpecP1a
+- spec_id
+- stage_or_concept_id
+- estimate_name
+- lut
+- ff
+- dsp48
+- bram18k
+- scale_expression
+- condition
+- target_device
+- source_claim_ids
+- evidence_ids
+- confidence
+```
+
+Rules:
+
+```text
+- A numeric estimate is supported only when it is extracted from ResourceEstimate(...) source evidence.
+- If a value is multiplied by a symbolic parameter, keep the base value and record scale_expression instead of silently evaluating it.
+- Conditional branches, such as weight_mode alternatives, must keep condition rather than collapse into one total.
 ```
 
 ## EvidenceItemP1a

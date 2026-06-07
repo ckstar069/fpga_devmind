@@ -122,6 +122,7 @@ class ImplementationView:
     fixed_point_spec_ids: list[str] = field(default_factory=list)
     stream_interface_spec_ids: list[str] = field(default_factory=list)
     pipeline_timing_spec_ids: list[str] = field(default_factory=list)
+    resource_estimate_spec_ids: list[str] = field(default_factory=list)
     source_claim_ids: list[str] = field(default_factory=list)
     evidence_ids: list[str] = field(default_factory=list)
     confidence: str = "supported"
@@ -173,6 +174,23 @@ class PipelineTimingSpec:
     valid_propagation: str | None = None
     reset_behavior: str | None = None
     clock_domain: str | None = None
+    source_claim_ids: list[str] = field(default_factory=list)
+    evidence_ids: list[str] = field(default_factory=list)
+    confidence: str = "supported"
+
+
+@dataclass
+class ResourceEstimateSpec:
+    spec_id: str
+    stage_or_concept_id: str
+    estimate_name: str
+    lut: int | str | None
+    ff: int | str | None
+    dsp48: int | str | None
+    bram18k: int | str | None
+    scale_expression: str | None = None
+    condition: str | None = None
+    target_device: str | None = None
     source_claim_ids: list[str] = field(default_factory=list)
     evidence_ids: list[str] = field(default_factory=list)
     confidence: str = "supported"
@@ -233,6 +251,7 @@ class ProjectGraph:
     fixed_point_specs: list[FixedPointSpec]
     stream_interface_specs: list[StreamInterfaceSpec]
     pipeline_timing_specs: list[PipelineTimingSpec]
+    resource_estimate_specs: list[ResourceEstimateSpec]
     evidence_items: list[EvidenceItem]
     candidate_claims: list[CandidateClaim]
     grounding_diagnostics: list[GroundingDiagnostic]

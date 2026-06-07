@@ -17,6 +17,7 @@ from .schema import (
     PipelineTimingSpec,
     ProjectGraph,
     ProjectProfile,
+    ResourceEstimateSpec,
     StageNode,
     StreamInterfaceSpec,
     TaskRequest,
@@ -223,6 +224,7 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
     fixed_point_specs: list[FixedPointSpec] = []
     stream_interface_specs: list[StreamInterfaceSpec] = []
     pipeline_timing_specs: list[PipelineTimingSpec] = []
+    resource_estimate_specs: list[ResourceEstimateSpec] = []
 
     # Fixed-point and interface/resource claims are conditional.
     q_eids = []
@@ -335,7 +337,10 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
 
     resource_symbols = [s for s in py_obs.symbols if s.role_hint == "resource_estimate"]
     resource_eids = [eid for s in resource_symbols for eid in s.evidence_ids]
+    for estimate in py_obs.resource_estimates:
+        resource_eids.extend(estimate["evidence_ids"])
     if resource_eids:
+        resource_claim_id = f"C{claim_idx:03d}"
         claims.append(
             _claim(
                 claim_idx,
@@ -347,6 +352,40 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
             )
         )
         claim_idx += 1
+        method_to_concept = {
+            "estimate_s0_autocorr": "N001",
+            "estimate_s1_merge": "N002",
+            "estimate_s2_smooth_detect": "N003",
+            "estimate_s3_cfo": "N004",
+        }
+        stage_estimates = [
+            e
+            for e in py_obs.resource_estimates
+            if e["method_name"] in method_to_concept and e["estimate_kind"] in {"stage_return", "stage_return_scaled"}
+        ]
+        for spec_idx, estimate in enumerate(stage_estimates, start=1):
+            resource_estimate_specs.append(
+                ResourceEstimateSpec(
+                    spec_id=f"RE{spec_idx:03d}",
+                    stage_or_concept_id=method_to_concept[estimate["method_name"]],
+                    estimate_name=estimate["method_name"],
+                    lut=estimate.get("lut"),
+                    ff=estimate.get("ff"),
+                    dsp48=estimate.get("dsp"),
+                    bram18k=estimate.get("bram"),
+                    scale_expression=estimate.get("scale_expression"),
+                    condition=estimate.get("condition"),
+                    target_device="xc7z020",
+                    source_claim_ids=[resource_claim_id],
+                    evidence_ids=estimate["evidence_ids"],
+                    confidence="supported",
+                )
+            )
+
+    for view in views:
+        view.resource_estimate_spec_ids = [
+            spec.spec_id for spec in resource_estimate_specs if spec.stage_or_concept_id == view.concept_id
+        ]
 
     uncertainties: list[UncertaintyNote] = []
     if not resource_eids:
@@ -464,6 +503,7 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
         fixed_point_specs=fixed_point_specs,
         stream_interface_specs=stream_interface_specs,
         pipeline_timing_specs=pipeline_timing_specs,
+        resource_estimate_specs=resource_estimate_specs,
         evidence_items=evidence_items,
         candidate_claims=claims,
         grounding_diagnostics=diagnostics,
@@ -571,6 +611,14 @@ def _render_summary(graph: ProjectGraph) -> str:
         lines.append(
             f"- Pipeline timing: latency={latency}, valid propagation={spec.valid_propagation} [{','.join(spec.source_claim_ids)}]"
         )
+    if graph.resource_estimate_specs:
+        lines.append("- Resource estimates:")
+        for spec in graph.resource_estimate_specs:
+            scale = f", scale={spec.scale_expression}" if spec.scale_expression else ""
+            condition = f", condition={spec.condition}" if spec.condition else ""
+            lines.append(
+                f"  - {spec.estimate_name}: LUT={spec.lut}, FF={spec.ff}, DSP48={spec.dsp48}, BRAM18K={spec.bram18k}{scale}{condition} [{','.join(spec.source_claim_ids)}]"
+            )
     lines.extend(["", "## Uncertainties"])
     if graph.uncertainty_notes:
         for uncertainty in graph.uncertainty_notes:

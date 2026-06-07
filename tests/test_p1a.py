@@ -27,6 +27,7 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertGreaterEqual(len(graph.fixed_point_specs), 1)
             self.assertGreaterEqual(len(graph.stream_interface_specs), 1)
             self.assertGreaterEqual(len(graph.pipeline_timing_specs), 1)
+            self.assertGreaterEqual(len(graph.resource_estimate_specs), 4)
 
 
 if __name__ == "__main__":

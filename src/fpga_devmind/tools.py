@@ -54,6 +54,7 @@ class PythonStageObservation:
     width_growth_events: list[dict[str, Any]]
     pipeline_events: list[dict[str, Any]]
     interface_events: list[dict[str, Any]]
+    resource_estimates: list[dict[str, Any]]
     dataflow_edges: list[dict[str, Any]]
     evidence_items: list[EvidenceItem]
 
@@ -123,6 +124,137 @@ def _class_methods(node: ast.ClassDef) -> list[str]:
     return [item.name for item in node.body if isinstance(item, ast.FunctionDef)]
 
 
+def _class_methods_ast(node: ast.ClassDef) -> list[ast.FunctionDef]:
+    return [item for item in node.body if isinstance(item, ast.FunctionDef)]
+
+
+def _safe_expr(node: ast.AST | None) -> Any:
+    if node is None:
+        return None
+    try:
+        return ast.literal_eval(node)
+    except Exception:
+        return ast.unparse(node)
+
+
+def _resource_call_values(call: ast.Call) -> dict[str, Any] | None:
+    if not isinstance(call.func, ast.Name) or call.func.id != "ResourceEstimate":
+        return None
+    values: dict[str, Any] = {"lut": 0, "ff": 0, "dsp": 0, "bram": 0}
+    positional = ["lut", "ff", "dsp", "bram"]
+    for idx, arg in enumerate(call.args[:4]):
+        values[positional[idx]] = _safe_expr(arg)
+    for keyword in call.keywords:
+        if keyword.arg in values:
+            values[keyword.arg] = _safe_expr(keyword.value)
+    return values
+
+
+def _resource_call_from_expr(expr: ast.AST) -> ast.Call | None:
+    if isinstance(expr, ast.Call) and _resource_call_values(expr) is not None:
+        return expr
+    return None
+
+
+def _resource_estimates_from_method(
+    path: Path,
+    method: ast.FunctionDef,
+    next_ordinal: int,
+) -> tuple[list[dict[str, Any]], list[EvidenceItem], int]:
+    estimates: list[dict[str, Any]] = []
+    evidence: list[EvidenceItem] = []
+    assignments: dict[str, dict[str, Any]] = {}
+    ordinal = next_ordinal
+
+    def new_evidence(node: ast.AST, suffix: str) -> str:
+        nonlocal ordinal
+        start = getattr(node, "lineno", method.lineno)
+        end = getattr(node, "end_lineno", start)
+        eid = evidence_id("resource_est", path, start, end, ordinal)
+        ordinal += 1
+        evidence.append(
+            EvidenceItem(
+                evidence_id=eid,
+                source_type="source_code",
+                file_path=str(path),
+                start_line=start,
+                end_line=end,
+                symbol=f"{method.name}:{suffix}",
+                excerpt_summary=line_summary(path, start, min(end, start + 4)),
+                evidence_strength="strong",
+            )
+        )
+        return eid
+
+    def add_estimate(
+        values: dict[str, Any],
+        node: ast.AST,
+        kind: str,
+        condition: str | None,
+        scale_expression: str | None = None,
+        extra_evidence_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        eid = new_evidence(node, kind)
+        estimate = {
+            "method_name": method.name,
+            "estimate_kind": kind,
+            "lut": values.get("lut"),
+            "ff": values.get("ff"),
+            "dsp": values.get("dsp"),
+            "bram": values.get("bram"),
+            "condition": condition,
+            "scale_expression": scale_expression,
+            "evidence_ids": list(dict.fromkeys((extra_evidence_ids or []) + [eid])),
+        }
+        estimates.append(estimate)
+        return estimate
+
+    def process(stmts: list[ast.stmt], condition: str | None = None) -> None:
+        for stmt in stmts:
+            if isinstance(stmt, ast.Assign):
+                call = _resource_call_from_expr(stmt.value)
+                if call is not None:
+                    values = _resource_call_values(call)
+                    if values is None:
+                        continue
+                    estimate = add_estimate(values, call, "component_assignment", condition)
+                    for target in stmt.targets:
+                        if isinstance(target, ast.Name):
+                            assignments[target.id] = estimate
+            elif isinstance(stmt, ast.Return) and stmt.value is not None:
+                call = _resource_call_from_expr(stmt.value)
+                if call is not None:
+                    values = _resource_call_values(call)
+                    if values is not None:
+                        add_estimate(values, call, "stage_return", condition)
+                elif isinstance(stmt.value, ast.BinOp) and isinstance(stmt.value.op, ast.Mult):
+                    left = stmt.value.left
+                    right = stmt.value.right
+                    base_name = left.id if isinstance(left, ast.Name) else None
+                    scale_node = right
+                    if base_name is None and isinstance(right, ast.Name):
+                        base_name = right.id
+                        scale_node = left
+                    if base_name in assignments:
+                        base = assignments[base_name]
+                        values = {key: base.get(key) for key in ("lut", "ff", "dsp", "bram")}
+                        add_estimate(
+                            values,
+                            stmt,
+                            "stage_return_scaled",
+                            condition,
+                            scale_expression=_safe_expr(scale_node),
+                            extra_evidence_ids=base["evidence_ids"],
+                        )
+            elif isinstance(stmt, ast.If):
+                cond = _safe_expr(stmt.test)
+                process(stmt.body, cond)
+                process(stmt.orelse, f"not ({cond})" if cond else condition)
+
+    process(method.body)
+    return estimates, evidence, ordinal
+
+
 def extract_python_stage_patterns(files: list[Path]) -> PythonStageObservation:
     evidence_items: list[EvidenceItem] = []
     symbols: list[SymbolInfo] = []
@@ -130,6 +262,7 @@ def extract_python_stage_patterns(files: list[Path]) -> PythonStageObservation:
     width_events: list[dict[str, Any]] = []
     pipeline_events: list[dict[str, Any]] = []
     interface_events: list[dict[str, Any]] = []
+    resource_estimates: list[dict[str, Any]] = []
     dataflow_edges: list[dict[str, Any]] = []
     ordinal = 1
 
@@ -187,6 +320,14 @@ def extract_python_stage_patterns(files: list[Path]) -> PythonStageObservation:
                 pipeline_events.append({"symbol": node.name, "evidence_ids": [eid], "summary": doc})
             if any(marker in lowered for marker in ("axis", "valid", "ready", "tlast", "tdata")):
                 interface_events.append({"symbol": node.name, "evidence_ids": [eid], "summary": doc})
+            if isinstance(node, ast.ClassDef):
+                for method in _class_methods_ast(node):
+                    if method.name.startswith("estimate_"):
+                        estimates, estimate_evidence, ordinal = _resource_estimates_from_method(
+                            path, method, ordinal
+                        )
+                        resource_estimates.extend(estimates)
+                        evidence_items.extend(estimate_evidence)
 
     # Coarse, deterministic dataflow hints from known stage roles.
     stage_symbols = {s.role_hint: s for s in symbols}
@@ -216,6 +357,7 @@ def extract_python_stage_patterns(files: list[Path]) -> PythonStageObservation:
         width_growth_events=width_events,
         pipeline_events=pipeline_events,
         interface_events=interface_events,
+        resource_estimates=resource_estimates,
         dataflow_edges=dataflow_edges,
         evidence_items=evidence_items,
     )

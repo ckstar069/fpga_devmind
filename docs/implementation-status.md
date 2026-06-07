@@ -14,6 +14,7 @@ Implemented:
 - Deterministic P1a claim generation for `coarse_sync_glm` L6.
 - Basic grounding checks for unsupported confirmed claims and unsupported visualization nodes/edges.
 - Structured fixed-point, stream interface, and pipeline timing specs in `project_graph.json`.
+- Structured resource estimate specs extracted from L6 `ResourceEstimate(...)` evidence.
 - Artifact writing to `/tmp/fpga_devmind/p1a_coarse_sync_l6`.
 - Rendered `project_graph.json`, `summary.md`, `flow.mmd`, `run_metadata.json`.
 
@@ -24,6 +25,7 @@ Not implemented yet:
 - Rich AST def-use / dataflow analysis.
 - Full fixed-point spec extraction.
 - Full interface / pipeline / state event extraction.
+- Full symbolic resource total evaluation.
 - P1b L6-to-RTL mapping.
 - P1c verification coverage.
 - UI or interactive memory.

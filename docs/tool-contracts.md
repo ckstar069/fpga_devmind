@@ -106,6 +106,7 @@ ExtractPythonStagePatternsOutput
 - state_candidates
 - interface_candidates
 - pipeline_delay_candidates
+- resource_estimate_candidates
 - evidence_items
 - warnings
 ```
@@ -119,6 +120,23 @@ ExtractPythonStagePatternsOutput
 - start_line
 - end_line
 - role_hint
+- evidence_ids
+```
+
+每个 resource estimate candidate 至少包含：
+
+```text
+- method_name
+- estimate_kind
+  - component_assignment
+  - stage_return
+  - stage_return_scaled
+- lut
+- ff
+- dsp
+- bram
+- condition
+- scale_expression
 - evidence_ids
 ```
 
