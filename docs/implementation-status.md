@@ -16,6 +16,7 @@ Implemented:
 - Read-only config parameter extraction.
 - Deterministic P1a claim generation for L6 resource optimized stages.
 - Generic L6 concept inference when the project does not match the coarse-sync S0-S3 pattern.
+- Inferred implementation-order edges with explicit uncertainty; proven dataflow is not claimed.
 - Basic grounding checks for unsupported confirmed claims and unsupported visualization nodes/edges.
 - Structured fixed-point, stream interface, and pipeline timing specs in `project_graph.json`.
 - Structured resource estimate specs extracted from L6 `ResourceEstimate(...)` evidence.
@@ -34,6 +35,7 @@ Not implemented yet:
 - Prompted semantic claim generation.
 - Multi-turn ReAct loop.
 - Rich AST def-use / dataflow analysis.
+- Proven producer/consumer dataflow extraction.
 - High-quality generic flow ordering for every possible L6 architecture.
 - Full fixed-point spec extraction.
 - Full interface / pipeline / state event extraction.

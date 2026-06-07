@@ -3,7 +3,7 @@
 P1a V0.1 是 `fpga_devmind` 的第一个可试用理解层原型。它不是完整 Agent，也不是审计工具；它用于验证：
 
 ```text
-read L6 evidence -> build ProjectGraph -> build TraceIndex -> render summary/flow -> answer grounded queries -> check freshness
+read L6 evidence -> build ProjectGraph -> build TraceIndex -> render summary/inferred flow -> answer grounded queries -> check freshness
 ```
 
 ## Smoke Check
@@ -118,6 +118,8 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-query \
 - evidence id drill-down
 ```
 
+注意：P1a V0.1 的 `flow.mmd` 展示的是 grounded concepts 的 inferred implementation order，不是已证明的 producer/consumer dataflow。
+
 ## Freshness
 
 ```bash
@@ -139,6 +141,7 @@ P1a V0.1 不做：
 - L6-to-RTL mapping
 - verification coverage
 - LLM semantic reasoning
+- proven dataflow extraction
 ```
 
 当前价值是把“读懂、建图、解释、可追溯、可查询、可失效”跑通，为后续 LLM/ReAct Agent 层提供可复用底座。

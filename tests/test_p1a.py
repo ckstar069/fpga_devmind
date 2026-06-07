@@ -60,7 +60,7 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertIn("## Evidence", resource_answer)
 
             claim_answer = answer_question(out_dir, "C001 的证据在哪里")
-            self.assertIn("Claim `C001` is `confirmed`", claim_answer)
+            self.assertIn("Claim `C001` is `supported`", claim_answer)
             self.assertIn("coarse_sync_optimized.py", claim_answer)
 
             manifest_path = out_dir / "memory_manifest.json"

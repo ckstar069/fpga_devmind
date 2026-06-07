@@ -172,6 +172,10 @@ def _infer_stage_roles(
             and not any(token in symbol.name.lower() for token in ("config", "result", "estimate", "estimator", "state"))
         ][:6]
 
+    if len(selected) > 1:
+        non_pipeline = [symbol for symbol in selected if "pipeline" not in symbol.name.lower()]
+        if non_pipeline:
+            selected = non_pipeline
     selected = selected[:8]
     return [
         (
@@ -291,7 +295,7 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
             "mandatory",
             f"L6_resource_opt exposes {len(stage_roles)} grounded implementation concept(s) in the selected L6 evidence.",
             stage_eids,
-            confidence="confirmed" if stage_eids else "unknown",
+            confidence="supported" if stage_eids else "unknown",
         )
     )
 
@@ -325,7 +329,7 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
                     "mandatory",
                     f"{label} is implemented by {symbol.name}.",
                     eids,
-                    confidence="confirmed",
+                    confidence="supported",
                     subjects=[concept.concept_id],
                 )
             )
@@ -344,8 +348,11 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
         claim_idx += 1
         idx += 1
 
-    # Dataflow claims from deterministic stage order.
+    # Implementation-order claims from deterministic stage order. These are
+    # intentionally not dataflow claims: P1a does not yet trace producer/consumer
+    # variables, calls, returns, or valid/data movement.
     dataflow_claim_ids_by_pair: dict[tuple[str, str], list[str]] = {}
+    implementation_order_claim_ids: list[str] = []
     selected_symbols = [symbol for _role, _label, _meaning, symbol in stage_roles if symbol is not None]
     inferred_edges = [
         {
@@ -360,14 +367,15 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
         claims.append(
             _claim(
                 claim_idx,
-                "dataflow_claim",
+                "implementation_order_claim",
                 "mandatory",
-                f"{edge['from_symbol']} precedes {edge['to_symbol']} in the selected L6 implementation flow.",
+                f"{edge['from_symbol']} precedes {edge['to_symbol']} in the inferred L6 implementation order.",
                 edge["evidence_ids"],
-                confidence="supported",
+                confidence="inferred",
             )
         )
         dataflow_claim_ids_by_pair[(edge["from_symbol"], edge["to_symbol"])] = [claim_id]
+        implementation_order_claim_ids.append(claim_id)
         claim_idx += 1
 
     fixed_point_specs: list[FixedPointSpec] = []
@@ -474,7 +482,10 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
                 stage_or_module_id="L6_resource_opt",
                 latency_cycles=None,
                 register_boundaries=[concept.canonical_name for concept in concepts],
-                valid_propagation=" -> ".join(concept.canonical_name for concept in concepts) if concepts else None,
+                alignment_requirements=[
+                    "P1a records inferred concept order only; valid/data propagation is not traced yet."
+                ],
+                valid_propagation=None,
                 reset_behavior="stage reset methods and AxisValidOnly.reset",
                 clock_domain="modeled by step() calls",
                 source_claim_ids=[f"C{claim_idx:03d}"],
@@ -506,7 +517,7 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
                 "conditional",
                 "L6 includes a resource estimation model for LUT/FF/DSP/BRAM usage.",
                 resource_eids,
-                confidence="confirmed",
+                confidence="supported",
             )
         )
         claim_idx += 1
@@ -527,7 +538,7 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
                     bram18k=estimate.get("bram"),
                     scale_expression=estimate.get("scale_expression"),
                     condition=estimate.get("condition"),
-                    target_device="xc7z020",
+                    target_device=None,
                     source_claim_ids=[resource_claim_id],
                     evidence_ids=estimate["evidence_ids"],
                     confidence="supported",
@@ -540,10 +551,28 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
         ]
 
     uncertainties: list[UncertaintyNote] = []
-    if not resource_eids:
+    if inferred_edges:
         uncertainties.append(
             UncertaintyNote(
                 uncertainty_id="U001",
+                topic="implementation order versus dataflow",
+                scope="stage",
+                reason="future_p1b_or_p1c_scope",
+                current_interpretation=(
+                    "P1a inferred an implementation order from selected L6 concepts, "
+                    "but did not prove producer/consumer dataflow or valid propagation."
+                ),
+                needed_evidence="Call graph, step/process_block body analysis, variable producer/consumer links, or interface-level valid/data movement.",
+                source_claim_ids=implementation_order_claim_ids,
+                evidence_ids=list(dict.fromkeys(eid for edge in inferred_edges for eid in edge["evidence_ids"])),
+                severity_for_understanding="high",
+            )
+        )
+    if not resource_eids:
+        uncertainty_id = f"U{len(uncertainties) + 1:03d}"
+        uncertainties.append(
+            UncertaintyNote(
+                uncertainty_id=uncertainty_id,
                 topic="resource refinement",
                 scope="stage",
                 reason="not_observed_in_p1a_evidence",
@@ -619,7 +648,7 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
                 edge_id=f"VE{i+1:03d}",
                 from_node_id=viz_nodes[i].node_id,
                 to_node_id=viz_nodes[i + 1].node_id,
-                label="dataflow",
+                label="inferred order",
                 source_claim_ids=edge_claims,
                 evidence_ids=list(dict.fromkeys(viz_nodes[i].evidence_ids + viz_nodes[i + 1].evidence_ids)),
                 confidence="supported",
@@ -910,8 +939,9 @@ def _render_summary(graph: ProjectGraph) -> str:
     if graph.pipeline_timing_specs:
         spec = graph.pipeline_timing_specs[0]
         latency = spec.latency_cycles if spec.latency_cycles is not None else "unknown"
+        valid_propagation = spec.valid_propagation or "unknown"
         lines.append(
-            f"- Pipeline timing: latency={latency}, valid propagation={spec.valid_propagation} [{','.join(spec.source_claim_ids)}]"
+            f"- Pipeline timing: latency={latency}, valid propagation={valid_propagation} [{','.join(spec.source_claim_ids)}]"
         )
     if graph.resource_estimate_specs:
         lines.append("- Resource estimates:")

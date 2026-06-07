@@ -199,7 +199,7 @@ def _answer_flow(graph: dict[str, Any], trace: dict[str, Any]) -> str:
         lines.append(f"- {concept['canonical_name']}: {concept['meaning']}{refs}")
     lines.extend(["", "## Evidence"])
     for claim_id, claim in trace["claims"].items():
-        if claim_id == "C001" or claim["claim_type"] == "dataflow_claim":
+        if claim_id == "C001" or claim["claim_type"] in {"dataflow_claim", "implementation_order_claim"}:
             lines.append(f"- `{claim_id}`: {claim['statement']}")
     return "\n".join(lines) + "\n"
 
@@ -256,9 +256,10 @@ def _answer_pipeline(graph: dict[str, Any], trace: dict[str, Any]) -> str:
     for spec in graph["pipeline_timing_specs"]:
         latency = spec["latency_cycles"] if spec["latency_cycles"] is not None else "unknown"
         claim_ids = ", ".join(spec["source_claim_ids"])
+        valid_propagation = spec["valid_propagation"] or "unknown"
         lines.append(
             f"- latency={latency}, register_boundaries={','.join(spec['register_boundaries'])}, "
-            f"valid_propagation={spec['valid_propagation']} [{claim_ids}]"
+            f"valid_propagation={valid_propagation} [{claim_ids}]"
         )
     lines.append("")
     lines.append("Exact latency is not confirmed by the deterministic P1a extraction.")

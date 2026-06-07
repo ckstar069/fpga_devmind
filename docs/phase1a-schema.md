@@ -293,6 +293,7 @@ CandidateClaimP1a
 - claim_type
   - implementation_claim
   - dataflow_claim
+  - implementation_order_claim
   - fixed_point_claim
   - resource_refinement_claim
   - interface_claim

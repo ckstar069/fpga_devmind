@@ -16,11 +16,13 @@
 - [Phase 1a single stage understanding](phase1a-single-stage-understanding.md)：`coarse_sync_glm` 主样例和 `fine_cfo` smoke 样例的 L6 单阶段 Understanding Agent 规格。
 - [Phase 1a schema](phase1a-schema.md)：P1a 的最小 JSON schema、artifact layout、summary/visual grounding contract。
 - [P1a V0.1 quickstart](p1a-v0.1-quickstart.md)：当前可试用原型的 smoke、单项目运行、query、freshness 和边界说明。
+- [P1a V0.1 acceptance](p1a-v0.1-acceptance.md)：P1a V0.1 的验收标准、已知限制和进入下一阶段的判定规则。
 - [P1a implementation prep](p1a-implementation-prep.md)：P1a 实现前清单、代码切片顺序和最小 grounding 检查。
 - [Implementation status](implementation-status.md)：当前 P1a 最小代码骨架状态和验证命令。
 - [Review process](review-process.md)：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。
 - [Review response 0001](review-response-0001.md)：第一次独立 Review Agent 评审的处理决定。
 - [Review response 0002](review-response-0002.md)：P1a 专项评审的处理决定。
+- [Review response 0003](review-response-0003.md)：P1a V0.1 readiness 评审的处理决定。
 - [Semantic graph model](semantic-graph-model.md)：ProjectGraph / StageGraph / ConceptGraph / EvidenceGraph / VisualizationSpec 的对象模型草案。
 - [Toolbox](toolbox.md)：未来 Agent 可调用的确定性工具箱边界。
 - [Tool contracts](tool-contracts.md)：第一批确定性工具的输入输出、evidence id、错误模式和片段边界规则。
@@ -30,6 +32,7 @@
 
 - [Review 0001: Agent Architecture and Grounding](reviews/0001-agent-architecture-review.md)
 - [Review 0002: Phase 1a Single Stage Understanding](reviews/0002-phase1a-review.md)
+- [Review 0003: P1a V0.1 Readiness](reviews/0003-p1a-v0.1-review.md)
 
 ## 约束
 
