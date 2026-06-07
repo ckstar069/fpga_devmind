@@ -41,6 +41,7 @@ Implemented:
 - Provider-free P1a+ Agent dry-run that writes `agent_trace.json`, `prompt_context.json`, `provider_call.json`, `model_result_normalized.json`, `claim_proposals.json`, `graph_write_proposal.json`, `grounding_report.json` and `answer.md`.
 - LLM provider contract helpers that build redacted prompt context and validate model `SemanticReasoningResult` before grounding.
 - Noop and fixture semantic provider adapters for testing provider boundaries without external API calls.
+- Built-in mock semantic provider for positive validation / GraphWriter dry-run path without external API calls.
 - Output path safety guard for P1a, P1a smoke and P1a+ generated artifacts.
 - Model output validation for schema_version, claims, requested follow-up tools, proposed edges and proposed uncertainties.
 - Graph write proposal now separates accepted model claims from rejected model claims without mutating ProjectGraph.

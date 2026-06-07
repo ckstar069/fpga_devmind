@@ -182,6 +182,19 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 
 该 fixture 只用于 validation，不代表已经接入 provider；未知 evidence id、缺字段或无证据高置信 claim 会进入 `model_output_diagnostics`。
 
+也可以使用内置 mock semantic provider 走一条正向模型路径：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6 \
+  --mock-semantic
+```
+
+`--mock-semantic` 不调用外部 API。它只从已知 evidence id 中选择一个，生成一个合法 supported model claim，用于验证 validation -> graph_write_proposal -> project_graph_proposed 的正向链路。
+
 ## Boundaries
 
 P1a V0.1 不做：

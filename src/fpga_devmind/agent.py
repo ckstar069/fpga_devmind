@@ -15,7 +15,7 @@ from typing import Any
 from .llm_contract import build_prompt_context, validate_semantic_reasoning_result
 from .p1a import run_p1a
 from .graph_writer import apply_graph_write_proposal_dry_run
-from .providers import provider_for_fixture, response_to_dict
+from .providers import provider_for_mode, response_to_dict
 from .query import answer_question, check_freshness
 from .safety import ensure_safe_output_dir
 
@@ -30,6 +30,7 @@ def run_p1a_semantic_agent_dry_run(
     out_dir: Path = DEFAULT_AGENT_OUT,
     artifact_dir: Path | None = None,
     model_result_path: Path | None = None,
+    use_mock_semantic: bool = False,
 ) -> dict[str, Any]:
     """Run a provider-free P1a+ Agent shell over P1a artifacts.
 
@@ -44,7 +45,7 @@ def run_p1a_semantic_agent_dry_run(
     out_dir = ensure_safe_output_dir(out_dir, "P1a+ agent output")
     p1a_artifacts = ensure_safe_output_dir(artifact_dir or (out_dir / "p1a_artifacts"), "P1a+ artifact output")
     out_dir.mkdir(parents=True, exist_ok=True)
-    provider = provider_for_fixture(model_result_path)
+    provider = provider_for_mode(model_result_path, use_mock_semantic=use_mock_semantic)
     runtime_mode = provider.mode
 
     plan = _build_task_plan(project_root, stage_id, question, out_dir, p1a_artifacts)

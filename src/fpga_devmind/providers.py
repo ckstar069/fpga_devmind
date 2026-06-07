@@ -87,8 +87,67 @@ class FixtureSemanticProvider:
         )
 
 
-def provider_for_fixture(model_result_path: Path | None) -> SemanticProvider:
-    return FixtureSemanticProvider(model_result_path) if model_result_path else NoopSemanticProvider()
+class MockSemanticProvider:
+    provider_id = "mock_semantic"
+    mode = "deterministic_dry_run_with_mock_semantic"
+
+    def run(self, prompt_context: dict[str, Any]) -> SemanticProviderResponse:
+        request_id = prompt_context.get("task", {}).get("request_id") or "unknown"
+        evidence_ids = prompt_context.get("known_evidence_ids", [])
+        first_evidence_id = evidence_ids[0] if evidence_ids else None
+        candidate_claims = []
+        if first_evidence_id:
+            candidate_claims.append(
+                {
+                    "claim_id": "M001",
+                    "claim_type": "implementation_claim",
+                    "statement": (
+                        "Mock semantic provider proposes a supported stage interpretation "
+                        "anchored to an existing evidence item."
+                    ),
+                    "subject_ids": ["stage:L6_resource_opt"],
+                    "evidence_ids": [first_evidence_id],
+                    "confidence": "supported",
+                    "required_missing_evidence": [],
+                    "generated_from_step": "S002",
+                }
+            )
+        result = {
+            "schema_version": "p1a-plus-semantic-result-0.1",
+            "request_id": request_id,
+            "plan_step_id": "S002",
+            "reasoning_summary": "Mock semantic provider generated one evidence-anchored claim.",
+            "candidate_claims": candidate_claims,
+            "proposed_edges": [],
+            "proposed_uncertainties": [],
+            "requested_followup_tools": [],
+            "self_check_notes": [
+                "mock_semantic_provider",
+                "no_external_api_called",
+            ],
+        }
+        return SemanticProviderResponse(
+            provider_id=self.provider_id,
+            mode=self.mode,
+            result=result,
+            call_record=_offline_call_record(
+                provider_id=self.provider_id,
+                mode=self.mode,
+                prompt_context=prompt_context,
+                source=None,
+                status="completed",
+            ),
+        )
+
+
+def provider_for_mode(model_result_path: Path | None, use_mock_semantic: bool = False) -> SemanticProvider:
+    if model_result_path and use_mock_semantic:
+        raise ValueError("--model-result and --mock-semantic are mutually exclusive")
+    if model_result_path:
+        return FixtureSemanticProvider(model_result_path)
+    if use_mock_semantic:
+        return MockSemanticProvider()
+    return NoopSemanticProvider()
 
 
 def response_to_dict(response: SemanticProviderResponse) -> dict[str, Any]:

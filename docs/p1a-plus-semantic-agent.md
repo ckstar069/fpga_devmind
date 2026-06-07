@@ -241,6 +241,10 @@ NoopSemanticProvider
 
 FixtureSemanticProvider
   从本地 JSON fixture 读取 SemanticReasoningResult，用于测试 validation 和 grounding。
+
+MockSemanticProvider
+  不调用模型，从 prompt_context 的已知 evidence id 中生成一个合法 supported claim，
+  用于测试 accepted model claim 的正向 GraphWriter dry-run 链路。
 ```
 
 真实 provider 后续必须实现同一接口，并继续写出 `provider_call.json`。任何 provider 输出都不能绕过 `validate_semantic_reasoning_result()`。

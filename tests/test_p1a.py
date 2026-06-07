@@ -301,6 +301,35 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertEqual(len(proposed_graph["candidate_claims"]), len(graph.candidate_claims) + 1)
             self.assertEqual(proposed_graph["candidate_claims"][-1]["claim_layer"], "p1a_plus_model_proposal")
 
+    def test_p1a_plus_agent_mock_semantic_provider_generates_proposed_graph_claim(self) -> None:
+        if not DEFAULT_PROJECT.exists():
+            self.skipTest(f"target project not found: {DEFAULT_PROJECT}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "agent"
+            result = run_p1a_semantic_agent_dry_run(
+                project_root=DEFAULT_PROJECT,
+                stage_id="L6_resource_opt",
+                question="L6 实现了什么流程",
+                out_dir=out_dir,
+                use_mock_semantic=True,
+            )
+
+            self.assertEqual(result["agent_trace"]["mode"], "deterministic_dry_run_with_mock_semantic")
+            self.assertEqual(result["agent_trace"]["provider_id"], "mock_semantic")
+            self.assertEqual(result["grounding_report"]["summary"]["model_output_blocking_diagnostics"], 0)
+
+            provider_call = json.loads((out_dir / "provider_call.json").read_text(encoding="utf-8"))
+            self.assertEqual(provider_call["provider_id"], "mock_semantic")
+            self.assertFalse(provider_call["external_api_called"])
+
+            graph_write = json.loads((out_dir / "graph_write_proposal.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(graph_write["model_claims_to_create"]), 1)
+            self.assertEqual(graph_write["model_claims_to_create"][0]["claim_id"], "M001")
+
+            report = json.loads((out_dir / "graph_write_report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["claims_added"], ["M001"])
+
     def test_p1a_plus_agent_rejects_unsafe_output_path(self) -> None:
         if not DEFAULT_PROJECT.exists():
             self.skipTest(f"target project not found: {DEFAULT_PROJECT}")
