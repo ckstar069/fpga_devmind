@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 from .p1a import DEFAULT_OUT, DEFAULT_PROJECT, run_p1a
-from .query import answer_question
+from .query import answer_question, check_freshness
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,6 +21,9 @@ def build_parser() -> argparse.ArgumentParser:
     query = sub.add_parser("p1a-query", help="Query generated P1a graph and trace artifacts")
     query.add_argument("--artifacts", type=Path, default=DEFAULT_OUT)
     query.add_argument("--question", required=True)
+
+    freshness = sub.add_parser("p1a-freshness", help="Check whether generated P1a artifacts are stale")
+    freshness.add_argument("--artifacts", type=Path, default=DEFAULT_OUT)
     return parser
 
 
@@ -40,6 +43,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "p1a-query":
         print(answer_question(args.artifacts, args.question), end="")
         return 0
+    if args.command == "p1a-freshness":
+        freshness = check_freshness(args.artifacts)
+        print(f"Status: {freshness['status']}")
+        print(f"Reason: {freshness['reason']}")
+        print(f"Source snapshot: {freshness.get('source_snapshot_id') or 'unknown'}")
+        for item in freshness.get("stale_files", []):
+            print(f"Changed: {item['file_path']}")
+        for file_path in freshness.get("missing_files", []):
+            print(f"Missing: {file_path}")
+        return 1 if freshness["status"] == "stale" else 0
     parser.error(f"unknown command {args.command}")
     return 2
 

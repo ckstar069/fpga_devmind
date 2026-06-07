@@ -8,6 +8,7 @@ Implemented:
 
 - CLI entry point: `fpga-devmind p1a-understand-stage`
 - CLI entry point: `fpga-devmind p1a-query`
+- CLI entry point: `fpga-devmind p1a-freshness`
 - P1a dataclass schema objects.
 - Read-only project tree scan.
 - Read-only L6 Python symbol and evidence extraction.
@@ -17,9 +18,11 @@ Implemented:
 - Structured fixed-point, stream interface, and pipeline timing specs in `project_graph.json`.
 - Structured resource estimate specs extracted from L6 `ResourceEstimate(...)` evidence.
 - `trace_index.json` and `trace.md` for claim/spec/evidence back-tracing.
+- `memory_manifest.json` source snapshot and freshness checking.
 - Deterministic query shell over generated ProjectGraph and TraceIndex artifacts.
+- Freshness warning in query answers when generated artifacts are stale or unverifiable.
 - Artifact writing to `/tmp/fpga_devmind/p1a_coarse_sync_l6`.
-- Rendered `project_graph.json`, `trace_index.json`, `summary.md`, `flow.mmd`, `trace.md`, `run_metadata.json`.
+- Rendered `project_graph.json`, `trace_index.json`, `memory_manifest.json`, `summary.md`, `flow.mmd`, `trace.md`, `run_metadata.json`.
 
 Not implemented yet:
 
@@ -49,6 +52,13 @@ Query generated artifacts:
 PYTHONPATH=src python3 -m fpga_devmind.cli p1a-query \
   --artifacts /tmp/fpga_devmind/p1a_coarse_sync_l6 \
   --question "L6 实现了什么流程"
+```
+
+Check whether generated artifacts are stale:
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-freshness \
+  --artifacts /tmp/fpga_devmind/p1a_coarse_sync_l6
 ```
 
 Supported deterministic query topics:

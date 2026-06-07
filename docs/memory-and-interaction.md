@@ -125,6 +125,8 @@ Drill down evidence id
 - p1a-query 不引入新 claim。
 - p1a-query 不调用 LLM。
 - p1a-query 的回答必须来自 ProjectGraph 和 TraceIndex。
+- p1a-query 必须先检查 MemoryManifest freshness。
+- stale 或 unknown freshness 的回答必须显式提示用户。
 ```
 
 这个查询壳不是最终交互体验，而是 Human Interaction Layer 的最小垂直切片。后续 LLM/Agent 可以把自然语言问题解析成更丰富的图查询，但仍应保持同样的 grounding 规则。
@@ -202,6 +204,17 @@ MemoryProvenance
 4. stale 节点不能作为 strong evidence。
 5. 需要重新查证后才能恢复 confirmed / supported 结论。
 ```
+
+P1a 当前用 `memory_manifest.json` 实现该检查：
+
+```text
+source_snapshot_id
+source_files[].file_path
+source_files[].sha256
+stale_when_source_changed
+```
+
+`p1a-freshness` 可单独检查 artifact 状态；`p1a-query` 会在回答前自动检查。若状态为 stale，回答只能作为历史解释查看，不能作为当前 confirmed understanding 使用。
 
 这对 `fpga_project_*` 尤其重要，因为目标项目会持续由 AI agent 或人工修改。没有失效机制，语义图会变成带证据外观的陈旧结论。
 

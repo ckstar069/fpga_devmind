@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from fpga_devmind.p1a import DEFAULT_PROJECT, run_p1a
-from fpga_devmind.query import answer_question
+from fpga_devmind.query import answer_question, check_freshness
 
 
 class P1aRunnerTest(unittest.TestCase):
@@ -20,6 +20,7 @@ class P1aRunnerTest(unittest.TestCase):
 
             self.assertTrue((out_dir / "project_graph.json").exists())
             self.assertTrue((out_dir / "trace_index.json").exists())
+            self.assertTrue((out_dir / "memory_manifest.json").exists())
             self.assertTrue((out_dir / "summary.md").exists())
             self.assertTrue((out_dir / "flow.mmd").exists())
             self.assertTrue((out_dir / "trace.md").exists())
@@ -42,6 +43,10 @@ class P1aRunnerTest(unittest.TestCase):
             )
             self.assertGreaterEqual(len(trace_index["evidence"]), len(graph.evidence_items))
 
+            freshness = check_freshness(out_dir)
+            self.assertEqual(freshness["status"], "current")
+            self.assertIn("source_snapshot_id", freshness)
+
             flow_answer = answer_question(out_dir, "L6 实现了什么流程")
             self.assertIn("S0 AutocorrNorm", flow_answer)
             self.assertIn("C001", flow_answer)
@@ -54,6 +59,16 @@ class P1aRunnerTest(unittest.TestCase):
             claim_answer = answer_question(out_dir, "C001 的证据在哪里")
             self.assertIn("Claim `C001` is `confirmed`", claim_answer)
             self.assertIn("coarse_sync_optimized.py", claim_answer)
+
+            manifest_path = out_dir / "memory_manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["source_files"][0]["sha256"] = "0" * 64
+            manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+            stale = check_freshness(out_dir)
+            self.assertEqual(stale["status"], "stale")
+            stale_answer = answer_question(out_dir, "C001 的证据在哪里")
+            self.assertIn("Freshness Warning", stale_answer)
 
 
 if __name__ == "__main__":

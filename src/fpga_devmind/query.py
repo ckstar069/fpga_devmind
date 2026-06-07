@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from pathlib import Path
 from typing import Any
@@ -16,28 +17,71 @@ def answer_question(artifact_dir: Path, question: str) -> str:
     """
 
     graph, trace = _load_artifacts(artifact_dir)
+    freshness = check_freshness(artifact_dir)
     normalized = question.lower()
 
     claim_id = _extract_claim_id(question)
     if claim_id:
-        return _answer_claim(trace, claim_id)
+        return _with_freshness(_answer_claim(trace, claim_id), freshness)
 
     evidence_id = _extract_evidence_id(question)
     if evidence_id:
-        return _answer_evidence(trace, evidence_id)
+        return _with_freshness(_answer_evidence(trace, evidence_id), freshness)
 
     if _has_any(normalized, ["resource", "lut", "ff", "dsp", "bram", "资源"]):
-        return _answer_resource(graph, trace)
+        return _with_freshness(_answer_resource(graph, trace), freshness)
     if _has_any(normalized, ["fixed", "q(", "q格式", "定点", "位宽", "scale"]):
-        return _answer_fixed_point(graph, trace)
+        return _with_freshness(_answer_fixed_point(graph, trace), freshness)
     if _has_any(normalized, ["interface", "axis", "valid", "ready", "tvalid", "接口"]):
-        return _answer_interface(graph, trace)
+        return _with_freshness(_answer_interface(graph, trace), freshness)
     if _has_any(normalized, ["pipeline", "latency", "cycle", "时序", "延迟", "valid propagation"]):
-        return _answer_pipeline(graph, trace)
+        return _with_freshness(_answer_pipeline(graph, trace), freshness)
     if _has_any(normalized, ["flow", "dataflow", "stage", "流程", "实现了什么", "主线", "s0", "s1", "s2", "s3"]):
-        return _answer_flow(graph, trace)
+        return _with_freshness(_answer_flow(graph, trace), freshness)
 
-    return _answer_topics(graph)
+    return _with_freshness(_answer_topics(graph), freshness)
+
+
+def check_freshness(artifact_dir: Path) -> dict[str, Any]:
+    manifest_path = artifact_dir / "memory_manifest.json"
+    if not manifest_path.exists():
+        return {
+            "status": "unknown",
+            "reason": "missing_memory_manifest",
+            "stale_files": [],
+            "missing_files": [],
+            "source_snapshot_id": None,
+        }
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    stale_files = []
+    missing_files = []
+    for source in manifest.get("source_files", []):
+        path = Path(source["file_path"])
+        if not path.exists():
+            missing_files.append(source["file_path"])
+            continue
+        current_hash = _sha256(path)
+        if current_hash != source.get("sha256"):
+            stale_files.append(
+                {
+                    "file_path": source["file_path"],
+                    "expected_sha256": source.get("sha256"),
+                    "current_sha256": current_hash,
+                }
+            )
+    status = "current"
+    reason = "source_snapshot_matches"
+    if missing_files or stale_files:
+        status = "stale"
+        reason = "source_snapshot_changed"
+    return {
+        "status": status,
+        "reason": reason,
+        "stale_files": stale_files,
+        "missing_files": missing_files,
+        "source_snapshot_id": manifest.get("source_snapshot_id"),
+        "created_at": manifest.get("created_at"),
+    }
 
 
 def _load_artifacts(artifact_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -50,6 +94,29 @@ def _load_artifacts(artifact_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]
     graph = json.loads(graph_path.read_text(encoding="utf-8"))
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     return graph, trace
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _with_freshness(answer: str, freshness: dict[str, Any]) -> str:
+    if freshness["status"] == "current":
+        return answer
+    if freshness["status"] == "unknown":
+        warning = (
+            "# Freshness Warning\n\n"
+            "Artifact freshness is unknown because `memory_manifest.json` is missing. "
+            "Treat grounded answers as reusable only after regenerating P1a artifacts.\n\n"
+        )
+        return warning + answer
+    changed = len(freshness.get("stale_files", [])) + len(freshness.get("missing_files", []))
+    warning = (
+        "# Freshness Warning\n\n"
+        f"Artifacts are stale: {changed} source file(s) changed or disappeared since snapshot "
+        f"`{freshness.get('source_snapshot_id')}`. Regenerate P1a before using confirmed claims.\n\n"
+    )
+    return warning + answer
 
 
 def _extract_claim_id(text: str) -> str | None:

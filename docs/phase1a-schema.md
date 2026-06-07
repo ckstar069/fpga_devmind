@@ -10,13 +10,14 @@ P1a 默认输出：
 /tmp/fpga_devmind/p1a_coarse_sync_l6/
 - project_graph.json
 - trace_index.json
+- memory_manifest.json
 - summary.md
 - flow.mmd
 - trace.md
 - run_metadata.json
 ```
 
-`project_graph.json` 是 P1a 的主结构化产物。`trace_index.json` 是 claim/spec/evidence 的反向索引。`summary.md`、`flow.mmd` 和 `trace.md` 必须从结构化产物渲染，不能加入未 grounded 的额外结论。
+`project_graph.json` 是 P1a 的主结构化产物。`trace_index.json` 是 claim/spec/evidence 的反向索引。`memory_manifest.json` 记录源文件快照，用于 freshness check。`summary.md`、`flow.mmd` 和 `trace.md` 必须从结构化产物渲染，不能加入未 grounded 的额外结论。
 
 ## ProjectGraphP1a
 
@@ -250,6 +251,38 @@ Rules:
 - TraceIndex is generated from ProjectGraph and EvidenceItem only.
 - TraceIndex must not introduce new claims or new evidence.
 - Human-facing trace.md is a view of TraceIndex, not an independent report.
+```
+
+## MemoryManifestP1a
+
+```text
+MemoryManifestP1a
+- schema_version
+- project_id
+- stage_id
+- graph_schema_version
+- trace_schema_version
+- source_snapshot_id
+- created_at
+- stale_when_source_changed
+- source_files
+```
+
+每个 source file 项：
+
+```text
+- file_path
+- sha256
+- exists
+```
+
+Rules:
+
+```text
+- p1a-query must check MemoryManifest before reusing artifacts.
+- If any source file hash changes, generated artifacts are stale.
+- Stale artifacts can still be displayed, but confirmed claims must not be treated as current.
+- Missing memory_manifest.json makes freshness unknown.
 ```
 
 ## CandidateClaimP1a

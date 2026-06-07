@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -577,6 +578,36 @@ def _write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _build_memory_manifest(graph: ProjectGraph) -> dict:
+    source_files = []
+    for file_path in graph.run_metadata["source_files_read"]:
+        path = Path(file_path)
+        source_files.append(
+            {
+                "file_path": str(path),
+                "sha256": _sha256(path) if path.exists() else None,
+                "exists": path.exists(),
+            }
+        )
+    snapshot_basis = "|".join(f"{item['file_path']}={item['sha256']}" for item in source_files)
+    snapshot_id = hashlib.sha256(snapshot_basis.encode("utf-8")).hexdigest()[:16]
+    return {
+        "schema_version": "memory-manifest-0.1",
+        "project_id": graph.project_profile.project_id,
+        "stage_id": graph.stage.stage_id,
+        "graph_schema_version": graph.schema_version,
+        "trace_schema_version": "trace-0.1",
+        "source_snapshot_id": snapshot_id,
+        "created_at": graph.run_metadata["created_at"],
+        "stale_when_source_changed": True,
+        "source_files": source_files,
+    }
+
+
 def _evidence_lookup(graph: ProjectGraph) -> dict[str, dict]:
     return {item.evidence_id: asdict(item) for item in graph.evidence_items}
 
@@ -773,8 +804,10 @@ def run_p1a(project_root: Path = DEFAULT_PROJECT, out_dir: Path = DEFAULT_OUT) -
     out_dir.mkdir(parents=True, exist_ok=True)
     graph = _build_graph(project_root, out_dir)
     trace_index = _build_trace_index(graph)
+    memory_manifest = _build_memory_manifest(graph)
     _write_json(out_dir / "project_graph.json", graph.to_dict())
     _write_json(out_dir / "trace_index.json", trace_index)
+    _write_json(out_dir / "memory_manifest.json", memory_manifest)
     (out_dir / "summary.md").write_text(_render_summary(graph), encoding="utf-8")
     (out_dir / "flow.mmd").write_text(_render_mermaid(graph), encoding="utf-8")
     (out_dir / "trace.md").write_text(_render_trace_markdown(trace_index), encoding="utf-8")
@@ -782,7 +815,15 @@ def run_p1a(project_root: Path = DEFAULT_PROJECT, out_dir: Path = DEFAULT_OUT) -
         out_dir / "run_metadata.json",
         {
             **graph.run_metadata,
-            "output_files": ["project_graph.json", "trace_index.json", "summary.md", "flow.mmd", "trace.md"],
+            "source_snapshot_id": memory_manifest["source_snapshot_id"],
+            "output_files": [
+                "project_graph.json",
+                "trace_index.json",
+                "memory_manifest.json",
+                "summary.md",
+                "flow.mmd",
+                "trace.md",
+            ],
             "blocking_diagnostics": [
                 asdict(d) for d in graph.grounding_diagnostics if d.severity == "blocking"
             ],
