@@ -335,7 +335,16 @@ def _build_graph(project_root: Path, out_dir: Path) -> ProjectGraph:
         )
         claim_idx += 1
 
-    resource_symbols = [s for s in py_obs.symbols if s.role_hint == "resource_estimate"]
+    resource_symbols = [
+        s
+        for s in py_obs.symbols
+        if s.role_hint == "resource_estimate"
+        and (
+            "resource" in s.name.lower()
+            or "estimate" in s.name.lower()
+            or Path(s.file_path).name.endswith("_resource_est.py")
+        )
+    ]
     resource_eids = [eid for s in resource_symbols for eid in s.evidence_ids]
     for estimate in py_obs.resource_estimates:
         resource_eids.extend(estimate["evidence_ids"])
@@ -568,6 +577,118 @@ def _write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _evidence_lookup(graph: ProjectGraph) -> dict[str, dict]:
+    return {item.evidence_id: asdict(item) for item in graph.evidence_items}
+
+
+def _build_trace_index(graph: ProjectGraph) -> dict:
+    evidence_by_id = _evidence_lookup(graph)
+    outputs_by_claim: dict[str, list[dict]] = {}
+    outputs_by_evidence: dict[str, list[dict]] = {}
+
+    def attach(output_id: str, output_type: str, source_claim_ids: list[str], evidence_ids: list[str]) -> None:
+        output_ref = {"output_id": output_id, "output_type": output_type}
+        for claim_id in source_claim_ids:
+            if output_ref not in outputs_by_claim.setdefault(claim_id, []):
+                outputs_by_claim[claim_id].append(output_ref)
+        for evidence_id in evidence_ids:
+            if output_ref not in outputs_by_evidence.setdefault(evidence_id, []):
+                outputs_by_evidence[evidence_id].append(output_ref)
+
+    stage_claim_ids = [
+        claim.claim_id
+        for claim in graph.candidate_claims
+        if claim.claim_type == "implementation_claim" and not claim.subject_ids
+    ]
+    attach(graph.stage.stage_id, "stage", stage_claim_ids, graph.stage.evidence_ids)
+    for concept in graph.concepts:
+        source_claim_ids = [
+            claim.claim_id for claim in graph.candidate_claims if concept.concept_id in claim.subject_ids
+        ]
+        attach(concept.concept_id, "concept", source_claim_ids, concept.evidence_ids)
+    for view in graph.implementation_views:
+        attach(view.view_id, "implementation_view", view.source_claim_ids, view.evidence_ids)
+    for spec in graph.fixed_point_specs:
+        attach(spec.spec_id, "fixed_point_spec", spec.source_claim_ids, spec.evidence_ids)
+    for spec in graph.stream_interface_specs:
+        attach(spec.interface_id, "stream_interface_spec", spec.source_claim_ids, spec.evidence_ids)
+    for spec in graph.pipeline_timing_specs:
+        attach(spec.timing_id, "pipeline_timing_spec", spec.source_claim_ids, spec.evidence_ids)
+    for spec in graph.resource_estimate_specs:
+        attach(spec.spec_id, "resource_estimate_spec", spec.source_claim_ids, spec.evidence_ids)
+    for viz in graph.visualization_specs:
+        for node in viz.nodes:
+            attach(node.node_id, "visualization_node", node.source_claim_ids, node.evidence_ids)
+        for edge in viz.edges:
+            attach(edge.edge_id, "visualization_edge", edge.source_claim_ids, edge.evidence_ids)
+
+    claims = {}
+    for claim in graph.candidate_claims:
+        claims[claim.claim_id] = {
+            "claim_type": claim.claim_type,
+            "claim_layer": claim.claim_layer,
+            "confidence": claim.confidence,
+            "statement": claim.statement,
+            "subject_ids": claim.subject_ids,
+            "evidence_ids": claim.evidence_ids,
+            "evidence_refs": [
+                evidence_by_id[eid] for eid in claim.evidence_ids if eid in evidence_by_id
+            ],
+            "linked_outputs": outputs_by_claim.get(claim.claim_id, []),
+        }
+
+    evidence = {}
+    for evidence_id, item in evidence_by_id.items():
+        evidence[evidence_id] = {
+            **item,
+            "supporting_claim_ids": [
+                claim.claim_id for claim in graph.candidate_claims if evidence_id in claim.evidence_ids
+            ],
+            "linked_outputs": outputs_by_evidence.get(evidence_id, []),
+        }
+
+    return {
+        "schema_version": "trace-0.1",
+        "project_id": graph.project_profile.project_id,
+        "stage_id": graph.stage.stage_id,
+        "claims": claims,
+        "evidence": evidence,
+        "diagnostics": [asdict(d) for d in graph.grounding_diagnostics],
+    }
+
+
+def _render_trace_markdown(trace_index: dict) -> str:
+    lines = [
+        "# P1a Evidence Trace",
+        "",
+        f"Project: {trace_index['project_id']}",
+        f"Stage: {trace_index['stage_id']}",
+        "",
+        "## Claims",
+    ]
+    for claim_id, claim in trace_index["claims"].items():
+        lines.append(f"- {claim_id} ({claim['claim_type']}, {claim['confidence']}): {claim['statement']}")
+        for evidence in claim["evidence_refs"][:4]:
+            loc = f"{evidence['file_path']}:{evidence['start_line']}"
+            lines.append(f"  - {evidence['evidence_id']} {loc} {evidence['excerpt_summary']}")
+        if len(claim["evidence_refs"]) > 4:
+            lines.append(f"  - ... {len(claim['evidence_refs']) - 4} more evidence items")
+    lines.extend(["", "## Evidence With Multiple Uses"])
+    reused = [
+        (evidence_id, evidence)
+        for evidence_id, evidence in trace_index["evidence"].items()
+        if len(evidence["supporting_claim_ids"]) > 1 or len(evidence["linked_outputs"]) > 1
+    ]
+    if not reused:
+        lines.append("- No reused evidence detected.")
+    for evidence_id, evidence in reused:
+        claims = ",".join(evidence["supporting_claim_ids"]) or "no-claim"
+        outputs = ",".join(f"{ref['output_type']}:{ref['output_id']}" for ref in evidence["linked_outputs"]) or "no-output"
+        loc = f"{evidence['file_path']}:{evidence['start_line']}"
+        lines.append(f"- {evidence_id} {loc}: claims={claims}; outputs={outputs}")
+    return "\n".join(lines) + "\n"
+
+
 def _render_summary(graph: ProjectGraph) -> str:
     claims_by_type: dict[str, list[CandidateClaim]] = {}
     for claim in graph.candidate_claims:
@@ -651,14 +772,17 @@ def run_p1a(project_root: Path = DEFAULT_PROJECT, out_dir: Path = DEFAULT_OUT) -
     project_root = project_root.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     graph = _build_graph(project_root, out_dir)
+    trace_index = _build_trace_index(graph)
     _write_json(out_dir / "project_graph.json", graph.to_dict())
+    _write_json(out_dir / "trace_index.json", trace_index)
     (out_dir / "summary.md").write_text(_render_summary(graph), encoding="utf-8")
     (out_dir / "flow.mmd").write_text(_render_mermaid(graph), encoding="utf-8")
+    (out_dir / "trace.md").write_text(_render_trace_markdown(trace_index), encoding="utf-8")
     _write_json(
         out_dir / "run_metadata.json",
         {
             **graph.run_metadata,
-            "output_files": ["project_graph.json", "summary.md", "flow.mmd"],
+            "output_files": ["project_graph.json", "trace_index.json", "summary.md", "flow.mmd", "trace.md"],
             "blocking_diagnostics": [
                 asdict(d) for d in graph.grounding_diagnostics if d.severity == "blocking"
             ],

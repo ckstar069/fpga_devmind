@@ -9,12 +9,14 @@ P1a 默认输出：
 ```text
 /tmp/fpga_devmind/p1a_coarse_sync_l6/
 - project_graph.json
+- trace_index.json
 - summary.md
 - flow.mmd
+- trace.md
 - run_metadata.json
 ```
 
-`project_graph.json` 是 P1a 的主结构化产物。`summary.md` 和 `flow.mmd` 必须从该结构化产物渲染，不能加入未 grounded 的额外结论。
+`project_graph.json` 是 P1a 的主结构化产物。`trace_index.json` 是 claim/spec/evidence 的反向索引。`summary.md`、`flow.mmd` 和 `trace.md` 必须从结构化产物渲染，不能加入未 grounded 的额外结论。
 
 ## ProjectGraphP1a
 
@@ -201,6 +203,54 @@ EvidenceItemP1a
 ```
 
 P1a 不使用 RTL/test evidence 生成 confirmed claim。如果读取 RTL/tests，只能标为 weak context 或 future-entry evidence。
+
+## TraceIndexP1a
+
+```text
+TraceIndexP1a
+- schema_version
+- project_id
+- stage_id
+- claims
+- evidence
+- diagnostics
+```
+
+每个 claim 索引项：
+
+```text
+- claim_type
+- claim_layer
+- confidence
+- statement
+- subject_ids
+- evidence_ids
+- evidence_refs
+- linked_outputs
+```
+
+每个 evidence 索引项：
+
+```text
+- evidence_id
+- source_type
+- file_path
+- start_line
+- end_line
+- symbol
+- excerpt_summary
+- evidence_strength
+- supporting_claim_ids
+- linked_outputs
+```
+
+Rules:
+
+```text
+- TraceIndex is generated from ProjectGraph and EvidenceItem only.
+- TraceIndex must not introduce new claims or new evidence.
+- Human-facing trace.md is a view of TraceIndex, not an independent report.
+```
 
 ## CandidateClaimP1a
 

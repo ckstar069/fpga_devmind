@@ -15,8 +15,9 @@ Implemented:
 - Basic grounding checks for unsupported confirmed claims and unsupported visualization nodes/edges.
 - Structured fixed-point, stream interface, and pipeline timing specs in `project_graph.json`.
 - Structured resource estimate specs extracted from L6 `ResourceEstimate(...)` evidence.
+- `trace_index.json` and `trace.md` for claim/spec/evidence back-tracing.
 - Artifact writing to `/tmp/fpga_devmind/p1a_coarse_sync_l6`.
-- Rendered `project_graph.json`, `summary.md`, `flow.mmd`, `run_metadata.json`.
+- Rendered `project_graph.json`, `trace_index.json`, `summary.md`, `flow.mmd`, `trace.md`, `run_metadata.json`.
 
 Not implemented yet:
 
