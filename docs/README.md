@@ -16,6 +16,7 @@
 - [Phase 1a single stage understanding](phase1a-single-stage-understanding.md)：`coarse_sync_glm` L6 单阶段 Understanding Agent 的详细规格。
 - [Phase 1a schema](phase1a-schema.md)：P1a 的最小 JSON schema、artifact layout、summary/visual grounding contract。
 - [P1a implementation prep](p1a-implementation-prep.md)：P1a 实现前清单、代码切片顺序和最小 grounding 检查。
+- [Implementation status](implementation-status.md)：当前 P1a 最小代码骨架状态和验证命令。
 - [Review process](review-process.md)：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。
 - [Review response 0001](review-response-0001.md)：第一次独立 Review Agent 评审的处理决定。
 - [Review response 0002](review-response-0002.md)：P1a 专项评审的处理决定。
