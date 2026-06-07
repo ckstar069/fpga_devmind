@@ -296,7 +296,9 @@ claim_proposals.json
   CandidateClaims before grounding.
 
 graph_write_proposal.json
-  Proposed nodes, edges, uncertainties and visualization specs.
+  Proposed graph writes. Current dry-run records accepted model claims as
+  model_claims_to_create and rejected model claim ids, but does not mutate
+  ProjectGraph.
 
 grounding_report.json
   Diagnostics and reflection decisions.

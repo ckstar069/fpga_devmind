@@ -242,6 +242,54 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertEqual(proposals["model_claim_summary"]["rejected"], 1)
             self.assertEqual(proposals["model_candidate_claims"][0]["validation_status"], "rejected")
 
+    def test_p1a_plus_agent_proposes_valid_model_claims_for_graph_write(self) -> None:
+        if not DEFAULT_PROJECT.exists():
+            self.skipTest(f"target project not found: {DEFAULT_PROJECT}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "agent"
+            artifact_dir = Path(tmp) / "artifacts"
+            graph = run_p1a(DEFAULT_PROJECT, artifact_dir)
+            evidence_id = graph.evidence_items[0].evidence_id
+            fixture_path = Path(tmp) / "model_result.json"
+            fixture = {
+                "schema_version": "p1a-plus-semantic-result-0.1",
+                "request_id": "fixture-accepted",
+                "plan_step_id": "S002",
+                "reasoning_summary": "Synthetic accepted fixture.",
+                "candidate_claims": [
+                    {
+                        "claim_type": "implementation_claim",
+                        "statement": "The model proposes a grounded semantic reading of the first observed evidence item.",
+                        "subject_ids": ["N001"],
+                        "evidence_ids": [evidence_id],
+                        "confidence": "supported",
+                        "required_missing_evidence": [],
+                        "generated_from_step": "S002",
+                    }
+                ],
+                "proposed_edges": [],
+                "proposed_uncertainties": [],
+                "requested_followup_tools": [],
+                "self_check_notes": [],
+            }
+            fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+
+            result = run_p1a_semantic_agent_dry_run(
+                project_root=DEFAULT_PROJECT,
+                stage_id="L6_resource_opt",
+                question="L6 实现了什么流程",
+                out_dir=out_dir,
+                artifact_dir=artifact_dir,
+                model_result_path=fixture_path,
+            )
+
+            self.assertEqual(result["grounding_report"]["summary"]["model_output_blocking_diagnostics"], 0)
+            graph_write = json.loads((out_dir / "graph_write_proposal.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(graph_write["model_claims_to_create"]), 1)
+            self.assertEqual(graph_write["rejected_model_claim_ids"], [])
+            self.assertEqual(graph_write["model_claims_to_create"][0]["validation_status"], "accepted_for_grounding")
+
     def test_p1a_plus_agent_rejects_unsafe_output_path(self) -> None:
         if not DEFAULT_PROJECT.exists():
             self.skipTest(f"target project not found: {DEFAULT_PROJECT}")

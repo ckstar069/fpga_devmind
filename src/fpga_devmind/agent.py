@@ -144,7 +144,7 @@ def run_p1a_semantic_agent_dry_run(
             f"Model result fixture read from {model_result_path}.",
             "Fixture claims are validated but not written to ProjectGraph in this slice.",
         ]
-    graph_write_proposal = _build_graph_write_proposal(graph, p1a_artifacts, runtime_mode)
+    graph_write_proposal = _build_graph_write_proposal(graph, p1a_artifacts, runtime_mode, normalized_model_result)
     grounding_report = _build_grounding_report(graph, freshness, model_diagnostics, runtime_mode)
     agent_trace = {
         "schema_version": "p1a-plus-agent-trace-0.1",
@@ -285,12 +285,28 @@ def _claim_ids_for_question(graph: dict[str, Any], question: str) -> list[str]:
     return [claim["claim_id"] for claim in graph["candidate_claims"][:5]]
 
 
-def _build_graph_write_proposal(graph: dict[str, Any], artifact_dir: Path, runtime_mode: str) -> dict[str, Any]:
+def _build_graph_write_proposal(
+    graph: dict[str, Any],
+    artifact_dir: Path,
+    runtime_mode: str,
+    model_result: dict[str, Any],
+) -> dict[str, Any]:
+    model_claims = [claim for claim in model_result.get("candidate_claims", []) if isinstance(claim, dict)]
+    accepted_model_claims = [
+        claim for claim in model_claims if claim.get("validation_status") == "accepted_for_grounding"
+    ]
+    rejected_model_claim_ids = [
+        claim.get("claim_id", "unknown")
+        for claim in model_claims
+        if claim.get("validation_status") == "rejected"
+    ]
     return {
         "schema_version": "p1a-plus-graph-write-proposal-0.1",
         "mode": runtime_mode,
         "source_project_graph": str(artifact_dir / "project_graph.json"),
         "source_claim_ids": [claim["claim_id"] for claim in graph["candidate_claims"]],
+        "model_claims_to_create": accepted_model_claims,
+        "rejected_model_claim_ids": rejected_model_claim_ids,
         "nodes_to_create": [],
         "edges_to_create": [],
         "evidences_to_create": [],
@@ -298,7 +314,7 @@ def _build_graph_write_proposal(graph: dict[str, Any], artifact_dir: Path, runti
         "visualizations_to_create": [],
         "stale_nodes_to_mark": [],
         "confidence": "supported",
-        "note": "Dry-run proposes no new semantic graph writes beyond existing P1a graph.",
+        "note": "Dry-run records accepted model claims as graph-write candidates but does not mutate ProjectGraph.",
     }
 
 
