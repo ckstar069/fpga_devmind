@@ -1,8 +1,8 @@
-# T010: UI P1b Concept Trace View
+# T010: Desktop P1b Concept Trace View
 
 ## Objective
 
-Add a dedicated GUI view for P1b concept trace artifacts after P1b implementation exists.
+Add a dedicated desktop GUI view for P1b concept trace artifacts after P1b implementation exists.
 
 ## Dependency
 
@@ -10,15 +10,15 @@ This task depends on:
 
 ```text
 T001-T007 P1b implementation
-T008 UI artifact contract
-T009 local web prototype
+T008 desktop artifact contract
+T009 desktop app prototype
 ```
 
 ## Allowed Files
 
 ```text
+desktop/**
 ui/**
-web/**
 src/fpga_devmind/ui*.py
 tests/test_ui.py
 docs/ui-prototype-plan.md

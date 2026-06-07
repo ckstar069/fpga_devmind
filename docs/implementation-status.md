@@ -67,15 +67,15 @@ Not implemented yet:
 - Full symbolic resource total evaluation.
 - P1b L6-to-RTL mapping.
 - P1c verification coverage.
-- UI artifact viewer.
-- Desktop app packaging for macOS / Linux first, Windows second.
+- Desktop artifact viewer.
+- Desktop app prototype for macOS / Linux first, Windows second.
 - Interactive memory.
 
 Ready for controlled implementation planning:
 
 - P1b one-concept L5/L6-to-RTL trace.
 - Claude / Kimi implementation handoff using task cards under `docs/tasks/`.
-- Web GUI and desktop GUI prototype planning after P1b structured artifacts are available.
+- Desktop GUI prototype planning after P1b structured artifacts are available.
 - Review gate before marking P1b complete.
 
 ## Current Command

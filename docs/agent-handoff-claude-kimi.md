@@ -128,17 +128,16 @@ Unit tests should use synthetic fixtures when possible. Tests that depend on `/U
 
 ## GUI Direction
 
-The product should eventually have a graphical interface. GUI work is covered by:
+The final complete product should be a desktop Agent app, with macOS / Linux first and Windows second. Web GUI is not part of the current implementation route. GUI work is covered by:
 
 ```text
 docs/ui-prototype-plan.md
-docs/tasks/T008-ui-artifact-viewer-contract.md
-docs/tasks/T009-ui-local-web-prototype.md
-docs/tasks/T010-ui-p1b-concept-trace-view.md
-docs/tasks/T011-ui-desktop-app-packaging.md
+docs/tasks/T008-desktop-artifact-viewer-contract.md
+docs/tasks/T009-desktop-app-prototype.md
+docs/tasks/T010-desktop-p1b-concept-trace-view.md
 ```
 
-Do not start GUI work before the assigned task says so. The GUI must support both Web and desktop directions, with macOS / Linux desktop first and Windows second. Web and desktop must share the same artifact contract and view model. The first GUI must be a read-only artifact viewer over generated JSON / Markdown / Mermaid artifacts. It must not become the semantic source of truth, and it must not run Vivado, mutate target projects or call external provider APIs.
+Do not start GUI work before the assigned task says so. The GUI target is desktop-only, macOS / Linux first and Windows second. Do not implement a Web GUI task. The first desktop GUI may be a read-only artifact viewer over generated JSON / Markdown / Mermaid artifacts, but the long-term desktop app must become the Human Interaction Layer for the Agent. It must not become the semantic source of truth, and it must not run Vivado, mutate target projects or call external provider APIs unless a later explicit workflow safely allows it.
 
 ## Review Requirement
 

@@ -1,10 +1,10 @@
-# T008: UI Artifact Viewer Contract
+# T008: Desktop Artifact Viewer Contract
 
 ## Objective
 
-Define the first GUI artifact loading contract before building the interface.
+Define the first desktop artifact loading contract before building the interface.
 
-The UI must be an artifact viewer, not a new source of semantic truth.
+The desktop UI must be an artifact viewer and Agent interaction shell, not a new source of semantic truth.
 
 ## Allowed Files
 
@@ -60,8 +60,8 @@ Each bundle should describe:
 
 ```text
 - missing files are represented as structured diagnostics.
-- UI contract does not read target project source directly.
-- UI contract names P1a, P1a+ and P1b artifact files consistently with existing docs.
+- desktop contract does not read target project source directly.
+- desktop contract names P1a, P1a+ and P1b artifact files consistently with existing docs.
 - tests use synthetic temp artifact directories.
 ```
 

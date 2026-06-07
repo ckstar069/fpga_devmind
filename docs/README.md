@@ -5,6 +5,7 @@
 ## 核心文档
 
 - [Direction guardrails](direction-guardrails.md)：短版方向护栏，后续实现不能偏离。
+- [Product target](product-target.md)：最终产品形态：桌面端 FPGA 开发-理解一体 Agent 软件，CLI 是阶段性基础设施。
 - [Agent-first architecture](agent-first-architecture.md)：总体定位、Agent 机制、普通软件底座的职责边界。
 - [Agent runtime](agent-runtime.md)：Agent 运行时组件、任务生命周期和最小可行运行时。
 - [Runtime contracts](runtime-contracts.md)：TaskPlan、ToolObservation、Claim、GroundingDiagnostic、ReflectionDecision 等最小可执行契约。
@@ -19,7 +20,7 @@
 - [P1a V0.1 acceptance](p1a-v0.1-acceptance.md)：P1a V0.1 的验收标准、已知限制和进入下一阶段的判定规则。
 - [P1a+ Semantic Agent Layer](p1a-plus-semantic-agent.md)：P1a V0.1 后的 LLM/ReAct 语义 Agent 层设计。
 - [P1b Implementation Plan](implementation-plan-p1b.md)：P1b 单概念 L5/L6-to-RTL trace 的受控实施计划。
-- [UI Prototype Plan](ui-prototype-plan.md)：本地图形界面原型计划，用于浏览结构化 artifact、图、证据和不确定项。
+- [UI Prototype Plan](ui-prototype-plan.md)：桌面端图形界面原型计划，用于浏览结构化 artifact、图、证据和不确定项，并承载后续 Agent 交互。
 - [Agent Handoff: Claude + Kimi Implementation](agent-handoff-claude-kimi.md)：交给外部编码 Agent 的约束、验证命令和任务执行规则。
 - [P1a implementation prep](p1a-implementation-prep.md)：P1a 实现前清单、代码切片顺序和最小 grounding 检查。
 - [Implementation status](implementation-status.md)：当前 P1a 最小代码骨架状态和验证命令。
@@ -44,10 +45,9 @@
 - [T005: P1b Mapping Claim Builder](tasks/T005-p1b-mapping-claim-builder.md)
 - [T006: P1b Grounding Checker And Report](tasks/T006-p1b-grounding-report.md)
 - [T007: P1b CLI, Rendering And Smoke](tasks/T007-p1b-cli-render-smoke.md)
-- [T008: UI Artifact Viewer Contract](tasks/T008-ui-artifact-viewer-contract.md)
-- [T009: UI Local Web Prototype](tasks/T009-ui-local-web-prototype.md)
-- [T010: UI P1b Concept Trace View](tasks/T010-ui-p1b-concept-trace-view.md)
-- [T011: UI Desktop App Packaging](tasks/T011-ui-desktop-app-packaging.md)
+- [T008: Desktop Artifact Viewer Contract](tasks/T008-desktop-artifact-viewer-contract.md)
+- [T009: Desktop App Prototype](tasks/T009-desktop-app-prototype.md)
+- [T010: Desktop P1b Concept Trace View](tasks/T010-desktop-p1b-concept-trace-view.md)
 
 ## 评审记录
 

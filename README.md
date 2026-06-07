@@ -10,6 +10,8 @@ read -> graph -> explain -> trace -> query -> freshness
 
 长期方向是与 `ai_project_template` 融合，形成真正的 FPGA Develop-Understand-Verify Agent：开发、理解、语义记忆、可视化、验证辅助和后续审计逐步一体化。
 
+最终完整产品形态应是桌面端 Agent 软件，macOS / Linux 优先，Windows 次之。CLI 是阶段性基础设施，不是最终产品边界；Web GUI 不作为当前实施目标。
+
 ## Current Status
 
 当前仓库已有 P1a V0.1 候选：一个只读、确定性、无 LLM 的单阶段理解层原型。
@@ -100,6 +102,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 
 - [Docs index](docs/README.md)
 - [Direction guardrails](docs/direction-guardrails.md)
+- [Product target](docs/product-target.md)
 - [Agent-first architecture](docs/agent-first-architecture.md)
 - [P1a V0.1 quickstart](docs/p1a-v0.1-quickstart.md)
 - [P1a V0.1 acceptance](docs/p1a-v0.1-acceptance.md)

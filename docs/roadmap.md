@@ -6,6 +6,8 @@
 
 - 按真正的 Agent 方向设计。
 - 第一批能力可以用普通软件形态支撑，但产品内核必须是 Agent。
+- 最终完整产品形态是桌面端 Agent 软件，macOS / Linux 优先，Windows 次之。
+- Web GUI 不作为当前实施目标，避免分散桌面端 Agent 路线。
 - 先理解，再审计。
 - 先建语义图，再生成报告。
 - LLM / Agent 是主语义理解引擎，静态分析是证据和约束工具。
@@ -100,7 +102,7 @@ fpga_devmind 把偏差 / 决策反馈给开发 Agent
 - P1c: not implemented yet.
 ```
 
-下一步可编码实施应从 P1b 单概念 L5/L6-to-RTL trace 开始，详见 [P1b Implementation Plan](implementation-plan-p1b.md) 和 [Agent Handoff: Claude + Kimi Implementation](agent-handoff-claude-kimi.md)。用户希望有图形界面，因此 P1b 之后应进入 [UI Prototype Plan](ui-prototype-plan.md)，实现本地只读 artifact viewer。GUI 目标同时包括 Web GUI 和桌面端软件，桌面优先 macOS / Linux，Windows 次之。不要在 P1b 前抢先接真实 provider 或扩大成通用 RTL 审计工具。
+下一步可编码实施应从 P1b 单概念 L5/L6-to-RTL trace 开始，详见 [P1b Implementation Plan](implementation-plan-p1b.md) 和 [Agent Handoff: Claude + Kimi Implementation](agent-handoff-claude-kimi.md)。最终目标见 [Product Target](product-target.md)：完整产品应是桌面端 Agent 软件。P1b 后应进入 [UI Prototype Plan](ui-prototype-plan.md)，实现桌面端只读 artifact viewer，并逐步演进为 Agent Human Interaction Layer。不要在 P1b 前抢先接真实 provider、实现 Web GUI 或扩大成通用 RTL 审计工具。
 
 硬边界：
 
