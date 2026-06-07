@@ -15,6 +15,7 @@
 - [Phase 1 scope](phase1-scope.md)：Phase 1a / 1b / 1c 收窄切片、样例项目和验收指标。
 - [Phase 1a single stage understanding](phase1a-single-stage-understanding.md)：`coarse_sync_glm` 主样例和 `fine_cfo` smoke 样例的 L6 单阶段 Understanding Agent 规格。
 - [Phase 1a schema](phase1a-schema.md)：P1a 的最小 JSON schema、artifact layout、summary/visual grounding contract。
+- [P1a V0.1 quickstart](p1a-v0.1-quickstart.md)：当前可试用原型的 smoke、单项目运行、query、freshness 和边界说明。
 - [P1a implementation prep](p1a-implementation-prep.md)：P1a 实现前清单、代码切片顺序和最小 grounding 检查。
 - [Implementation status](implementation-status.md)：当前 P1a 最小代码骨架状态和验证命令。
 - [Review process](review-process.md)：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。

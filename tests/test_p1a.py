@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fpga_devmind.p1a import DEFAULT_PROJECT, run_p1a
 from fpga_devmind.query import answer_question, check_freshness
+from fpga_devmind.smoke import run_smoke, smoke_exit_code
 
 FINE_CFO_PROJECT = Path("/Users/ckstar/Repo/znxt_ofdm/fpga_project_fine_cfo")
 
@@ -97,6 +98,20 @@ class P1aRunnerTest(unittest.TestCase):
             resource_answer = answer_question(out_dir, "资源估计 LUT DSP BRAM 来自哪里")
             self.assertIn("estimate_sync", resource_answer)
             self.assertIn("fine_cfo_estimator_resource_est.py", resource_answer)
+
+    def test_smoke_report_runs_available_samples(self) -> None:
+        if not DEFAULT_PROJECT.exists() and not FINE_CFO_PROJECT.exists():
+            self.skipTest("target smoke projects not found")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_root = Path(tmp)
+            report = run_smoke(out_root)
+
+            self.assertTrue((out_root / "smoke_report.json").exists())
+            self.assertTrue((out_root / "smoke_report.md").exists())
+            self.assertEqual(len(report["samples"]), 2)
+            self.assertEqual(report["summary"]["failed"], 0)
+            self.assertEqual(smoke_exit_code(report), 0)
 
 
 if __name__ == "__main__":

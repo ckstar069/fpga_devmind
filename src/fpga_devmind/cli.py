@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .p1a import DEFAULT_OUT, DEFAULT_PROJECT, run_p1a
 from .query import answer_question, check_freshness
+from .smoke import DEFAULT_SMOKE_OUT, run_smoke, smoke_exit_code
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,6 +25,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     freshness = sub.add_parser("p1a-freshness", help="Check whether generated P1a artifacts are stale")
     freshness.add_argument("--artifacts", type=Path, default=DEFAULT_OUT)
+
+    smoke = sub.add_parser("p1a-smoke", help="Run P1a smoke validation on representative samples")
+    smoke.add_argument("--out-root", type=Path, default=DEFAULT_SMOKE_OUT)
     return parser
 
 
@@ -53,6 +57,19 @@ def main(argv: list[str] | None = None) -> int:
         for file_path in freshness.get("missing_files", []):
             print(f"Missing: {file_path}")
         return 1 if freshness["status"] == "stale" else 0
+    if args.command == "p1a-smoke":
+        report = run_smoke(args.out_root)
+        print(f"Wrote P1a smoke artifacts to {args.out_root}")
+        print(f"Passed: {report['summary']['passed']}")
+        print(f"Failed: {report['summary']['failed']}")
+        print(f"Skipped: {report['summary']['skipped']}")
+        for sample in report["samples"]:
+            print(
+                f"{sample['sample_id']}: {sample['status']} "
+                f"claims={sample['claims']} evidence={sample['evidence_items']} "
+                f"blocking={sample['blocking_diagnostics']} freshness={sample['freshness_status']}"
+            )
+        return smoke_exit_code(report)
     parser.error(f"unknown command {args.command}")
     return 2
 

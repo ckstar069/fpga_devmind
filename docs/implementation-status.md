@@ -9,6 +9,7 @@ Implemented:
 - CLI entry point: `fpga-devmind p1a-understand-stage`
 - CLI entry point: `fpga-devmind p1a-query`
 - CLI entry point: `fpga-devmind p1a-freshness`
+- CLI entry point: `fpga-devmind p1a-smoke`
 - P1a dataclass schema objects.
 - Read-only project tree scan.
 - Read-only L6 Python symbol and evidence extraction.
@@ -25,6 +26,7 @@ Implemented:
 - Artifact writing to `/tmp/fpga_devmind/p1a_coarse_sync_l6`.
 - Rendered `project_graph.json`, `trace_index.json`, `memory_manifest.json`, `summary.md`, `flow.mmd`, `trace.md`, `run_metadata.json`.
 - Smoke validation on `fpga_project_coarse_sync_glm` and `fpga_project_fine_cfo`.
+- P1a V0.1 quickstart for smoke, single-project run, query and freshness.
 
 Not implemented yet:
 
@@ -71,6 +73,13 @@ Check whether generated artifacts are stale:
 ```bash
 PYTHONPATH=src python3 -m fpga_devmind.cli p1a-freshness \
   --artifacts /tmp/fpga_devmind/p1a_coarse_sync_l6
+```
+
+Run P1a smoke validation:
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-smoke \
+  --out-root /tmp/fpga_devmind/p1a_smoke
 ```
 
 Supported deterministic query topics:
