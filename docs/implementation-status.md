@@ -46,6 +46,7 @@ Implemented:
 - Model output validation for schema_version, claims, requested follow-up tools, proposed edges and proposed uncertainties.
 - Graph write proposal now separates accepted model claims from rejected model claims without mutating ProjectGraph.
 - GraphWriter dry-run writes `project_graph_proposed.json` and `graph_write_report.json` without overwriting source `project_graph.json`.
+- Redacted provider configuration drafts for future DeepSeek / GLM / OpenAI adapters, with real API calls disabled by default.
 
 Not implemented yet:
 
@@ -54,6 +55,7 @@ Not implemented yet:
 - Multi-turn ReAct loop.
 - Model-generated CandidateClaims.
 - Provider-backed model calls.
+- Runtime API key loading.
 - Rich AST def-use / dataflow analysis.
 - Proven producer/consumer dataflow extraction.
 - High-quality generic flow ordering for every possible L6 architecture.

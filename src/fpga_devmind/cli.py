@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .agent import DEFAULT_AGENT_OUT, run_p1a_semantic_agent_dry_run
 from .p1a import DEFAULT_OUT, DEFAULT_PROJECT, run_p1a
+from .provider_config import DEFAULT_PROVIDER_CONFIG_OUT, write_provider_config_draft
 from .query import answer_question, check_freshness
 from .smoke import DEFAULT_SMOKE_OUT, run_smoke, smoke_exit_code
 
@@ -41,6 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
     agent.add_argument("--artifacts", type=Path)
     agent.add_argument("--model-result", type=Path, help="Optional local SemanticReasoningResult JSON fixture")
     agent.add_argument("--mock-semantic", action="store_true", help="Use built-in mock semantic provider")
+
+    provider_config = sub.add_parser(
+        "provider-config-draft",
+        help="Write a redacted provider configuration draft without calling external APIs",
+    )
+    provider_config.add_argument("--provider", choices=["deepseek", "glm", "openai"], required=True)
+    provider_config.add_argument("--out", type=Path, default=DEFAULT_PROVIDER_CONFIG_OUT)
     return parser
 
 
@@ -102,6 +110,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Model output blocking diagnostics: {report['summary']['model_output_blocking_diagnostics']}")
         print(f"Freshness: {report['freshness']['status']}")
         return 1 if report["summary"]["blocking_diagnostics"] or report["summary"]["model_output_blocking_diagnostics"] else 0
+    if args.command == "provider-config-draft":
+        result = write_provider_config_draft(args.provider, args.out)
+        draft = result["draft"]
+        print(f"Wrote provider config draft to {result['path']}")
+        print(f"Provider: {draft['provider_id']}")
+        print(f"Adapter status: {draft['adapter_status']}")
+        print(f"Enabled by default: {draft['enabled_by_default']}")
+        print(f"API key value included: {draft['api_key_value_included']}")
+        return 0
     parser.error(f"unknown command {args.command}")
     return 2
 

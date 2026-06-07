@@ -195,6 +195,18 @@ PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
 
 `--mock-semantic` 不调用外部 API。它只从已知 evidence id 中选择一个，生成一个合法 supported model claim，用于验证 validation -> graph_write_proposal -> project_graph_proposed 的正向链路。
 
+## Provider Config Draft
+
+生成真实 provider 接入前的 redacted 配置草案：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli provider-config-draft \
+  --provider deepseek \
+  --out /tmp/fpga_devmind/provider_config
+```
+
+支持 `deepseek`、`glm`、`openai`。该命令不读取 API key 值，不调用外部 API，只写环境变量名称、redaction 规则和默认禁用策略。
+
 ## Boundaries
 
 P1a V0.1 不做：

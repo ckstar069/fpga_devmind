@@ -8,6 +8,7 @@ from pathlib import Path
 from fpga_devmind.agent import run_p1a_semantic_agent_dry_run
 from fpga_devmind.llm_contract import validate_semantic_reasoning_result
 from fpga_devmind.p1a import DEFAULT_PROJECT, run_p1a
+from fpga_devmind.provider_config import build_provider_config_draft, write_provider_config_draft
 from fpga_devmind.query import answer_question, check_freshness
 from fpga_devmind.smoke import run_smoke, smoke_exit_code
 
@@ -435,6 +436,31 @@ class P1aRunnerTest(unittest.TestCase):
 
         self.assertTrue(any(d["issue_type"] == "model_output_missing_fields" for d in diagnostics))
         self.assertTrue(any(d["issue_type"] == "model_output_schema_version_mismatch" for d in diagnostics))
+
+    def test_provider_config_draft_is_redacted_and_disabled(self) -> None:
+        draft = build_provider_config_draft("deepseek")
+
+        self.assertEqual(draft["provider_id"], "deepseek")
+        self.assertEqual(draft["adapter_status"], "draft_not_implemented")
+        self.assertFalse(draft["enabled_by_default"])
+        self.assertFalse(draft["external_api_allowed_by_default"])
+        self.assertFalse(draft["api_key_value_included"])
+        self.assertIn("FPGA_DEVMIND_DEEPSEEK_API_KEY", draft["api_key_env"])
+        self.assertNotIn("sk-", json.dumps(draft))
+
+    def test_provider_config_draft_writes_only_to_safe_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp)
+            result = write_provider_config_draft("glm", out_dir)
+
+            path = Path(result["path"])
+            self.assertTrue(path.exists())
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["provider_id"], "glm")
+            self.assertFalse(saved["api_key_value_included"])
+
+        with self.assertRaisesRegex(ValueError, "fpga_project_"):
+            write_provider_config_draft("openai", Path("/tmp/fpga_project_bad/provider_config"))
 
 
 if __name__ == "__main__":

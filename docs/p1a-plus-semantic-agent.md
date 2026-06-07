@@ -249,6 +249,24 @@ MockSemanticProvider
 
 真实 provider 后续必须实现同一接口，并继续写出 `provider_call.json`。任何 provider 输出都不能绕过 `validate_semantic_reasoning_result()`。
 
+真实 provider 的配置草案由 `src/fpga_devmind/provider_config.py` 表达。当前只生成 redacted draft，不读取 API key 值、不调用外部 API：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli provider-config-draft \
+  --provider deepseek \
+  --out /tmp/fpga_devmind/provider_config
+```
+
+支持的 draft provider id：
+
+```text
+deepseek
+glm
+openai
+```
+
+这些 draft 默认 `enabled_by_default=false`、`external_api_allowed_by_default=false`，只记录环境变量名称，不记录环境变量值。
+
 最小校验规则：
 
 ```text
