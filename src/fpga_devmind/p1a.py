@@ -28,6 +28,7 @@ from .schema import (
     VizEdge,
     VizNode,
 )
+from .safety import ensure_safe_output_dir
 from .tools import extract_parameters, extract_python_stage_patterns, scan_project_tree
 from .tools import PythonStageObservation, SymbolInfo
 
@@ -981,6 +982,7 @@ def _render_mermaid(graph: ProjectGraph) -> str:
 
 def run_p1a(project_root: Path = DEFAULT_PROJECT, out_dir: Path = DEFAULT_OUT) -> ProjectGraph:
     project_root = project_root.resolve()
+    out_dir = ensure_safe_output_dir(out_dir, "P1a output")
     out_dir.mkdir(parents=True, exist_ok=True)
     graph = _build_graph(project_root, out_dir)
     trace_index = _build_trace_index(graph)

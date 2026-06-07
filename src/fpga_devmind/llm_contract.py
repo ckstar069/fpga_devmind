@@ -14,6 +14,7 @@ from typing import Any
 SEMANTIC_RESULT_SCHEMA_VERSION = "p1a-plus-semantic-result-0.1"
 
 REQUIRED_RESULT_FIELDS = {
+    "schema_version",
     "request_id",
     "plan_step_id",
     "reasoning_summary",
@@ -35,6 +36,14 @@ REQUIRED_CLAIM_FIELDS = {
 }
 
 ALLOWED_CONFIDENCE = {"confirmed", "supported", "inferred", "unknown", "conflicted"}
+ALLOWED_FOLLOWUP_TOOLS = {
+    "p1a-understand-stage",
+    "p1a-freshness",
+    "p1a-query",
+    "read_project_graph",
+    "read_trace_index",
+    "read_source_snippet",
+}
 
 
 def build_prompt_context(
@@ -52,6 +61,7 @@ def build_prompt_context(
         "role": "fpga_devmind_semantic_understanding_agent",
         "mode": "provider_contract_only",
         "task": {
+            "request_id": graph.get("task_request", {}).get("request_id"),
             "workflow": "UnderstandStage",
             "project_root": project_root,
             "stage_id": stage_id,
@@ -133,6 +143,21 @@ def validate_semantic_reasoning_result(
             )
         )
 
+    schema_version = normalized.get("schema_version")
+    if schema_version != SEMANTIC_RESULT_SCHEMA_VERSION:
+        diagnostics.append(
+            _diagnostic(
+                "MVD003",
+                severity="blocking",
+                issue_type="model_output_schema_version_mismatch",
+                message=(
+                    f"SemanticReasoningResult schema_version must be "
+                    f"`{SEMANTIC_RESULT_SCHEMA_VERSION}`, got `{schema_version}`."
+                ),
+                recommended_action="retry_model_with_current_schema",
+            )
+        )
+
     claims = normalized.get("candidate_claims")
     if not isinstance(claims, list):
         normalized["candidate_claims"] = []
@@ -161,6 +186,20 @@ def validate_semantic_reasoning_result(
             continue
         _normalize_claim(idx, claim, known_evidence_ids, diagnostics)
 
+    _validate_requested_followup_tools(normalized, diagnostics)
+    _validate_evidence_list_objects(
+        normalized,
+        field_name="proposed_edges",
+        known_evidence_ids=known_evidence_ids,
+        diagnostics=diagnostics,
+    )
+    _validate_evidence_list_objects(
+        normalized,
+        field_name="proposed_uncertainties",
+        known_evidence_ids=known_evidence_ids,
+        diagnostics=diagnostics,
+    )
+    _attach_claim_validation_status(normalized, diagnostics)
     return normalized, diagnostics
 
 
@@ -171,6 +210,8 @@ def _normalize_claim(
     diagnostics: list[dict[str, Any]],
 ) -> None:
     claim.setdefault("claim_id", f"M{idx:03d}")
+    claim.setdefault("validation_status", "accepted_for_grounding")
+    claim.setdefault("diagnostic_ids", [])
     missing = sorted(REQUIRED_CLAIM_FIELDS - set(claim))
     if missing:
         diagnostics.append(
@@ -253,6 +294,117 @@ def _normalize_claim(
             )
         )
         claim["confidence"] = "unknown"
+
+
+def _validate_requested_followup_tools(normalized: dict[str, Any], diagnostics: list[dict[str, Any]]) -> None:
+    tools = normalized.get("requested_followup_tools")
+    if not isinstance(tools, list):
+        diagnostics.append(
+            _diagnostic(
+                "MVD020",
+                severity="blocking",
+                issue_type="requested_followup_tools_not_list",
+                message="requested_followup_tools must be a list.",
+                recommended_action="retry_model_with_schema",
+            )
+        )
+        normalized["requested_followup_tools"] = []
+        return
+
+    safe_tools = []
+    for idx, tool in enumerate(tools, start=1):
+        tool_name = tool.get("tool_name") if isinstance(tool, dict) else tool
+        if tool_name not in ALLOWED_FOLLOWUP_TOOLS:
+            diagnostics.append(
+                _diagnostic(
+                    f"MVT{idx:03d}",
+                    severity="blocking",
+                    issue_type="forbidden_followup_tool",
+                    message=f"Model requested forbidden or unknown follow-up tool: {tool_name}.",
+                    recommended_action="drop_tool_request",
+                )
+            )
+            continue
+        safe_tools.append(tool)
+    normalized["requested_followup_tools"] = safe_tools
+
+
+def _validate_evidence_list_objects(
+    normalized: dict[str, Any],
+    field_name: str,
+    known_evidence_ids: set[str],
+    diagnostics: list[dict[str, Any]],
+) -> None:
+    items = normalized.get(field_name)
+    if not isinstance(items, list):
+        diagnostics.append(
+            _diagnostic(
+                f"MVD_{field_name}",
+                severity="blocking",
+                issue_type=f"{field_name}_not_list",
+                message=f"{field_name} must be a list.",
+                recommended_action="retry_model_with_schema",
+            )
+        )
+        normalized[field_name] = []
+        return
+
+    for idx, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            diagnostics.append(
+                _diagnostic(
+                    f"MVO{idx:03d}",
+                    severity="blocking",
+                    issue_type=f"{field_name}_item_not_object",
+                    message=f"{field_name}[{idx - 1}] must be an object.",
+                    recommended_action="drop_item",
+                )
+            )
+            continue
+        evidence_ids = item.get("evidence_ids", [])
+        if not isinstance(evidence_ids, list):
+            diagnostics.append(
+                _diagnostic(
+                    f"MVO{idx + 100:03d}",
+                    severity="blocking",
+                    issue_type=f"{field_name}_evidence_ids_not_list",
+                    message=f"{field_name}[{idx - 1}].evidence_ids must be a list.",
+                    recommended_action="drop_or_retry_item",
+                )
+            )
+            item["evidence_ids"] = []
+            continue
+        unknown = [eid for eid in evidence_ids if eid not in known_evidence_ids]
+        if unknown:
+            diagnostics.append(
+                _diagnostic(
+                    f"MVO{idx + 200:03d}",
+                    severity="blocking",
+                    issue_type=f"{field_name}_unknown_evidence_id",
+                    message=f"{field_name}[{idx - 1}] references unknown evidence ids: {', '.join(unknown)}.",
+                    recommended_action="collect_more_evidence_or_drop_item",
+                    related_evidence_ids=unknown,
+                )
+            )
+            item["evidence_ids"] = [eid for eid in evidence_ids if eid in known_evidence_ids]
+
+
+def _attach_claim_validation_status(normalized: dict[str, Any], diagnostics: list[dict[str, Any]]) -> None:
+    diagnostics_by_claim: dict[str, list[str]] = {}
+    blocking_by_claim: set[str] = set()
+    for diagnostic in diagnostics:
+        claim_id = diagnostic.get("target_claim_id")
+        if not claim_id:
+            continue
+        diagnostics_by_claim.setdefault(claim_id, []).append(diagnostic["diagnostic_id"])
+        if diagnostic.get("severity") == "blocking":
+            blocking_by_claim.add(claim_id)
+    for claim in normalized.get("candidate_claims", []):
+        if not isinstance(claim, dict):
+            continue
+        claim_id = claim.get("claim_id")
+        claim["diagnostic_ids"] = diagnostics_by_claim.get(claim_id, [])
+        claim["validation_status"] = "rejected" if claim_id in blocking_by_claim else "accepted_for_grounding"
 
 
 def _diagnostic(

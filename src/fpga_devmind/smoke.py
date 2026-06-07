@@ -9,6 +9,7 @@ from typing import Any
 
 from .p1a import run_p1a
 from .query import check_freshness
+from .safety import ensure_safe_output_dir
 
 
 DEFAULT_SMOKE_OUT = Path("/tmp/fpga_devmind/p1a_smoke")
@@ -39,6 +40,7 @@ DEFAULT_SAMPLES = [
 
 
 def run_smoke(out_root: Path = DEFAULT_SMOKE_OUT) -> dict[str, Any]:
+    out_root = ensure_safe_output_dir(out_root, "P1a smoke output")
     out_root.mkdir(parents=True, exist_ok=True)
     results = []
     for sample in DEFAULT_SAMPLES:

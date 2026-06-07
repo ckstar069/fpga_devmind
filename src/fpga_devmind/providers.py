@@ -35,8 +35,9 @@ class NoopSemanticProvider:
     mode = "deterministic_dry_run_no_llm"
 
     def run(self, prompt_context: dict[str, Any]) -> SemanticProviderResponse:
-        request_id = prompt_context.get("task", {}).get("stage_id", "unknown")
+        request_id = prompt_context.get("task", {}).get("request_id") or "unknown"
         result = {
+            "schema_version": "p1a-plus-semantic-result-0.1",
             "request_id": request_id,
             "plan_step_id": "S002",
             "reasoning_summary": "No model provider was called in deterministic dry-run mode.",
@@ -53,7 +54,7 @@ class NoopSemanticProvider:
             provider_id=self.provider_id,
             mode=self.mode,
             result=result,
-            call_record=_call_record(
+            call_record=_offline_call_record(
                 provider_id=self.provider_id,
                 mode=self.mode,
                 prompt_context=prompt_context,
@@ -76,7 +77,7 @@ class FixtureSemanticProvider:
             provider_id=self.provider_id,
             mode=self.mode,
             result=result,
-            call_record=_call_record(
+            call_record=_offline_call_record(
                 provider_id=self.provider_id,
                 mode=self.mode,
                 prompt_context=prompt_context,
@@ -94,7 +95,7 @@ def response_to_dict(response: SemanticProviderResponse) -> dict[str, Any]:
     return asdict(response)
 
 
-def _call_record(
+def _offline_call_record(
     provider_id: str,
     mode: str,
     prompt_context: dict[str, Any],

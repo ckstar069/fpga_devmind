@@ -255,6 +255,9 @@ FixtureSemanticProvider
 - 引用未知 evidence_id 会产生 blocking diagnostic。
 - 没有有效 evidence_id 的高置信 claim 会被降级为 unknown。
 - confirmed model claim 至少需要一个已知 evidence_id。
+- requested_followup_tools 必须在安全工具 allowlist 中。
+- proposed_edges / proposed_uncertainties 的 evidence_ids 必须已知。
+- 每个 model claim 会标注 validation_status 和 diagnostic_ids。
 - 带 blocking `model_output_diagnostics` 的 fixture 会让 CLI 返回非零退出码。
 ```
 
@@ -309,6 +312,14 @@ answer.md
 ```
 
 不得写入 API key、provider secrets、完整 prompt 中的敏感环境变量。
+
+当前代码会强制检查输出路径：
+
+```text
+- --out / --artifacts 必须位于临时输出根下。
+- 路径组件不能包含 fpga_project_*。
+- P1a / P1a smoke / P1a+ 都使用同一安全检查。
+```
 
 ## Prompt Shape
 

@@ -169,6 +169,10 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertFalse(prompt_context["redaction_policy"]["api_keys_included"])
             self.assertFalse(prompt_context["redaction_policy"]["provider_secrets_included"])
             self.assertIn("known_evidence_ids", prompt_context)
+            self.assertEqual(prompt_context["task"]["request_id"], "p1a-fpga_project_coarse_sync_glm-l6")
+
+            normalized = json.loads((out_dir / "model_result_normalized.json").read_text(encoding="utf-8"))
+            self.assertEqual(normalized["request_id"], prompt_context["task"]["request_id"])
 
             answer = (out_dir / "answer.md").read_text(encoding="utf-8")
             self.assertIn("deterministic_dry_run_no_llm", answer)
@@ -183,6 +187,7 @@ class P1aRunnerTest(unittest.TestCase):
             out_dir = Path(tmp) / "agent"
             fixture_path = Path(tmp) / "model_result.json"
             fixture = {
+                "schema_version": "p1a-plus-semantic-result-0.1",
                 "request_id": "fixture-001",
                 "plan_step_id": "S002",
                 "reasoning_summary": "Synthetic fixture for model validation.",
@@ -227,11 +232,32 @@ class P1aRunnerTest(unittest.TestCase):
             self.assertEqual(normalized["candidate_claims"][0]["evidence_ids"], [])
 
             grounding = result["grounding_report"]
+            self.assertEqual(grounding["mode"], "deterministic_dry_run_with_model_fixture")
             self.assertGreaterEqual(grounding["summary"]["model_output_blocking_diagnostics"], 1)
             self.assertTrue(any(d["issue_type"] == "unknown_evidence_id" for d in grounding["model_output_diagnostics"]))
 
+            graph_write = json.loads((out_dir / "graph_write_proposal.json").read_text(encoding="utf-8"))
+            self.assertEqual(graph_write["mode"], "deterministic_dry_run_with_model_fixture")
+            proposals = json.loads((out_dir / "claim_proposals.json").read_text(encoding="utf-8"))
+            self.assertEqual(proposals["model_claim_summary"]["rejected"], 1)
+            self.assertEqual(proposals["model_candidate_claims"][0]["validation_status"], "rejected")
+
+    def test_p1a_plus_agent_rejects_unsafe_output_path(self) -> None:
+        if not DEFAULT_PROJECT.exists():
+            self.skipTest(f"target project not found: {DEFAULT_PROJECT}")
+
+        unsafe_out = Path("/tmp/fpga_project_bad/devmind_out")
+        with self.assertRaisesRegex(ValueError, "fpga_project_"):
+            run_p1a_semantic_agent_dry_run(
+                project_root=DEFAULT_PROJECT,
+                stage_id="L6_resource_opt",
+                question="L6 实现了什么流程",
+                out_dir=unsafe_out,
+            )
+
     def test_llm_contract_downgrades_unsupported_model_claims(self) -> None:
         result = {
+            "schema_version": "p1a-plus-semantic-result-0.1",
             "request_id": "req-001",
             "plan_step_id": "S002",
             "reasoning_summary": "Synthetic model result for validation.",
@@ -268,6 +294,59 @@ class P1aRunnerTest(unittest.TestCase):
         self.assertEqual(normalized["candidate_claims"][1]["confidence"], "supported")
         self.assertTrue(any(d["issue_type"] == "unknown_evidence_id" for d in diagnostics))
         self.assertTrue(any(d["issue_type"] == "model_claim_without_evidence" for d in diagnostics))
+
+    def test_llm_contract_blocks_forbidden_tools_and_ungrounded_outputs(self) -> None:
+        result = {
+            "schema_version": "p1a-plus-semantic-result-0.1",
+            "request_id": "req-002",
+            "plan_step_id": "S002",
+            "reasoning_summary": "Synthetic model result for output validation.",
+            "candidate_claims": [],
+            "proposed_edges": [
+                {
+                    "edge_id": "ME001",
+                    "from_node_id": "N001",
+                    "to_node_id": "N002",
+                    "evidence_ids": ["E:missing-edge"],
+                }
+            ],
+            "proposed_uncertainties": [
+                {
+                    "uncertainty_id": "MU001",
+                    "topic": "dataflow",
+                    "evidence_ids": ["E:missing-uncertainty"],
+                }
+            ],
+            "requested_followup_tools": [{"tool_name": "vivado"}],
+            "self_check_notes": [],
+        }
+
+        normalized, diagnostics = validate_semantic_reasoning_result(result, {"E:known"})
+
+        self.assertEqual(normalized["requested_followup_tools"], [])
+        self.assertEqual(normalized["proposed_edges"][0]["evidence_ids"], [])
+        self.assertEqual(normalized["proposed_uncertainties"][0]["evidence_ids"], [])
+        issue_types = {d["issue_type"] for d in diagnostics}
+        self.assertIn("forbidden_followup_tool", issue_types)
+        self.assertIn("proposed_edges_unknown_evidence_id", issue_types)
+        self.assertIn("proposed_uncertainties_unknown_evidence_id", issue_types)
+
+    def test_llm_contract_requires_schema_version(self) -> None:
+        result = {
+            "request_id": "req-003",
+            "plan_step_id": "S002",
+            "reasoning_summary": "Missing schema version.",
+            "candidate_claims": [],
+            "proposed_edges": [],
+            "proposed_uncertainties": [],
+            "requested_followup_tools": [],
+            "self_check_notes": [],
+        }
+
+        _normalized, diagnostics = validate_semantic_reasoning_result(result, set())
+
+        self.assertTrue(any(d["issue_type"] == "model_output_missing_fields" for d in diagnostics))
+        self.assertTrue(any(d["issue_type"] == "model_output_schema_version_mismatch" for d in diagnostics))
 
 
 if __name__ == "__main__":

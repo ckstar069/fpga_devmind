@@ -16,6 +16,7 @@ from .llm_contract import build_prompt_context, validate_semantic_reasoning_resu
 from .p1a import run_p1a
 from .providers import provider_for_fixture, response_to_dict
 from .query import answer_question, check_freshness
+from .safety import ensure_safe_output_dir
 
 
 DEFAULT_AGENT_OUT = Path("/tmp/fpga_devmind/p1a_agent_l6")
@@ -39,8 +40,9 @@ def run_p1a_semantic_agent_dry_run(
     if stage_id != "L6_resource_opt":
         raise ValueError("P1a+ dry-run currently only supports L6_resource_opt")
 
+    out_dir = ensure_safe_output_dir(out_dir, "P1a+ agent output")
+    p1a_artifacts = ensure_safe_output_dir(artifact_dir or (out_dir / "p1a_artifacts"), "P1a+ artifact output")
     out_dir.mkdir(parents=True, exist_ok=True)
-    p1a_artifacts = artifact_dir or (out_dir / "p1a_artifacts")
     provider = provider_for_fixture(model_result_path)
     runtime_mode = provider.mode
 
@@ -136,13 +138,14 @@ def run_p1a_semantic_agent_dry_run(
         known_evidence_ids=set(prompt_context["known_evidence_ids"]),
     )
     claim_proposals["model_candidate_claims"] = normalized_model_result.get("candidate_claims", [])
+    claim_proposals["model_claim_summary"] = _model_claim_summary(normalized_model_result)
     if model_result_path:
         claim_proposals["notes"] = [
             f"Model result fixture read from {model_result_path}.",
             "Fixture claims are validated but not written to ProjectGraph in this slice.",
         ]
-    graph_write_proposal = _build_graph_write_proposal(graph, p1a_artifacts)
-    grounding_report = _build_grounding_report(graph, freshness, model_diagnostics)
+    graph_write_proposal = _build_graph_write_proposal(graph, p1a_artifacts, runtime_mode)
+    grounding_report = _build_grounding_report(graph, freshness, model_diagnostics, runtime_mode)
     agent_trace = {
         "schema_version": "p1a-plus-agent-trace-0.1",
         "mode": runtime_mode,
@@ -282,10 +285,10 @@ def _claim_ids_for_question(graph: dict[str, Any], question: str) -> list[str]:
     return [claim["claim_id"] for claim in graph["candidate_claims"][:5]]
 
 
-def _build_graph_write_proposal(graph: dict[str, Any], artifact_dir: Path) -> dict[str, Any]:
+def _build_graph_write_proposal(graph: dict[str, Any], artifact_dir: Path, runtime_mode: str) -> dict[str, Any]:
     return {
         "schema_version": "p1a-plus-graph-write-proposal-0.1",
-        "mode": "deterministic_dry_run_no_llm",
+        "mode": runtime_mode,
         "source_project_graph": str(artifact_dir / "project_graph.json"),
         "source_claim_ids": [claim["claim_id"] for claim in graph["candidate_claims"]],
         "nodes_to_create": [],
@@ -303,6 +306,7 @@ def _build_grounding_report(
     graph: dict[str, Any],
     freshness: dict[str, Any],
     model_diagnostics: list[dict[str, Any]],
+    runtime_mode: str,
 ) -> dict[str, Any]:
     blocking = [d for d in graph["grounding_diagnostics"] if d.get("severity") == "blocking"]
     model_blocking = [d for d in model_diagnostics if d.get("severity") == "blocking"]
@@ -313,7 +317,7 @@ def _build_grounding_report(
     ]
     return {
         "schema_version": "p1a-plus-grounding-report-0.1",
-        "mode": "deterministic_dry_run_no_llm",
+        "mode": runtime_mode,
         "freshness": freshness,
         "diagnostics": graph["grounding_diagnostics"],
         "model_output_diagnostics": model_diagnostics,
@@ -371,3 +375,12 @@ def _write_json(path: Path, data: object) -> None:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _model_claim_summary(model_result: dict[str, Any]) -> dict[str, int]:
+    claims = [claim for claim in model_result.get("candidate_claims", []) if isinstance(claim, dict)]
+    return {
+        "total": len(claims),
+        "accepted_for_grounding": sum(1 for claim in claims if claim.get("validation_status") == "accepted_for_grounding"),
+        "rejected": sum(1 for claim in claims if claim.get("validation_status") == "rejected"),
+    }
