@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
+from .provider_config import build_provider_config_draft
+
 
 @dataclass
 class SemanticProviderResponse:
@@ -140,9 +142,63 @@ class MockSemanticProvider:
         )
 
 
-def provider_for_mode(model_result_path: Path | None, use_mock_semantic: bool = False) -> SemanticProvider:
-    if model_result_path and use_mock_semantic:
-        raise ValueError("--model-result and --mock-semantic are mutually exclusive")
+class DisabledExternalProvider:
+    mode = "external_provider_disabled"
+
+    def __init__(self, provider_id: str) -> None:
+        self.config = build_provider_config_draft(provider_id)
+        self.provider_id = provider_id
+
+    def run(self, prompt_context: dict[str, Any]) -> SemanticProviderResponse:
+        request_id = prompt_context.get("task", {}).get("request_id") or "unknown"
+        result = {
+            "schema_version": "p1a-plus-semantic-result-0.1",
+            "request_id": request_id,
+            "plan_step_id": "S002",
+            "reasoning_summary": (
+                f"External provider `{self.provider_id}` is configured only as a disabled draft. "
+                "No API call was made."
+            ),
+            "candidate_claims": [],
+            "proposed_edges": [],
+            "proposed_uncertainties": [],
+            "requested_followup_tools": [],
+            "self_check_notes": [
+                "external_provider_disabled",
+                "no_external_api_called",
+                "api_key_not_loaded",
+            ],
+        }
+        return SemanticProviderResponse(
+            provider_id=self.provider_id,
+            mode=self.mode,
+            result=result,
+            call_record={
+                **_offline_call_record(
+                    provider_id=self.provider_id,
+                    mode=self.mode,
+                    prompt_context=prompt_context,
+                    source=None,
+                    status="blocked_disabled_provider",
+                ),
+                "adapter_status": self.config["adapter_status"],
+                "external_api_allowed": False,
+                "api_key_env": self.config["api_key_env"],
+                "api_key_value_included": False,
+            },
+        )
+
+
+def provider_for_mode(
+    model_result_path: Path | None,
+    use_mock_semantic: bool = False,
+    external_provider: str | None = None,
+) -> SemanticProvider:
+    selected = [bool(model_result_path), use_mock_semantic, bool(external_provider)]
+    if sum(1 for item in selected if item) > 1:
+        raise ValueError("--model-result, --mock-semantic and --external-provider are mutually exclusive")
+    if external_provider:
+        return DisabledExternalProvider(external_provider)
     if model_result_path:
         return FixtureSemanticProvider(model_result_path)
     if use_mock_semantic:

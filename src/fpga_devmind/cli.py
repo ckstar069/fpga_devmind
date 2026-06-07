@@ -42,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
     agent.add_argument("--artifacts", type=Path)
     agent.add_argument("--model-result", type=Path, help="Optional local SemanticReasoningResult JSON fixture")
     agent.add_argument("--mock-semantic", action="store_true", help="Use built-in mock semantic provider")
+    agent.add_argument(
+        "--external-provider",
+        choices=["deepseek", "glm", "openai"],
+        help="Select a future real provider; currently disabled and never calls external APIs",
+    )
 
     provider_config = sub.add_parser(
         "provider-config-draft",
@@ -100,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
             artifact_dir=args.artifacts,
             model_result_path=args.model_result,
             use_mock_semantic=args.mock_semantic,
+            external_provider=args.external_provider,
         )
         report = result["grounding_report"]
         print(f"Wrote P1a+ agent dry-run artifacts to {args.out}")

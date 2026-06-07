@@ -47,6 +47,7 @@ Implemented:
 - Graph write proposal now separates accepted model claims from rejected model claims without mutating ProjectGraph.
 - GraphWriter dry-run writes `project_graph_proposed.json` and `graph_write_report.json` without overwriting source `project_graph.json`.
 - Redacted provider configuration drafts for future DeepSeek / GLM / OpenAI adapters, with real API calls disabled by default.
+- Disabled external provider route for DeepSeek / GLM / OpenAI that writes blocked provider_call metadata without loading API keys or calling external APIs.
 
 Not implemented yet:
 

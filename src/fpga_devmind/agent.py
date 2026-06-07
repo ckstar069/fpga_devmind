@@ -31,6 +31,7 @@ def run_p1a_semantic_agent_dry_run(
     artifact_dir: Path | None = None,
     model_result_path: Path | None = None,
     use_mock_semantic: bool = False,
+    external_provider: str | None = None,
 ) -> dict[str, Any]:
     """Run a provider-free P1a+ Agent shell over P1a artifacts.
 
@@ -45,7 +46,11 @@ def run_p1a_semantic_agent_dry_run(
     out_dir = ensure_safe_output_dir(out_dir, "P1a+ agent output")
     p1a_artifacts = ensure_safe_output_dir(artifact_dir or (out_dir / "p1a_artifacts"), "P1a+ artifact output")
     out_dir.mkdir(parents=True, exist_ok=True)
-    provider = provider_for_mode(model_result_path, use_mock_semantic=use_mock_semantic)
+    provider = provider_for_mode(
+        model_result_path,
+        use_mock_semantic=use_mock_semantic,
+        external_provider=external_provider,
+    )
     runtime_mode = provider.mode
 
     plan = _build_task_plan(project_root, stage_id, question, out_dir, p1a_artifacts)
@@ -148,7 +153,13 @@ def run_p1a_semantic_agent_dry_run(
         ]
     graph_write_proposal = _build_graph_write_proposal(graph, p1a_artifacts, runtime_mode, normalized_model_result)
     proposed_graph, graph_write_report = apply_graph_write_proposal_dry_run(graph, graph_write_proposal)
-    grounding_report = _build_grounding_report(graph, freshness, model_diagnostics, runtime_mode)
+    provider_diagnostics = _provider_diagnostics(provider_response.call_record)
+    grounding_report = _build_grounding_report(
+        graph,
+        freshness,
+        model_diagnostics + provider_diagnostics,
+        runtime_mode,
+    )
     agent_trace = {
         "schema_version": "p1a-plus-agent-trace-0.1",
         "mode": runtime_mode,
@@ -353,6 +364,25 @@ def _build_grounding_report(
         },
         "reflection_decision": _reflection_from_diagnostics(graph["grounding_diagnostics"], freshness),
     }
+
+
+def _provider_diagnostics(call_record: dict[str, Any]) -> list[dict[str, Any]]:
+    if call_record.get("status") != "blocked_disabled_provider":
+        return []
+    return [
+        {
+            "diagnostic_id": "PVD001",
+            "target_claim_id": None,
+            "severity": "blocking",
+            "issue_type": "external_provider_disabled",
+            "recommended_action": "use_noop_mock_fixture_or_enable_real_provider_later",
+            "related_evidence_ids": [],
+            "message": (
+                f"Provider `{call_record.get('provider_id')}` is a disabled draft; "
+                "no external API call was made and no model claims were generated."
+            ),
+        }
+    ]
 
 
 def _render_agent_answer(

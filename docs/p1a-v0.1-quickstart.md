@@ -207,6 +207,19 @@ PYTHONPATH=src python3 -m fpga_devmind.cli provider-config-draft \
 
 支持 `deepseek`、`glm`、`openai`。该命令不读取 API key 值，不调用外部 API，只写环境变量名称、redaction 规则和默认禁用策略。
 
+显式选择 future external provider 也仍然不会调用 API：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6 \
+  --external-provider deepseek
+```
+
+当前该模式会被 `external_provider_disabled` 阻断，并产生 `model_output_blocking_diagnostics`。
+
 ## Boundaries
 
 P1a V0.1 不做：

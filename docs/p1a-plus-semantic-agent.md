@@ -267,6 +267,19 @@ openai
 
 这些 draft 默认 `enabled_by_default=false`、`external_api_allowed_by_default=false`，只记录环境变量名称，不记录环境变量值。
 
+也可以显式选择 future external provider 路由，但当前只会产生 blocked dry-run：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1a-agent-understand-stage \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --stage L6_resource_opt \
+  --question "L6 实现了什么流程" \
+  --out /tmp/fpga_devmind/p1a_agent_l6 \
+  --external-provider deepseek
+```
+
+该模式会写出 `provider_call.json`，其中 `status=blocked_disabled_provider`、`external_api_called=false`、`api_key_used=false`。CLI 返回非零，防止用户误以为已经调用真实模型。
+
 最小校验规则：
 
 ```text
