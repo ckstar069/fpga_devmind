@@ -218,6 +218,7 @@ FPGA 模板项目通常不是一次性完成的，而是从早期算法模型开
 
 当前阶段的架构规划沉淀在 `docs/` 目录：
 
+- `docs/direction-guardrails.md`：短版方向护栏，后续实现不能偏离。
 - `docs/agent-first-architecture.md`：Agent-first 总体架构与机制。
 - `docs/agent-runtime.md`：Agent 运行时组件、任务生命周期和最小可行运行时。
 - `docs/runtime-contracts.md`：TaskPlan、ToolObservation、Claim、GroundingDiagnostic、ReflectionDecision 等最小可执行契约。
@@ -228,6 +229,7 @@ FPGA 模板项目通常不是一次性完成的，而是从早期算法模型开
 - `docs/phase1-scope.md`：Phase 1a / 1b / 1c 收窄切片、样例项目和验收指标。
 - `docs/phase1a-single-stage-understanding.md`：`coarse_sync_glm` L6 单阶段 Understanding Agent 的详细规格。
 - `docs/phase1a-schema.md`：P1a 的最小 JSON schema、artifact layout、summary/visual grounding contract。
+- `docs/p1a-implementation-prep.md`：P1a 实现前清单、代码切片顺序和最小 grounding 检查。
 - `docs/review-process.md`：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。
 - `docs/review-response-0001.md`：第一次独立 Review Agent 评审的处理决定。
 - `docs/review-response-0002.md`：P1a 专项评审的处理决定。
