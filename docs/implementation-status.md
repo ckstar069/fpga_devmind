@@ -66,6 +66,7 @@ Implemented:
 - CLI pipeline / render / smoke (T007): `p1b-trace-concept` command chains T002–T006, builds `ConceptTraceGraph` and `ConceptTraceIndex`, renders `concept_trace.md` and `concept_trace.mmd`, and writes 6 artifacts. Output path guarded by `ensure_safe_output_dir()`. Returns nonzero exit code for blocking diagnostics. 194 tests (18 P1a + 176 P1b) pass.
 - Desktop app prototype (T009): PySide6-based minimum viable shell with artifact directory picker, Run Summary view, JSON Tree Browser, Markdown Preview, and Diagnostics tab. Graceful fallback when PySide6 is missing. Artifact loader (`desktop/artifact_loader.py`) and view models (`desktop/view_models.py`) are pure Python and testable without GUI. 229 tests (194 P1a/P1b + 35 desktop) pass.
 - Local Agent Interaction Panel (T011): Deterministic rule-based query panel inside the Desktop Shell Agent tab. No external LLM, no API key, no Web server. Supports bilingual keyword routing for summary, claims, evidence, diagnostics, unknown, nodes, edges, and specific claim/evidence ID lookups. Returns `AgentPanelResponse` with referenced IDs, uncertainty notes, and unsupported fallback. Pure Python view model (`desktop/agent_panel_models.py`) with 35 dedicated tests. 274 tests total pass.
+- Agent Tool Plan Preview (T012): Read-only tool/action plan preview in the Agent tab. For every user question, shows what artifacts a future Agent mode would read and why. No execution, no LLM, no API. Inherits referenced IDs from T011 response. 9 intent types covered with fixed safety notes. Pure Python view model (`desktop/agent_plan_models.py`) with 19 dedicated tests. 293 tests total pass.
 
 Not implemented yet:
 
@@ -148,6 +149,7 @@ P1b 结构化 artifact 就绪后，下一阶段推进桌面端 Agent Shell / Des
 - **T009: Desktop app prototype ✅** — 最小可运行桌面软件原型，支持 artifact 目录选择、JSON 树浏览、Markdown 预览与 Mermaid source 展示。macOS/Linux 优先，Windows 其次。详见 `docs/tasks/T009-desktop-app-prototype.md`。
 - **T010: P1b concept trace view ✅** — 在桌面 GUI 中以结构化表格展示 concept trace：Nodes、Edges、Claims、Evidence、Diagnostics 五个子表。支持 cross-reference 解析、dangling reference 标记、unknown confidence 正常展示。详见 `docs/tasks/T010-desktop-p1b-concept-trace-view.md`。非图布局引擎，非 Agent chat。
 - **T011: Local Agent Interaction Panel ✅** — 桌面 Agent Tab，支持用户输入确定性问题，基于当前已加载的 P1a/P1b artifact bundle 做本地规则化查询并返回答案。不调用外部 LLM，不加载 API key。支持 summary、claims、evidence、diagnostics、unknown、nodes、edges、claim_detail、evidence_detail 共 9 类问题类型，中英双语关键词匹配。详见 `docs/tasks/T011-desktop-local-agent-panel.md`。
+- **T012: Agent Tool Plan Preview ✅** — 在 Agent Tab 中增加只读工具计划预览。用户提问后，除返回答案外，还展示“未来 Agent 模式需要读取哪些 artifact、为什么需要这些证据”的 plan preview。不执行工具，不调用 LLM，不提供执行按钮。9 类 intent 全覆盖，固定 safety notes。详见 `docs/tasks/T012-agent-tool-plan-preview.md`。
 
 方向约束：
 ```text

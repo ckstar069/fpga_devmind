@@ -326,7 +326,7 @@ P1b 不做：
 - PASS / HOLD / finding / audit
 ```
 
-## Desktop Shell (T009–T010)
+## Desktop Shell (T009–T012)
 
 PySide6 桌面 Agent Shell 用于浏览 P1a/P1b artifact bundle。
 
@@ -358,6 +358,7 @@ PYTHONPATH=src python3 -m fpga_devmind.desktop_app
 | **Markdown** | concept_trace.md 只读预览（fallback 到 .mmd） |
 | **Diagnostics** | bundle 加载时的 missing/load_error 诊断 |
 | **Concept Trace** | P1b 结构化表格：Nodes / Edges / Claims / Evidence / Diagnostics |
+| **Agent** | T011 本地确定性查询 + T012 只读工具计划预览 |
 
 ### Concept Trace 子表
 
@@ -366,6 +367,11 @@ PYTHONPATH=src python3 -m fpga_devmind.desktop_app
 - **Claims**: claim_id, concept, confidence, bridge_kind, evidence counts, missing evidence, diagnostics
 - **Evidence**: evidence_id, source_type, file, symbol, strength, claim refs
 - **Diagnostics**: id, severity, issue_type, target claim, message, action
+
+### Agent Tab（T011 + T012）
+
+- **Answer**（T011）：用户输入问题后，系统基于当前已加载的 P1a/P1b bundle 做本地确定性查询并返回答案。支持 summary、claims、evidence、diagnostics、unknown、nodes、edges、claim_detail、evidence_detail 共 9 类问题类型，中英双语关键词匹配。不调用外部 LLM。
+- **Plan Preview**（T012）：同时展示只读工具计划预览，说明如果未来进入 Agent 模式，需要读取哪些 artifact、为什么需要这些证据。不执行工具，不提供执行按钮，不调用 LLM。
 
 ### 安全边界
 
@@ -376,6 +382,7 @@ PYTHONPATH=src python3 -m fpga_devmind.desktop_app
 - 不加载 API key，不调用外部 LLM。
 - unknown confidence 正常展示，不标记为错误。
 - blocking diagnostic 是 overclaim warning，不是 PASS/HOLD 结果。
+- Plan Preview 是纯文本展示，不提供执行按钮。
 ```
 
 ## V0.1 完整边界
@@ -400,6 +407,7 @@ P1b + Desktop Shell V0.1 不做：
 ## 下一阶段（可选）
 
 - ✅ T011: Agent interaction panel — 查询输入、响应展示、工具建议（只读）。已完成：详见 `docs/tasks/T011-desktop-local-agent-panel.md`。
+- ✅ T012: Agent Tool Plan Preview — 只读工具计划预览，展示未来 Agent 模式需要读取的 artifact 和证据。不执行工具，不调用 LLM。已完成：详见 `docs/tasks/T012-agent-tool-plan-preview.md`。
 - P1b+: 批量多概念 trace、partial SystemVerilog parser、跨概念 structural edge。
 - P1c: Verification coverage trace。
 - V0.2: LLM provider 适配、语义 claim 生成、交互式 claim 精炼。

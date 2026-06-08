@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fpga_devmind.desktop.artifact_loader import (
     ArtifactBundle,
@@ -17,6 +17,9 @@ from fpga_devmind.desktop.artifact_loader import (
     get_index,
     get_run_metadata,
 )
+
+if TYPE_CHECKING:
+    from fpga_devmind.desktop.agent_plan_models import AgentPlanPreview
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +42,7 @@ class AgentPanelResponse:
     referenced_diagnostic_ids: list[str] = field(default_factory=list)
     uncertainty_notes: list[str] = field(default_factory=list)
     unsupported_reason: str | None = None
+    plan_preview: "AgentPlanPreview | None" = None
     is_loaded: bool = False
     load_error: str | None = None
 

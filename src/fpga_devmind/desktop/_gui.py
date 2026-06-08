@@ -17,6 +17,10 @@ from fpga_devmind.desktop.agent_panel_models import (
     AgentPanelResponse,
     query_artifact_bundle,
 )
+from fpga_devmind.desktop.agent_plan_models import (
+    AgentPlanPreview,
+    build_agent_plan_preview,
+)
 from fpga_devmind.desktop.trace_view_models import (
     ConceptTraceViewModel,
     build_concept_trace_view_model,
@@ -220,6 +224,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._agent_answer = QtWidgets.QPlainTextEdit()
         self._agent_answer.setReadOnly(True)
         self._agent_layout.addWidget(self._agent_answer)
+
+        # Plan Preview output (T012)
+        self._agent_plan_preview = QtWidgets.QPlainTextEdit()
+        self._agent_plan_preview.setReadOnly(True)
+        self._agent_plan_preview.setPlaceholderText(
+            "Plan Preview: read-only preview of tools/artifacts a future Agent mode would need."
+        )
+        self._agent_layout.addWidget(self._agent_plan_preview)
 
         self._tabs.addTab(self._agent_widget, "Agent")
 
@@ -497,11 +509,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 "Supported: summary, claims, evidence, diagnostics, "
                 "unknown, nodes, edges, or a specific claim/evidence ID."
             )
+            self._agent_plan_preview.setPlainText("")
             return
         if self._bundle is None:
             self._agent_answer.setPlainText(
                 "No bundle loaded. Please load an artifact bundle first."
             )
+            self._agent_plan_preview.setPlainText("")
             return
 
         vm = query_artifact_bundle(self._bundle, question)
@@ -509,6 +523,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._agent_answer.setPlainText(
                 vm.load_error or "Query failed."
             )
+            self._agent_plan_preview.setPlainText("")
             return
 
         lines = [vm.answer_text]
@@ -540,6 +555,74 @@ class MainWindow(QtWidgets.QMainWindow):
                 lines.append("  - {}".format(note))
 
         self._agent_answer.setPlainText("\n".join(lines))
+
+        # Build and display read-only plan preview (T012).
+        plan = build_agent_plan_preview(self._bundle, question, vm)
+        self._agent_plan_preview.setPlainText(
+            self._format_plan_preview(plan)
+        )
+
+    def _format_plan_preview(self, plan: AgentPlanPreview) -> str:
+        """Format a read-only plan preview into plain text."""
+        if not plan.is_loaded:
+            return plan.load_error or "Plan preview unavailable."
+
+        lines: list[str] = []
+        lines.append("## Intent: {}".format(plan.intent))
+        lines.append("")
+
+        if plan.steps:
+            lines.append("### Steps")
+            for step in plan.steps:
+                lines.append("  [{}] {}".format(step.step_id, step.title))
+                lines.append("      Rationale: {}".format(step.rationale))
+                if step.read_artifacts:
+                    lines.append(
+                        "      Read artifacts: {}".format(
+                            ", ".join(step.read_artifacts)
+                        )
+                    )
+                if step.referenced_claim_ids:
+                    lines.append(
+                        "      Referenced claims: {}".format(
+                            ", ".join(step.referenced_claim_ids)
+                        )
+                    )
+                if step.referenced_evidence_ids:
+                    lines.append(
+                        "      Referenced evidence: {}".format(
+                            ", ".join(step.referenced_evidence_ids)
+                        )
+                    )
+                if step.referenced_diagnostic_ids:
+                    lines.append(
+                        "      Referenced diagnostics: {}".format(
+                            ", ".join(step.referenced_diagnostic_ids)
+                        )
+                    )
+                lines.append(
+                    "      Action: {} | Executable now: {}".format(
+                        step.allowed_action,
+                        "yes" if step.is_executable_now else "no",
+                    )
+                )
+                lines.append("")
+        else:
+            lines.append("No steps generated.")
+            lines.append("")
+
+        if plan.safety_notes:
+            lines.append("### Safety Notes")
+            for note in plan.safety_notes:
+                lines.append("  - {}".format(note))
+            lines.append("")
+
+        if plan.unsupported_reason:
+            lines.append(
+                "Unsupported reason: {}".format(plan.unsupported_reason)
+            )
+
+        return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
