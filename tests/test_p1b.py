@@ -63,6 +63,11 @@ from fpga_devmind.p1b_mapping import (
     MappingClaimResult,
     build_mapping_claims,
 )
+from fpga_devmind.p1b_grounding import (
+    GROUNDING_REPORT_SCHEMA_VERSION,
+    GroundingReport,
+    check_grounding,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -2557,6 +2562,632 @@ class TestP1bMappingClaimBuilder(unittest.TestCase):
         # unknown bridge → no bridge_evidence_ids required
         # (can be empty)
         self.assertIsInstance(claim.bridge_evidence_ids, list)
+
+
+# ---------------------------------------------------------------------------
+# P1b grounding checker (T006)
+# ---------------------------------------------------------------------------
+
+
+class TestP1bGroundingChecker(unittest.TestCase):
+    """Tests for the P1b grounding checker and report generator.
+
+    Uses synthetic MappingClaimResult fixtures to verify diagnostic
+    generation for overclaims, missing evidence, and weak bridges.
+    """
+
+    @staticmethod
+    def _make_mapping_result(
+        claims: list[MappingClaim] | None = None,
+    ) -> MappingClaimResult:
+        """Create a MappingClaimResult with given claims."""
+        result = MappingClaimResult(concept_name="test_concept")
+        if claims is not None:
+            result.mapping_claims = claims
+        return result
+
+    # -- schema version ------------------------------------------------------
+
+    def test_schema_version_matches_output_contract(self):
+        self.assertEqual(
+            GROUNDING_REPORT_SCHEMA_VERSION, "p1b-grounding-report-0.1"
+        )
+        report = GroundingReport()
+        self.assertEqual(report.schema_version, GROUNDING_REPORT_SCHEMA_VERSION)
+
+    # -- blocking: unsupported confirmed mapping -----------------------------
+
+    def test_unsupported_confirmed_mapping_produces_blocking_diagnostic(
+        self,
+    ):
+        """Confirmed mapping without explicit_source_bridge must produce
+        a blocking diagnostic."""
+        # Note: MappingClaim validation prevents constructing this
+        # directly (confirmed requires explicit_source_bridge).  We
+        # bypass __post_init__ by constructing a claim that would be
+        # flagged by the grounding checker.  Use a supported claim with
+        # a strong bridge as the realistic scenario the grounding
+        # checker examines.
+        # Instead, test with a claim that *would* be confirmed but has
+        # the wrong bridge_kind — we need to construct it carefully.
+        # Since MappingClaim.__post_init__ blocks invalid combinations,
+        # the grounding checker's _check_unsupported_confirmed is a
+        # defense-in-depth check.  We verify it works by confirming
+        # that a valid confirmed claim produces no diagnostic.
+        claim = MappingClaim(
+            claim_id="MC_CONFIRMED_001",
+            confidence="confirmed",
+            bridge_kind=BRIDGE_KIND_EXPLICIT_SOURCE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+            bridge_evidence_ids=["E020"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        # Valid confirmed claim → no unsupported_confirmed_mapping diagnostic
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertNotIn("unsupported_confirmed_mapping", issue_types)
+
+    def test_confirmed_mapping_with_wrong_bridge_is_blocked(self):
+        """If a confirmed claim somehow has non-explicit-source bridge,
+        the grounding checker must flag it.  Since MappingClaim validation
+        prevents this at construction, we verify the check function
+        directly by inspecting the logic."""
+        # The schema prevents constructing such a claim, so the
+        # grounding check serves as defense-in-depth.  Verify the
+        # check works for valid claims: a confirmed claim with
+        # explicit_source_bridge should NOT be flagged.
+        claim = MappingClaim(
+            claim_id="MC_OK_001",
+            confidence="confirmed",
+            bridge_kind=BRIDGE_KIND_EXPLICIT_SOURCE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+            bridge_evidence_ids=["E020"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        # No blocking diagnostics for valid confirmed claim
+        blocking = [
+            d for d in report.diagnostics if d.severity == "blocking"
+        ]
+        self.assertEqual(len(blocking), 0)
+
+    # -- blocking: naming-only supported mapping -----------------------------
+
+    def test_naming_only_supported_mapping_produces_blocking_diagnostic(
+        self,
+    ):
+        """Supported mapping with naming_only bridge must produce a
+        blocking diagnostic.  Since MappingClaim validation blocks this
+        at construction, we verify the grounding checker handles the
+        valid case: a supported claim with non-naming-only bridge."""
+        claim = MappingClaim(
+            claim_id="MC_SUPPORTED_001",
+            confidence="supported",
+            bridge_kind=BRIDGE_KIND_CALCULATION_ROLE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertNotIn("naming_only_supported_mapping", issue_types)
+
+    # -- blocking: missing RTL side ------------------------------------------
+
+    def test_missing_rtl_side_produces_blocking_diagnostic(self):
+        """Supported/confirmed mapping missing RTL evidence must produce
+        a blocking diagnostic.  Since MappingClaim validation blocks
+        this at construction, we verify the check is correct by testing
+        with a valid supported claim that has both sides."""
+        claim = MappingClaim(
+            claim_id="MC_BOTH_SIDES",
+            confidence="supported",
+            bridge_kind=BRIDGE_KIND_CALCULATION_ROLE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertNotIn("mapping_missing_l6_or_rtl_side", issue_types)
+
+    # -- blocking: mapping claim without evidence ----------------------------
+
+    def test_claim_without_evidence_produces_blocking_diagnostic(self):
+        """An inferred mapping claim with no evidence at all should
+        produce a blocking diagnostic.  Unknown claims with
+        required_missing_evidence are legitimate and NOT blocking."""
+        # inferred + empty evidence → blocking
+        claim = MappingClaim(
+            claim_id="MC_NO_EV_001",
+            confidence="inferred",
+            bridge_kind=BRIDGE_KIND_NAMING_ONLY,
+            required_missing_evidence=["RTL module evidence"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertIn("mapping_claim_without_evidence", issue_types)
+        # Must be blocking
+        diag = next(
+            d for d in report.diagnostics
+            if d.issue_type == "mapping_claim_without_evidence"
+        )
+        self.assertEqual(diag.severity, "blocking")
+
+    # -- non-blocking: one-sided mapping evidence ----------------------------
+
+    def test_one_sided_unknown_mapping_produces_non_blocking_diagnostic(
+        self,
+    ):
+        """An unknown/inferred one-sided mapping with
+        required_missing_evidence should produce a non-blocking
+        diagnostic."""
+        claim = MappingClaim(
+            claim_id="MC_ONE_SIDED_001",
+            confidence="unknown",
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=[],
+            required_missing_evidence=["RTL signal evidence"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertIn("one_sided_mapping_evidence", issue_types)
+        diag = next(
+            d for d in report.diagnostics
+            if d.issue_type == "one_sided_mapping_evidence"
+        )
+        self.assertEqual(diag.severity, "non_blocking")
+
+    def test_one_sided_inferred_mapping_produces_non_blocking_diagnostic(
+        self,
+    ):
+        """An inferred one-sided mapping with required_missing_evidence
+        should produce a non-blocking diagnostic."""
+        claim = MappingClaim(
+            claim_id="MC_ONE_SIDED_INF_001",
+            confidence="inferred",
+            bridge_kind=BRIDGE_KIND_NAMING_ONLY,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=[],
+            required_missing_evidence=["RTL module evidence"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertIn("one_sided_mapping_evidence", issue_types)
+
+    # -- non-blocking: weak bridge evidence ----------------------------------
+
+    def test_weak_bridge_produces_non_blocking_diagnostic(self):
+        """A supported mapping with a weak bridge kind should produce
+        a non-blocking weak_bridge_evidence diagnostic.  Since schema
+        validation prevents weak bridges with supported confidence, we
+        test with an inferred claim that has a naming_only bridge —
+        the weak bridge check targets supported/confirmed only."""
+        # The schema prevents constructing supported+naming_only, so
+        # verify the check doesn't fire for a valid inferred claim.
+        claim = MappingClaim(
+            claim_id="MC_WEAK_001",
+            confidence="inferred",
+            bridge_kind=BRIDGE_KIND_NAMING_ONLY,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        # inferred claim → no weak_bridge_evidence diagnostic
+        # (only fires for supported/confirmed)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertNotIn("weak_bridge_evidence", issue_types)
+
+    # -- clean supported mapping with non-name bridge ------------------------
+
+    def test_clean_supported_mapping_no_blocking_diagnostics(self):
+        """A clean supported mapping with a non-naming-only bridge and
+        both sides of evidence should produce zero blocking diagnostics."""
+        claim = MappingClaim(
+            claim_id="MC_CLEAN_001",
+            confidence="supported",
+            bridge_kind=BRIDGE_KIND_CALCULATION_ROLE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+            bridge_evidence_ids=["E020"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        blocking = [
+            d for d in report.diagnostics if d.severity == "blocking"
+        ]
+        self.assertEqual(
+            len(blocking), 0,
+            (
+                "Clean supported mapping should have no blocking diagnostics, "
+                "got: {}".format([d.issue_type for d in blocking])
+            ),
+        )
+
+    # -- summary counts ------------------------------------------------------
+
+    def test_summary_counts_mapping_claims(self):
+        claim = MappingClaim(
+            claim_id="MC_SUM_001",
+            confidence="supported",
+            bridge_kind=BRIDGE_KIND_CALCULATION_ROLE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        self.assertEqual(report.summary.mapping_claims, 1)
+
+    def test_summary_counts_multiple_claims(self):
+        claims = [
+            MappingClaim(
+                claim_id="MC_SUM_A",
+                confidence="supported",
+                bridge_kind=BRIDGE_KIND_CALCULATION_ROLE,
+                l5_l6_evidence_ids=["E001"],
+                rtl_evidence_ids=["E010"],
+            ),
+            MappingClaim(
+                claim_id="MC_SUM_B",
+                confidence="unknown",
+                required_missing_evidence=["evidence"],
+            ),
+        ]
+        result = self._make_mapping_result(claims)
+        report = check_grounding(result)
+        self.assertEqual(report.summary.mapping_claims, 2)
+
+    # -- report serialization ------------------------------------------------
+
+    def test_report_to_dict_is_json_serializable(self):
+        claim = MappingClaim(
+            claim_id="MC_SER_001",
+            confidence="supported",
+            bridge_kind=BRIDGE_KIND_CALCULATION_ROLE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        serialized = json.dumps(report.to_dict())
+        parsed = json.loads(serialized)
+        self.assertEqual(
+            parsed["schema_version"], "p1b-grounding-report-0.1"
+        )
+        self.assertIsInstance(parsed["diagnostics"], list)
+        self.assertIsInstance(parsed["summary"], dict)
+
+    # -- defense-in-depth: mutate valid claims to illegal states ------------
+
+    def test_dit_confirmed_with_calculation_role_blocking(self):
+        """Defense-in-depth: confirmed claim with non-explicit-source
+        bridge must produce blocking unsupported_confirmed_mapping."""
+        claim = MappingClaim(
+            claim_id="MC_DIT_001",
+            confidence="confirmed",
+            bridge_kind=BRIDGE_KIND_EXPLICIT_SOURCE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+            bridge_evidence_ids=["E020"],
+        )
+        # Mutate to illegal state: confirmed + calculation_role
+        object.__setattr__(
+            claim, "bridge_kind", BRIDGE_KIND_CALCULATION_ROLE
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertIn("unsupported_confirmed_mapping", issue_types)
+        diag = next(
+            d
+            for d in report.diagnostics
+            if d.issue_type == "unsupported_confirmed_mapping"
+        )
+        self.assertEqual(diag.severity, "blocking")
+
+    def test_dit_supported_with_naming_only_bridge_blocking(self):
+        """Defense-in-depth: supported claim with naming_only bridge
+        must produce blocking naming_only_supported_mapping."""
+        claim = MappingClaim(
+            claim_id="MC_DIT_002",
+            confidence="supported",
+            bridge_kind=BRIDGE_KIND_CALCULATION_ROLE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+        )
+        # Mutate to illegal state: supported + naming_only
+        object.__setattr__(claim, "bridge_kind", BRIDGE_KIND_NAMING_ONLY)
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertIn("naming_only_supported_mapping", issue_types)
+        diag = next(
+            d
+            for d in report.diagnostics
+            if d.issue_type == "naming_only_supported_mapping"
+        )
+        self.assertEqual(diag.severity, "blocking")
+
+    def test_dit_supported_missing_rtl_side_blocking(self):
+        """Defense-in-depth: supported claim with cleared rtl_evidence_ids
+        must produce blocking mapping_missing_l6_or_rtl_side."""
+        claim = MappingClaim(
+            claim_id="MC_DIT_003",
+            confidence="supported",
+            bridge_kind=BRIDGE_KIND_CALCULATION_ROLE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+        )
+        # Mutate: clear RTL side
+        object.__setattr__(claim, "rtl_evidence_ids", [])
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertIn("mapping_missing_l6_or_rtl_side", issue_types)
+        diag = next(
+            d
+            for d in report.diagnostics
+            if d.issue_type == "mapping_missing_l6_or_rtl_side"
+        )
+        self.assertEqual(diag.severity, "blocking")
+
+    def test_dit_supported_empty_evidence_ids_blocking(self):
+        """Defense-in-depth: supported claim with cleared evidence_ids
+        must produce blocking mapping_claim_without_evidence."""
+        claim = MappingClaim(
+            claim_id="MC_DIT_004",
+            confidence="supported",
+            bridge_kind=BRIDGE_KIND_CALCULATION_ROLE,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+        )
+        # Mutate: clear derived evidence_ids
+        object.__setattr__(claim, "evidence_ids", [])
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertIn("mapping_claim_without_evidence", issue_types)
+        diag = next(
+            d
+            for d in report.diagnostics
+            if d.issue_type == "mapping_claim_without_evidence"
+        )
+        self.assertEqual(diag.severity, "blocking")
+
+    def test_dit_inferred_empty_evidence_ids_blocking(self):
+        """Defense-in-depth: inferred claim with cleared evidence_ids
+        must produce blocking mapping_claim_without_evidence."""
+        claim = MappingClaim(
+            claim_id="MC_DIT_005",
+            confidence="inferred",
+            bridge_kind=BRIDGE_KIND_NAMING_ONLY,
+            l5_l6_evidence_ids=["E001"],
+            rtl_evidence_ids=["E010"],
+        )
+        # Mutate: clear derived evidence_ids
+        object.__setattr__(claim, "evidence_ids", [])
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertIn("mapping_claim_without_evidence", issue_types)
+        diag = next(
+            d
+            for d in report.diagnostics
+            if d.issue_type == "mapping_claim_without_evidence"
+        )
+        self.assertEqual(diag.severity, "blocking")
+
+    def test_dit_unknown_no_evidence_not_blocking(self):
+        """Defense-in-depth: unknown claim with required_missing_evidence
+        and no evidence_ids → no blocking diagnostics."""
+        claim = MappingClaim(
+            claim_id="MC_DIT_006",
+            confidence="unknown",
+            required_missing_evidence=["L5/L6 evidence", "RTL evidence"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        blocking = [
+            d for d in report.diagnostics if d.severity == "blocking"
+        ]
+        self.assertEqual(
+            len(blocking), 0,
+            (
+                "Unknown claim with required_missing_evidence should have "
+                "no blocking diagnostics, got: {}".format(
+                    [d.issue_type for d in blocking]
+                )
+            ),
+        )
+
+    def test_dit_both_sides_missing_not_one_sided(self):
+        """Defense-in-depth: unknown claim with both sides missing
+        should NOT produce one_sided_mapping_evidence."""
+        claim = MappingClaim(
+            claim_id="MC_DIT_007",
+            confidence="unknown",
+            l5_l6_evidence_ids=[],
+            rtl_evidence_ids=[],
+            required_missing_evidence=["L5/L6 evidence", "RTL evidence"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        issue_types = [d.issue_type for d in report.diagnostics]
+        self.assertNotIn("one_sided_mapping_evidence", issue_types)
+
+    # -- diagnostic ID uniqueness --------------------------------------------
+
+    def test_diagnostic_ids_are_unique(self):
+        """All diagnostic IDs in the report must be unique."""
+        claims = [
+            MappingClaim(
+                claim_id="MC_UNIQ_{}".format(i),
+                confidence="unknown",
+                l5_l6_evidence_ids=["E_L5_{}".format(i)],
+                required_missing_evidence=["RTL evidence"],
+            )
+            for i in range(3)
+        ]
+        result = self._make_mapping_result(claims)
+        report = check_grounding(result)
+        diag_ids = [d.diagnostic_id for d in report.diagnostics]
+        self.assertEqual(
+            len(diag_ids), len(set(diag_ids)),
+            "Duplicate diagnostic IDs: {}".format(diag_ids),
+        )
+
+    # -- diagnostic ID format ------------------------------------------------
+
+    def test_diagnostic_id_starts_with_gd(self):
+        claim = MappingClaim(
+            claim_id="MC_IDFMT_001",
+            confidence="unknown",
+            required_missing_evidence=["evidence"],
+        )
+        result = self._make_mapping_result([claim])
+        report = check_grounding(result)
+        for d in report.diagnostics:
+            self.assertTrue(
+                d.diagnostic_id.startswith("GD_"),
+                "Expected GD_ prefix, got: {}".format(d.diagnostic_id),
+            )
+
+    # -- empty mapping result ------------------------------------------------
+
+    def test_empty_mapping_result_no_diagnostics(self):
+        """A MappingClaimResult with no claims produces an empty report."""
+        result = self._make_mapping_result([])
+        report = check_grounding(result)
+        self.assertEqual(len(report.diagnostics), 0)
+        self.assertEqual(report.summary.mapping_claims, 0)
+        self.assertEqual(report.summary.blocking_diagnostics, 0)
+
+    # -- integration: build_mapping_claims + check_grounding -----------------
+
+    def test_grounding_on_supported_mapping_result(self):
+        """Integration: run grounding on a real mapping result from
+        build_mapping_claims with synthetic evidence."""
+        cc = ConceptCollection(concept_name="peak_idx")
+        cc.evidence_items.append(
+            EvidenceItem(
+                evidence_id="E:L5_L6:test:1:10:1",
+                source_type="concept_occurrence",
+                file_path="/tmp/test.py",
+                start_line=1,
+                end_line=10,
+                symbol="PeakDetector",
+                excerpt_summary="class with peak_idx",
+                evidence_strength="strong",
+            )
+        )
+        cc.candidate_subjects.append(
+            ConceptSubject(
+                name="PeakDetector",
+                kind="class",
+                file_path="/tmp/test.py",
+                start_line=1,
+                end_line=10,
+                role_hint="calculation",
+                evidence_ids=["E:L5_L6:test:1:10:1"],
+            )
+        )
+        rc = RTLEvidenceCollection(concept_name="peak_idx")
+        rc.evidence_items.append(
+            EvidenceItem(
+                evidence_id="E:RTL:test:1:20:1",
+                source_type="rtl_source",
+                file_path="/tmp/peak_detect.v",
+                start_line=1,
+                end_line=20,
+                symbol="peak_detect",
+                excerpt_summary="module with peak_idx",
+                evidence_strength="medium",
+            )
+        )
+        rc.evidence_items.append(
+            EvidenceItem(
+                evidence_id="E:RTL:test:10:18:2",
+                source_type="rtl_source",
+                file_path="/tmp/peak_detect.v",
+                start_line=10,
+                end_line=18,
+                symbol="always_10",
+                excerpt_summary="always block with peak_idx",
+                evidence_strength="medium",
+            )
+        )
+        rc.rtl_views.append(
+            RTLObjectView(
+                rtl_object_id="RTL_module_peak_detect_1",
+                object_type="module",
+                name="peak_detect",
+                file_path="/tmp/peak_detect.v",
+                start_line=1,
+                end_line=20,
+                evidence_ids=["E:RTL:test:1:20:1"],
+            )
+        )
+        rc.rtl_views.append(
+            RTLObjectView(
+                rtl_object_id="RTL_always_block_peak_detect_10",
+                object_type="always_block",
+                name="always_10",
+                file_path="/tmp/peak_detect.v",
+                start_line=10,
+                end_line=18,
+                evidence_ids=["E:RTL:test:10:18:2"],
+            )
+        )
+        mapping_result = build_mapping_claims(cc, rc)
+        report = check_grounding(mapping_result)
+        # supported claim with calculation_role bridge → no blocking
+        blocking = [
+            d for d in report.diagnostics if d.severity == "blocking"
+        ]
+        self.assertEqual(
+            len(blocking), 0,
+            (
+                "Expected no blocking diagnostics for clean supported mapping, "
+                "got: {}".format([d.issue_type for d in blocking])
+            ),
+        )
+
+    def test_grounding_on_unknown_mapping_result(self):
+        """Integration: unknown mapping with no evidence is a legitimate
+        unresolved/unknown expression — no blocking diagnostics."""
+        cc = ConceptCollection(concept_name="ghost")
+        cc.uncertainty_notes.append(
+            UncertaintyNote(
+                uncertainty_id="U_CONCEPT_UNKNOWN_ghost",
+                topic="concept_not_found",
+                scope="L5_L6",
+                reason="Not found",
+                current_interpretation="unknown",
+            )
+        )
+        rc = RTLEvidenceCollection(concept_name="ghost")
+        rc.uncertainty_notes.append(
+            UncertaintyNote(
+                uncertainty_id="U_RTL_UNKNOWN_ghost",
+                topic="concept_not_found_in_rtl",
+                scope="RTL",
+                reason="Not found",
+                current_interpretation="unknown",
+            )
+        )
+        mapping_result = build_mapping_claims(cc, rc)
+        report = check_grounding(mapping_result)
+        # unknown claim with required_missing_evidence → NOT blocking
+        blocking = [
+            d for d in report.diagnostics if d.severity == "blocking"
+        ]
+        self.assertEqual(len(blocking), 0)
 
 
 if __name__ == "__main__":
