@@ -295,6 +295,24 @@ class TestBundleSummaryViewModel(unittest.TestCase):
             self.assertFalse(vm.is_complete)
             self.assertGreater(vm.diagnostic_count, 0)
 
+    def test_bundle_summary_for_load_error(self):
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_"))
+        try:
+            for name in P1B_REQUIRED_ARTIFACTS:
+                if name == "run_metadata.json":
+                    (tmp / name).write_text("not json")
+                else:
+                    (tmp / name).write_text("{}")
+            bundle = load_bundle(tmp)
+            vm = build_bundle_summary(bundle)
+            self.assertEqual(vm.bundle_type, "p1b")
+            self.assertFalse(vm.is_complete)
+            self.assertGreater(vm.error_count, 0)
+            self.assertGreater(vm.diagnostic_count, 0)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 class TestJsonTreeNode(unittest.TestCase):
 

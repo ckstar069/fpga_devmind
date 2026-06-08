@@ -248,6 +248,64 @@ class TestBundleLoading(unittest.TestCase):
             errors = [d for d in bundle.diagnostics if d.code == "LOAD_ERROR"]
             self.assertGreaterEqual(len(errors), 1)
 
+    def test_invalid_json_run_metadata_load_error(self):
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_"))
+        try:
+            for name in P1B_REQUIRED_ARTIFACTS:
+                if name == "run_metadata.json":
+                    (tmp / name).write_text("not json")
+                else:
+                    (tmp / name).write_text("{}")
+            bundle = load_bundle(tmp)
+            errors = [d for d in bundle.diagnostics if d.code == "LOAD_ERROR"]
+            self.assertGreaterEqual(len(errors), 1)
+            self.assertFalse(bundle.is_complete)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_mermaid_decode_error_produces_load_error(self):
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_"))
+        try:
+            for name in P1B_REQUIRED_ARTIFACTS:
+                if name == "concept_trace.mmd":
+                    (tmp / name).write_bytes(b"\xff\xfe invalid utf8")
+                else:
+                    (tmp / name).write_text("{}" if name.endswith(".json") else "")
+            bundle = load_bundle(tmp)
+            errors = [d for d in bundle.diagnostics if d.code == "LOAD_ERROR"]
+            self.assertGreaterEqual(len(errors), 1)
+            self.assertFalse(bundle.is_complete)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_markdown_decode_error_produces_load_error(self):
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_"))
+        try:
+            for name in P1B_REQUIRED_ARTIFACTS:
+                if name == "concept_trace.md":
+                    (tmp / name).write_bytes(b"\xff\xfe invalid utf8")
+                else:
+                    (tmp / name).write_text("{}" if name.endswith(".json") else "")
+            bundle = load_bundle(tmp)
+            errors = [d for d in bundle.diagnostics if d.code == "LOAD_ERROR"]
+            self.assertGreaterEqual(len(errors), 1)
+            self.assertFalse(bundle.is_complete)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_load_bundle_never_raises(self):
+        nonexistent = Path("/nonexistent_path_12345")
+        try:
+            bundle = load_bundle(nonexistent)
+            self.assertFalse(bundle.is_complete)
+            errors = [d for d in bundle.diagnostics if d.severity == "error"]
+            self.assertGreater(len(errors), 0)
+        except Exception:
+            self.fail("load_bundle() must never raise")
+
 
 class TestArtifactDiagnostic(unittest.TestCase):
 

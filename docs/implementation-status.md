@@ -140,7 +140,7 @@ run_metadata.json           # Elapsed time, status, artifact list
 P1b 结构化 artifact 就绪后，下一阶段推进桌面端 Agent Shell / Desktop GUI：
 
 - T008: Desktop artifact viewer contract — 定义桌面 GUI 如何读取 P1a/P1b artifact 并渲染交互视图。已完成：详见 `docs/tasks/T008-desktop-artifact-viewer-contract.md` 和 `docs/desktop-agent-shell-plan.md`。
-- **T009: Desktop app prototype ✅** — 最小可运行桌面软件原型，支持 artifact 目录选择、JSON 树浏览、Markdown 渲染、Mermaid 图表展示。macOS/Linux 优先，Windows 其次。详见 `docs/tasks/T009-desktop-app-prototype.md`。`
+- **T009: Desktop app prototype ✅** — 最小可运行桌面软件原型，支持 artifact 目录选择、JSON 树浏览、Markdown 预览与 Mermaid source 展示。macOS/Linux 优先，Windows 其次。详见 `docs/tasks/T009-desktop-app-prototype.md`。
 - T010: P1b concept trace view — 在桌面 GUI 中渲染 concept trace graph（节点列表、边列表、claim 详情、grounding diagnostic 高亮）。
 
 方向约束：

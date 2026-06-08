@@ -230,8 +230,26 @@ def load_bundle(path: Path) -> ArtifactBundle:
         Loaded bundle with artifacts and diagnostics.  Never raises;
         all errors become diagnostics.
     """
-    bundle_type = detect_bundle_type(path)
-    diagnostics = validate_bundle(path, bundle_type)
+    diagnostics: list[ArtifactDiagnostic] = []
+    try:
+        bundle_type = detect_bundle_type(path)
+        diagnostics = validate_bundle(path, bundle_type)
+    except OSError as exc:
+        diagnostics.append(
+            ArtifactDiagnostic(
+                severity="error",
+                artifact=None,
+                message="Failed to inspect bundle directory: {}".format(exc),
+                code="LOAD_ERROR",
+            )
+        )
+        return ArtifactBundle(
+            bundle_type="unknown",
+            directory=path,
+            diagnostics=diagnostics,
+            is_complete=False,
+        )
+
     is_complete = not any(
         d.severity == "error" for d in diagnostics
     )
@@ -278,13 +296,46 @@ def load_bundle(path: Path) -> ArtifactBundle:
                 continue
         elif suffix == ".md":
             content_type = "markdown"
-            data = file_path.read_text(encoding="utf-8")
+            try:
+                data = file_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                diagnostics.append(
+                    ArtifactDiagnostic(
+                        severity="error",
+                        artifact=name,
+                        message="Failed to load {}: {}".format(name, exc),
+                        code="LOAD_ERROR",
+                    )
+                )
+                continue
         elif suffix == ".mmd":
             content_type = "mermaid"
-            data = file_path.read_text(encoding="utf-8")
+            try:
+                data = file_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                diagnostics.append(
+                    ArtifactDiagnostic(
+                        severity="error",
+                        artifact=name,
+                        message="Failed to load {}: {}".format(name, exc),
+                        code="LOAD_ERROR",
+                    )
+                )
+                continue
         else:
             content_type = "unknown"
-            data = file_path.read_text(encoding="utf-8")
+            try:
+                data = file_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                diagnostics.append(
+                    ArtifactDiagnostic(
+                        severity="error",
+                        artifact=name,
+                        message="Failed to load {}: {}".format(name, exc),
+                        code="LOAD_ERROR",
+                    )
+                )
+                continue
 
         bundle.artifacts[name] = LoadedArtifact(
             name=name,
@@ -293,6 +344,11 @@ def load_bundle(path: Path) -> ArtifactBundle:
             data=data,
         )
 
+    # Re-evaluate is_complete after loading artifacts; any error-level
+    # diagnostic must mark the bundle as incomplete.
+    bundle.is_complete = not any(
+        d.severity == "error" for d in diagnostics
+    )
     return bundle
 
 
