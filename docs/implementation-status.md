@@ -59,7 +59,7 @@ Implemented:
 - RTL evidence collector (T004): `collect_rtl_evidence()` scans modules, always blocks, assigns, signals, parameters and comments via regex-based line matching. Distinguishes name-match vs body-match vs comment-only. Produces `RTLEvidenceCollection` with `RTLObjectView`.
 - Conservative mapping claim builder (T005): `build_mapping_claims()` bridges T003/T004 evidence into `MappingClaim` with deterministic bridge_kind classification, confidence downgrade rules (naming_only → inferred, one-sided → unknown/inferred, both sides + non-weak bridge → supported). Never produces `confirmed` in first implementation. Propagates upstream uncertainty.
 - Grounding checker (T006): `check_grounding()` inspects mapping claims for blocking overclaims (unsupported confirmed, naming_only supported, missing evidence side, zero evidence) and non-blocking diagnostics (one-sided evidence, weak bridge). Defense-in-depth checks via mutation tests.
-- CLI pipeline / render / smoke (T007): `p1b-trace-concept` command chains T002–T06, builds `ConceptTraceGraph` and `ConceptTraceIndex`, renders `concept_trace.md` and `concept_trace.mmd`, and writes 6 artifacts. Output path guarded by `ensure_safe_output_dir()`. Returns nonzero exit code for blocking diagnostics. 194 tests (18 P1a + 176 P1b) pass.
+- CLI pipeline / render / smoke (T007): `p1b-trace-concept` command chains T002–T006, builds `ConceptTraceGraph` and `ConceptTraceIndex`, renders `concept_trace.md` and `concept_trace.mmd`, and writes 6 artifacts. Output path guarded by `ensure_safe_output_dir()`. Returns nonzero exit code for blocking diagnostics. 194 tests (18 P1a + 176 P1b) pass.
 
 Not implemented yet:
 
@@ -76,7 +76,7 @@ Not implemented yet:
 - Full interface / pipeline / state event extraction.
 - Full symbolic resource total evaluation.
 - P1c verification coverage.
-- Desktop artifact viewer / GUI prototype.
+- Desktop GUI / Agent Shell prototype（桌面端软件，非 Web）。
 - Interactive memory.
 
 ### P1b Current Limitations
@@ -134,19 +134,20 @@ grounding_report.json       # T006 grounding diagnostics + summary
 run_metadata.json           # Elapsed time, status, artifact list
 ```
 
-## Next Phase: Desktop Agent Shell (T008–T010)
+## Next Phase: Desktop GUI / Agent Shell (T008–T010)
 
-P1b 结构化 artifact 就绪后，下一阶段目标是桌面端 Agent 壳（不做 Web/Desktop UI）：
+P1b 结构化 artifact 就绪后，下一阶段推进桌面端 Agent Shell / Desktop GUI：
 
-- T008: Artifact viewer contract — 定义桌面壳如何读取 P1a/P1b artifact 并渲染交互视图。
-- T009: Desktop app prototype — 最小可运行壳，支持 artifact 目录选择、JSON 树浏览、Markdown 渲染。
-- T010: P1b concept trace view — 在桌面壳中渲染 concept trace graph（节点列表、边列表、claim 详情、grounding diagnostic 高亮）。
+- T008: Desktop artifact viewer contract — 定义桌面 GUI 如何读取 P1a/P1b artifact 并渲染交互视图。
+- T009: Desktop app prototype — 最小可运行桌面软件原型，支持 artifact 目录选择、JSON 树浏览、Markdown 渲染、Mermaid 图表展示。macOS/Linux 优先，Windows 其次。
+- T010: P1b concept trace view — 在桌面 GUI 中渲染 concept trace graph（节点列表、边列表、claim 详情、grounding diagnostic 高亮）。
 
 方向约束：
 ```text
-- 不做 Web/Desktop UI → T008-T010 是 CLI/壳层，不是 Electron/Qt/Web 应用。
-- 目标是 Agent runtime shell：读取 artifact → 渲染 → 接受用户指令 → 调用后续工具。
-- 壳层本身不运行 Vivado，不修改 fpga_project_*。
+- 不做 Web GUI。
+- 桌面端是 Agent runtime shell：读取 /tmp 或 /private/tmp 下的 artifact → 渲染 → 接受用户指令 → 调用后续工具。
+- 桌面端本身不运行 Vivado / synthesis / implementation / bitstream。
+- 桌面端不修改 fpga_project_* 目标项目。
 ```
 
 Ready for controlled implementation planning:

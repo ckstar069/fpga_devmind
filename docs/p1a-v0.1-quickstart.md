@@ -328,10 +328,16 @@ P1b 不做：
 
 ### Next Steps
 
-P1b artifact 就绪后，下一阶段是桌面端 Agent 壳（T008–T010）：
+P1b artifact 就绪后，下一阶段推进桌面端 Agent Shell / Desktop GUI（T008–T010）：
 
-- T008: Artifact viewer contract — 定义壳如何读取 P1a/P1b artifact。
-- T009: Desktop app prototype — 最小可运行壳（artifact 目录选择、JSON 树浏览、Markdown 渲染）。
-- T010: P1b concept trace view — 在壳中渲染 concept trace（节点、边、claim、diagnostic 高亮）。
+- T008: Desktop artifact viewer contract — 定义桌面 GUI 如何读取 P1a/P1b artifact 并渲染交互视图。
+- T009: Desktop app prototype — 最小可运行桌面软件原型，支持 artifact 目录选择、JSON 树浏览、Markdown 渲染、Mermaid 图表展示。macOS/Linux 优先，Windows 其次。
+- T010: P1b concept trace view — 在桌面 GUI 中渲染 concept trace（节点、边、claim、diagnostic 高亮）。
 
-约束：不做 Web/Desktop UI（壳层不是 Electron/Qt/Web 应用），而是 Agent runtime shell。
+方向约束：
+```text
+- 不做 Web GUI。
+- 桌面端是 Agent runtime shell：读取 /tmp 或 /private/tmp 下的 artifact → 渲染 → 接受用户指令 → 调用后续工具。
+- 桌面端本身不运行 Vivado / synthesis / implementation / bitstream。
+- 桌面端不修改 fpga_project_* 目标项目。
+```
