@@ -326,18 +326,80 @@ P1b 不做：
 - PASS / HOLD / finding / audit
 ```
 
-### Next Steps
+## Desktop Shell (T009–T010)
 
-P1b artifact 就绪后，下一阶段推进桌面端 Agent Shell / Desktop GUI（T008–T010）：
+PySide6 桌面 Agent Shell 用于浏览 P1a/P1b artifact bundle。
 
-- T008: Desktop artifact viewer contract — 定义桌面 GUI 如何读取 P1a/P1b artifact 并渲染交互视图。
-- T009: Desktop app prototype — 最小可运行桌面软件原型，支持 artifact 目录选择、JSON 树浏览、Markdown 渲染、Mermaid 图表展示。macOS/Linux 优先，Windows 其次。
-- T010: P1b concept trace view — 在桌面 GUI 中渲染 concept trace（节点、边、claim、diagnostic 高亮）。
+### 依赖
 
-方向约束：
-```text
-- 不做 Web GUI。
-- 桌面端是 Agent runtime shell：读取 /tmp 或 /private/tmp 下的 artifact → 渲染 → 接受用户指令 → 调用后续工具。
-- 桌面端本身不运行 Vivado / synthesis / implementation / bitstream。
-- 桌面端不修改 fpga_project_* 目标项目。
+```bash
+pip3 install pyside6
 ```
+
+如果未安装，入口点会打印依赖提示并以 exit code 0 退出。
+
+### 启动
+
+```bash
+# 直接指定 artifact 目录
+PYTHONPATH=src python3 -m fpga_devmind.desktop_app \
+  --artifact-dir /tmp/fpga_devmind/p1b_peak_idx
+
+# 或先启动再手动选择目录
+PYTHONPATH=src python3 -m fpga_devmind.desktop_app
+```
+
+### 视图
+
+| Tab | 内容 |
+|---|---|
+| **Run Summary** | concept, status, claims, evidence, elapsed time |
+| **JSON Tree** | 任意 JSON artifact 的树形浏览（graph, index, grounding, metadata） |
+| **Markdown** | concept_trace.md 只读预览（fallback 到 .mmd） |
+| **Diagnostics** | bundle 加载时的 missing/load_error 诊断 |
+| **Concept Trace** | P1b 结构化表格：Nodes / Edges / Claims / Evidence / Diagnostics |
+
+### Concept Trace 子表
+
+- **Nodes**: node_id, label, kind, stage, confidence, evidence count, diagnostics flag
+- **Edges**: edge_id, from→to label, type, confidence, claim refs
+- **Claims**: claim_id, concept, confidence, bridge_kind, evidence counts, missing evidence, diagnostics
+- **Evidence**: evidence_id, source_type, file, symbol, strength, claim refs
+- **Diagnostics**: id, severity, issue_type, target claim, message, action
+
+### 安全边界
+
+```text
+- 只读 artifact viewer，不写入 artifact 目录。
+- 不读取 fpga_project_* 源码。
+- 不运行 Vivado / synthesis / implementation / bitstream。
+- 不加载 API key，不调用外部 LLM。
+- unknown confidence 正常展示，不标记为错误。
+- blocking diagnostic 是 overclaim warning，不是 PASS/HOLD 结果。
+```
+
+## V0.1 完整边界
+
+P1b + Desktop Shell V0.1 不做：
+
+```text
+- LLM semantic reasoning / provider-backed model calls
+- Multi-turn ReAct loop 或 Agent chat 面板
+- Full SystemVerilog parser（regex-only RTL scanning）
+- 批量多概念 trace（单次仅一个 concept）
+- 交互式 graph 编辑或 claim 修改
+- 图布局引擎 / 实时 Mermaid 渲染
+- 跨概念 structural / evolution edge
+- AST 级 def-use 或 proven dataflow
+- Vivado / synthesis / implementation / bitstream
+- 修改任何 fpga_project_* 目标项目
+- PASS / HOLD / finding / audit
+- Web GUI / Web server / browser URL
+```
+
+## 下一阶段（可选）
+
+- T011: Agent interaction panel — 查询输入、响应展示、工具建议（只读）。
+- P1b+: 批量多概念 trace、partial SystemVerilog parser、跨概念 structural edge。
+- P1c: Verification coverage trace。
+- V0.2: LLM provider 适配、语义 claim 生成、交互式 claim 精炼。

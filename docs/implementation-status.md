@@ -2,14 +2,18 @@
 
 ## Current State
 
-P1a has a minimal deterministic implementation shell and is currently a V0.1 candidate.
+**P1b + Desktop Shell V0.1 is READY.** Review 0007 passed on 2026-06-08 with 251/251 tests and zero failures.
 
-V0.1 candidate means:
+V0.1 means:
 
 ```text
-- It is usable for read-only L6_resource_opt understanding smoke runs.
-- It produces grounded artifacts that later Agent layers can consume.
-- It is not yet a full FPGA Agent, LLM/ReAct reasoner, audit tool, or RTL mapper.
+- P1a: Read-only L6_resource_opt understanding with grounded ProjectGraph and query shell.
+- P1b: One-concept L5/L6-to-RTL deterministic trace with 6 schema-validated artifacts.
+- Desktop Shell: Minimum viable PySide6 Agent Shell that reads P1a/P1b bundles and
+  displays structured trace tables (Nodes, Edges, Claims, Evidence, Diagnostics).
+- All artifacts are read-only. No target project mutation, no Vivado, no external API,
+  no PASS/HOLD, no LLM in pipeline.
+- It is not yet a full FPGA Agent, multi-turn ReAct reasoner, audit tool, or RTL mapper.
 ```
 
 Implemented:
@@ -77,7 +81,7 @@ Not implemented yet:
 - Full interface / pipeline / state event extraction.
 - Full symbolic resource total evaluation.
 - P1c verification coverage.
-- Desktop GUI / Agent Shell prototype（桌面端软件，非 Web）。T009 + T010 已完成最小可运行桌面软件原型与结构化 trace 表格视图。
+- Desktop GUI / Agent Shell prototype（桌面端软件，非 Web）。T009 + T010 已完成最小可运行桌面软件原型与结构化 trace 表格视图。详见 `docs/reviews/0007-p1b-desktop-v0.1-readiness-review.md`。
 - Interactive memory.
 
 ### P1b Current Limitations
