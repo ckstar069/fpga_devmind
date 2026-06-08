@@ -538,6 +538,155 @@ class TestAgentPanelModels(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    # ------------------------------------------------------------------
+    # Diagnostics deduplication (T011a)
+    # ------------------------------------------------------------------
+
+    def _make_bundle_with_dup_diags(self) -> Path:
+        """Create a P1b bundle where the same diagnostic appears in both
+        graph.grounding_diagnostics and grounding_report.diagnostics."""
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_dedup_"))
+
+        graph = {
+            "schema_version": "0.1.0",
+            "concept": "dup_test",
+            "nodes": [],
+            "edges": [],
+            "mapping_claims": [
+                {
+                    "claim_id": "MC_dup_target",
+                    "claim_type": "mapping_claim",
+                    "statement": "dup",
+                    "concept_ref": "dup",
+                    "l6_subject_ids": [],
+                    "rtl_subject_ids": [],
+                    "l5_l6_evidence_ids": [],
+                    "rtl_evidence_ids": [],
+                    "bridge_evidence_ids": [],
+                    "bridge_kind": "unknown",
+                    "confidence": "unknown",
+                    "required_missing_evidence": [],
+                    "source_plan_step_id": None,
+                    "notes": None,
+                    "evidence_ids": [],
+                },
+            ],
+            "evidence_items": [],
+            "grounding_diagnostics": [
+                {
+                    "diagnostic_id": "GD_0001",
+                    "target_claim_id": "MC_dup_target",
+                    "target_output_id": None,
+                    "severity": "blocking",
+                    "issue_type": "mapping_claim_without_evidence",
+                    "recommended_action": "Add evidence",
+                    "related_evidence_ids": [],
+                    "message": "Claim has no evidence",
+                },
+            ],
+            "uncertainty_notes": [],
+            "stage_views": [],
+            "rtl_views": [],
+            "task_request": {},
+            "project_profile": {},
+            "run_metadata": {},
+        }
+
+        # Duplicate diagnostic in grounding_report with same diagnostic_id.
+        grounding = {
+            "schema_version": "p1b-grounding-report-0.1",
+            "diagnostics": [
+                {
+                    "diagnostic_id": "GD_0001",
+                    "target_claim_id": "MC_dup_target",
+                    "target_output_id": None,
+                    "severity": "blocking",
+                    "issue_type": "mapping_claim_without_evidence",
+                    "recommended_action": "Add evidence",
+                    "related_evidence_ids": [],
+                    "message": "Claim has no evidence",
+                },
+                # Another distinct diagnostic (no id) for fallback-key dedup test.
+                {
+                    "target_claim_id": "MC_dup_target",
+                    "issue_type": "fallback_dup",
+                    "message": "Same fallback key",
+                },
+            ],
+            "summary": {
+                "mapping_claims": 1,
+                "blocking_diagnostics": 2,
+            },
+        }
+
+        metadata = {
+            "schema_version": "p1b-run-metadata-0.1",
+            "concept": "dup_test",
+            "project_root": "/tmp/test_project",
+            "output_dir": str(tmp),
+            "elapsed_seconds": 0.001,
+            "status": "ok",
+            "blocking_diagnostics": 2,
+            "mapping_claims": 1,
+            "evidence_items": 0,
+            "artifacts": list(P1B_REQUIRED_ARTIFACTS),
+        }
+
+        (tmp / "concept_trace_graph.json").write_text(
+            json.dumps(graph), encoding="utf-8"
+        )
+        (tmp / "concept_trace_index.json").write_text("{}", encoding="utf-8")
+        (tmp / "grounding_report.json").write_text(
+            json.dumps(grounding), encoding="utf-8"
+        )
+        (tmp / "run_metadata.json").write_text(
+            json.dumps(metadata), encoding="utf-8"
+        )
+        (tmp / "concept_trace.md").write_text("# Trace\n", encoding="utf-8")
+        (tmp / "concept_trace.mmd").write_text("graph TD\n", encoding="utf-8")
+        return tmp
+
+    def test_diagnostics_dedupe_by_diagnostic_id(self):
+        tmp = self._make_bundle_with_dup_diags()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "diagnostics")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "diagnostics")
+            # GD_0001 appears in both graph and grounding; should show once.
+            self.assertEqual(vm.answer_text.count("GD_0001"), 1)
+            self.assertEqual(len(vm.referenced_diagnostic_ids), 2)
+            # The two distinct diagnostics are GD_0001 and the fallback-key one.
+            self.assertIn("GD_0001", vm.referenced_diagnostic_ids)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_claim_detail_deduped_diag_count(self):
+        tmp = self._make_bundle_with_dup_diags()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "MC_dup_target")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "claim_detail")
+            # GD_0001 duplicated in graph + grounding should count as 1.
+            self.assertIn("Diagnostics: 2", vm.answer_text)
+            # Should NOT say 3 (1 unique + 2 duplicates).
+            self.assertNotIn("Diagnostics: 3", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_diagnostics_dedupe_fallback_key(self):
+        tmp = self._make_bundle_with_dup_diags()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "diagnostics")
+            self.assertTrue(vm.is_loaded)
+            # The fallback-key diagnostic (no diagnostic_id) should appear once.
+            self.assertEqual(vm.answer_text.count("fallback_dup"), 1)
+            self.assertEqual(vm.answer_text.count("Same fallback key"), 1)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

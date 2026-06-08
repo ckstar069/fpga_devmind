@@ -145,6 +145,41 @@ def _has_any(text: str, terms: list[str]) -> bool:
     return any(term in text for term in terms)
 
 
+def _deduplicate_diagnostics(
+    graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
+    grounding: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+) -> list[dict[str, Any]]:  # pyright: ignore[reportExplicitAny]
+    """Merge and de-duplicate diagnostics from graph and grounding report.
+
+    Primary key is ``diagnostic_id``.  If missing, fallback to
+    ``(target_claim_id, issue_type, message)``.
+    """
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []  # pyright: ignore[reportExplicitAny]
+
+    def _key(diag: dict[str, Any]) -> str:  # pyright: ignore[reportExplicitAny]
+        did = diag.get("diagnostic_id")
+        if did:
+            return str(did)
+        return "{}|{}|{}".format(
+            diag.get("target_claim_id") or "",
+            diag.get("issue_type") or "",
+            diag.get("message") or "",
+        )
+
+    for source in (
+        (graph or {}).get("grounding_diagnostics", []),
+        grounding.get("diagnostics", []),
+    ):
+        for diag in source:
+            if isinstance(diag, dict):
+                k = _key(diag)
+                if k not in seen:
+                    seen.add(k)
+                    result.append(diag)
+    return result
+
+
 _CLAIM_ID_RE = re.compile(r"\b(MC_[A-Za-z0-9_]+)\b", re.IGNORECASE)
 _EVIDENCE_ID_RE = re.compile(r"\b(E:[A-Za-z0-9_:/-]+)\b", re.IGNORECASE)
 
@@ -301,10 +336,7 @@ def _answer_diagnostics(
     graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
     grounding: dict[str, Any],  # pyright: ignore[reportExplicitAny]
 ) -> AgentPanelResponse:
-    diags: list[dict[str, Any]] = []  # pyright: ignore[reportExplicitAny]
-    if graph:
-        diags.extend(graph.get("grounding_diagnostics", []))
-    diags.extend(grounding.get("diagnostics", []))
+    diags = _deduplicate_diagnostics(graph, grounding)
 
     if not diags:
         return AgentPanelResponse(
@@ -507,14 +539,11 @@ def _answer_claim_detail(
     if missing and isinstance(missing, list):
         lines.append("- Missing evidence: {}".format("; ".join(missing)))
 
-    # Count diagnostics targeting this claim.
-    diag_count = 0
-    for diag in graph.get("grounding_diagnostics", []):
-        if diag.get("target_claim_id") == claim_id:
-            diag_count += 1
-    for diag in grounding.get("diagnostics", []):
-        if diag.get("target_claim_id") == claim_id:
-            diag_count += 1
+    # Count diagnostics targeting this claim (deduplicated).
+    all_diags = _deduplicate_diagnostics(graph, grounding)
+    diag_count = sum(
+        1 for d in all_diags if d.get("target_claim_id") == claim_id
+    )
     if diag_count:
         lines.append("- Diagnostics: {}".format(diag_count))
 
