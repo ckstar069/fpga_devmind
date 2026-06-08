@@ -58,6 +58,11 @@ from fpga_devmind.p1b_rtl import (
     RTLObjectView,
     collect_rtl_evidence,
 )
+from fpga_devmind.p1b_mapping import (
+    MAPPING_CLAIMS_SCHEMA_VERSION,
+    MappingClaimResult,
+    build_mapping_claims,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -2013,6 +2018,545 @@ class TestP1bRTLCcollector(unittest.TestCase):
         finally:
             import shutil
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# P1b mapping claim builder (T005)
+# ---------------------------------------------------------------------------
+
+
+class TestP1bMappingClaimBuilder(unittest.TestCase):
+    """Tests for the P1b mapping claim builder.
+
+    Uses T003/T004 synthetic evidence collections to verify conservative
+    mapping claim generation.  No overclaiming allowed.
+    """
+
+    def _make_concept_collection(
+        self,
+        concept_name: str = "peak_idx",
+        with_evidence: bool = True,
+        strong_only: bool = False,
+        weak_only: bool = False,
+    ) -> ConceptCollection:
+        """Create a synthetic concept collection for testing.
+
+        Default: produces strong evidence (attribute match).
+        strong_only: only strong evidence.
+        weak_only: only weak evidence.
+        """
+        cc = ConceptCollection(concept_name=concept_name)
+        if not with_evidence:
+            cc.uncertainty_notes.append(
+                UncertaintyNote(
+                    uncertainty_id="U_CONCEPT_UNKNOWN_{}".format(concept_name),
+                    topic="concept_not_found",
+                    scope="L5_L6",
+                    reason="Not found",
+                    current_interpretation="unknown",
+                )
+            )
+            return cc
+
+        if weak_only:
+            strength = "weak"
+        else:
+            strength = "strong"
+
+        cc.evidence_items.append(
+            EvidenceItem(
+                evidence_id="E:L5_L6:test:1:10:1",
+                source_type="concept_occurrence",
+                file_path="/tmp/test_l5.py",
+                start_line=1,
+                end_line=10,
+                symbol="PeakDetector",
+                excerpt_summary="class with peak_idx",
+                evidence_strength=strength,
+            )
+        )
+        cc.candidate_subjects.append(
+            ConceptSubject(
+                name="PeakDetector",
+                kind="class",
+                file_path="/tmp/test_l5.py",
+                start_line=1,
+                end_line=10,
+                role_hint="calculation",
+                evidence_ids=["E:L5_L6:test:1:10:1"],
+            )
+        )
+        return cc
+
+    def _make_rtl_collection(
+        self,
+        concept_name: str = "peak_idx",
+        with_evidence: bool = True,
+        strong_only: bool = False,
+        weak_only: bool = False,
+    ) -> RTLEvidenceCollection:
+        """Create a synthetic RTL collection for testing.
+
+        Default: produces medium evidence (always_block + module + signal).
+        weak_only: only comment evidence (weak).
+        """
+        rc = RTLEvidenceCollection(concept_name=concept_name)
+        if not with_evidence:
+            rc.uncertainty_notes.append(
+                UncertaintyNote(
+                    uncertainty_id="U_RTL_UNKNOWN_{}".format(concept_name),
+                    topic="concept_not_found_in_rtl",
+                    scope="RTL",
+                    reason="Not found",
+                    current_interpretation="unknown",
+                )
+            )
+            return rc
+
+        if weak_only:
+            # Only comment evidence (weak strength)
+            rc.evidence_items.append(
+                EvidenceItem(
+                    evidence_id="E:RTL:test:5:5:1",
+                    source_type="rtl_source",
+                    file_path="/tmp/test.v",
+                    start_line=5,
+                    end_line=5,
+                    symbol="comment_5",
+                    excerpt_summary="// peak_idx referenced",
+                    evidence_strength="weak",
+                )
+            )
+            rc.rtl_views.append(
+                RTLObjectView(
+                    rtl_object_id="RTL_comment_test_5",
+                    object_type="comment",
+                    name="comment_5",
+                    file_path="/tmp/test.v",
+                    start_line=5,
+                    end_line=5,
+                    evidence_ids=["E:RTL:test:5:5:1"],
+                )
+            )
+        else:
+            # Module + always_block + signal (medium/strong)
+            rc.evidence_items.append(
+                EvidenceItem(
+                    evidence_id="E:RTL:test:1:20:1",
+                    source_type="rtl_source",
+                    file_path="/tmp/peak_detect.v",
+                    start_line=1,
+                    end_line=20,
+                    symbol="peak_detect",
+                    excerpt_summary="module with peak_idx",
+                    evidence_strength="medium",
+                )
+            )
+            rc.evidence_items.append(
+                EvidenceItem(
+                    evidence_id="E:RTL:test:10:18:2",
+                    source_type="rtl_source",
+                    file_path="/tmp/peak_detect.v",
+                    start_line=10,
+                    end_line=18,
+                    symbol="always_10",
+                    excerpt_summary="always block with peak_idx",
+                    evidence_strength="medium",
+                )
+            )
+            rc.evidence_items.append(
+                EvidenceItem(
+                    evidence_id="E:RTL:test:8:8:3",
+                    source_type="rtl_source",
+                    file_path="/tmp/peak_detect.v",
+                    start_line=8,
+                    end_line=8,
+                    symbol="peak_idx",
+                    excerpt_summary="reg [WIDTH-1:0] peak_idx",
+                    evidence_strength="strong",
+                )
+            )
+            rc.rtl_views.append(
+                RTLObjectView(
+                    rtl_object_id="RTL_module_peak_detect_1",
+                    object_type="module",
+                    name="peak_detect",
+                    file_path="/tmp/peak_detect.v",
+                    start_line=1,
+                    end_line=20,
+                    evidence_ids=["E:RTL:test:1:20:1"],
+                )
+            )
+            rc.rtl_views.append(
+                RTLObjectView(
+                    rtl_object_id="RTL_always_block_peak_detect_10",
+                    object_type="always_block",
+                    name="always_10",
+                    file_path="/tmp/peak_detect.v",
+                    start_line=10,
+                    end_line=18,
+                    evidence_ids=["E:RTL:test:10:18:2"],
+                )
+            )
+            rc.rtl_views.append(
+                RTLObjectView(
+                    rtl_object_id="RTL_signal_peak_detect_8",
+                    object_type="signal",
+                    name="peak_idx",
+                    file_path="/tmp/peak_detect.v",
+                    start_line=8,
+                    end_line=8,
+                    evidence_ids=["E:RTL:test:8:8:3"],
+                )
+            )
+        return rc
+
+    # -- basic structure -------------------------------------------------
+
+    def test_result_has_schema_version(self):
+        result = build_mapping_claims(
+            self._make_concept_collection(),
+            self._make_rtl_collection(),
+        )
+        self.assertEqual(
+            result.schema_version, "p1b-mapping-claims-0.1"
+        )
+
+    def test_result_to_dict_is_json_serializable(self):
+        result = build_mapping_claims(
+            self._make_concept_collection(),
+            self._make_rtl_collection(),
+        )
+        serialized = json.dumps(result.to_dict())
+        parsed = json.loads(serialized)
+        self.assertEqual(parsed["concept_name"], "peak_idx")
+        self.assertIsInstance(parsed["mapping_claims"], list)
+
+    # -- supported mapping with both sides -------------------------------
+
+    def test_supported_mapping_with_both_sides(self):
+        """Both L5/L6 and RTL evidence present with non-weak bridge →
+        supported confidence."""
+        result = build_mapping_claims(
+            self._make_concept_collection(),
+            self._make_rtl_collection(),
+        )
+        self.assertEqual(len(result.mapping_claims), 1)
+        claim = result.mapping_claims[0]
+        self.assertEqual(claim.confidence, "supported")
+        self.assertGreater(len(claim.l5_l6_evidence_ids), 0)
+        self.assertGreater(len(claim.rtl_evidence_ids), 0)
+        # Bridge should be a non-weak kind
+        self.assertNotEqual(claim.bridge_kind, "naming_only")
+        self.assertNotEqual(claim.bridge_kind, "unknown")
+
+    def test_supported_claim_has_visualization_edge(self):
+        result = build_mapping_claims(
+            self._make_concept_collection(),
+            self._make_rtl_collection(),
+        )
+        self.assertEqual(len(result.visualization_edges), 1)
+        edge = result.visualization_edges[0]
+        self.assertIn("peak_idx", edge.from_label)
+        self.assertIn("peak_idx", edge.to_label)
+        self.assertEqual(edge.confidence, "supported")
+
+    # -- inferred mapping with naming only -------------------------------
+
+    def test_inferred_mapping_with_naming_only(self):
+        """Both sides present but only naming similarity → naming_only
+        bridge → inferred confidence."""
+        # Create concept collection with no calculation role
+        cc = ConceptCollection(concept_name="data_val")
+        cc.evidence_items.append(
+            EvidenceItem(
+                evidence_id="E:L5_L6:test:1:5:1",
+                source_type="concept_occurrence",
+                file_path="/tmp/test.py",
+                start_line=1,
+                end_line=5,
+                symbol="DataValidator",
+                excerpt_summary="validator",
+                evidence_strength="strong",
+            )
+        )
+        cc.candidate_subjects.append(
+            ConceptSubject(
+                name="DataValidator",
+                kind="class",
+                file_path="/tmp/test.py",
+                start_line=1,
+                end_line=5,
+                role_hint="support",  # no specific calculation/state role
+                evidence_ids=["E:L5_L6:test:1:5:1"],
+            )
+        )
+        # RTL with only module (no always_block to trigger role match)
+        rc = RTLEvidenceCollection(concept_name="data_val")
+        rc.evidence_items.append(
+            EvidenceItem(
+                evidence_id="E:RTL:test:1:10:1",
+                source_type="rtl_source",
+                file_path="/tmp/data_mod.v",
+                start_line=1,
+                end_line=10,
+                symbol="data_mod",
+                excerpt_summary="module",
+                evidence_strength="medium",
+            )
+        )
+        rc.rtl_views.append(
+            RTLObjectView(
+                rtl_object_id="RTL_module_data_mod_1",
+                object_type="module",
+                name="data_mod",
+                file_path="/tmp/data_mod.v",
+                start_line=1,
+                end_line=10,
+                evidence_ids=["E:RTL:test:1:10:1"],
+            )
+        )
+        result = build_mapping_claims(cc, rc)
+        claim = result.mapping_claims[0]
+        self.assertEqual(claim.bridge_kind, "naming_only")
+        self.assertEqual(claim.confidence, "inferred")
+
+    # -- unknown mapping when RTL side missing ---------------------------
+
+    def test_unknown_mapping_when_rtl_side_missing(self):
+        """L5/L6 evidence present but no RTL evidence → unknown or
+        inferred with required_missing_evidence."""
+        result = build_mapping_claims(
+            self._make_concept_collection(with_evidence=True),
+            self._make_rtl_collection(with_evidence=False),
+        )
+        claim = result.mapping_claims[0]
+        self.assertIn(claim.confidence, ("unknown", "inferred"))
+        self.assertGreater(len(claim.l5_l6_evidence_ids), 0)
+        self.assertEqual(len(claim.rtl_evidence_ids), 0)
+        self.assertGreater(len(claim.required_missing_evidence), 0)
+
+    def test_unknown_mapping_when_l5_l6_side_missing(self):
+        """RTL evidence present but no L5/L6 evidence → unknown or
+        inferred with required_missing_evidence."""
+        result = build_mapping_claims(
+            self._make_concept_collection(with_evidence=False),
+            self._make_rtl_collection(with_evidence=True),
+        )
+        claim = result.mapping_claims[0]
+        self.assertIn(claim.confidence, ("unknown", "inferred"))
+        self.assertEqual(len(claim.l5_l6_evidence_ids), 0)
+        self.assertGreater(len(claim.rtl_evidence_ids), 0)
+        self.assertGreater(len(claim.required_missing_evidence), 0)
+
+    # -- no confirmed claim without explicit bridge ----------------------
+
+    def test_no_confirmed_claim_without_explicit_bridge(self):
+        """First implementation should not produce confirmed claims
+        from build_mapping_claims() — no explicit_source_bridge
+        heuristics exist."""
+        result = build_mapping_claims(
+            self._make_concept_collection(),
+            self._make_rtl_collection(),
+        )
+        for claim in result.mapping_claims:
+            self.assertNotEqual(claim.confidence, "confirmed")
+
+    # -- no supported claim with naming_only bridge ----------------------
+
+    def test_no_supported_claim_with_naming_only_bridge(self):
+        """naming_only bridge must always be inferred, never supported."""
+        # Use support role (no calculation/state match) + module-only RTL
+        cc = ConceptCollection(concept_name="xyz")
+        cc.evidence_items.append(
+            EvidenceItem(
+                evidence_id="E:L5_L6:test:1:5:1",
+                source_type="concept_occurrence",
+                file_path="/tmp/test.py",
+                start_line=1,
+                end_line=5,
+                symbol="XyzHandler",
+                excerpt_summary="handler",
+                evidence_strength="strong",
+            )
+        )
+        cc.candidate_subjects.append(
+            ConceptSubject(
+                name="XyzHandler",
+                kind="class",
+                file_path="/tmp/test.py",
+                start_line=1,
+                end_line=5,
+                role_hint="support",
+                evidence_ids=["E:L5_L6:test:1:5:1"],
+            )
+        )
+        rc = RTLEvidenceCollection(concept_name="xyz")
+        rc.evidence_items.append(
+            EvidenceItem(
+                evidence_id="E:RTL:test:1:10:1",
+                source_type="rtl_source",
+                file_path="/tmp/xyz.v",
+                start_line=1,
+                end_line=10,
+                symbol="xyz_mod",
+                excerpt_summary="module",
+                evidence_strength="medium",
+            )
+        )
+        rc.rtl_views.append(
+            RTLObjectView(
+                rtl_object_id="RTL_module_xyz_mod_1",
+                object_type="module",
+                name="xyz_mod",
+                file_path="/tmp/xyz.v",
+                start_line=1,
+                end_line=10,
+                evidence_ids=["E:RTL:test:1:10:1"],
+            )
+        )
+        result = build_mapping_claims(cc, rc)
+        claim = result.mapping_claims[0]
+        if claim.bridge_kind == "naming_only":
+            self.assertNotEqual(claim.confidence, "supported")
+
+    # -- no evidence at all → unknown claim ------------------------------
+
+    def test_no_evidence_produces_unknown_claim(self):
+        result = build_mapping_claims(
+            self._make_concept_collection(
+                concept_name="ghost", with_evidence=False
+            ),
+            self._make_rtl_collection(
+                concept_name="ghost", with_evidence=False
+            ),
+        )
+        self.assertEqual(len(result.mapping_claims), 1)
+        claim = result.mapping_claims[0]
+        self.assertEqual(claim.confidence, "unknown")
+        self.assertEqual(len(claim.required_missing_evidence), 2)
+
+    # -- weak-only evidence downgrades confidence ------------------------
+
+    def test_weak_only_rtl_evidence_downgrades_to_inferred(self):
+        """RTL evidence with only comment (weak) evidence should produce
+        inferred, never supported."""
+        result = build_mapping_claims(
+            self._make_concept_collection(with_evidence=True),
+            self._make_rtl_collection(
+                with_evidence=True, weak_only=True
+            ),
+        )
+        claim = result.mapping_claims[0]
+        # Weak-only RTL → bridge becomes naming_only or unknown
+        # → confidence is inferred (not supported)
+        self.assertIn(claim.confidence, ("inferred", "unknown"))
+        self.assertNotEqual(claim.confidence, "supported")
+
+    # -- uncertainty notes propagated from upstream ----------------------
+
+    def test_upstream_uncertainty_notes_propagated(self):
+        """Uncertainty notes from T003/T004 should propagate to the
+        mapping result."""
+        result = build_mapping_claims(
+            self._make_concept_collection(
+                concept_name="ghost", with_evidence=False
+            ),
+            self._make_rtl_collection(
+                concept_name="ghost", with_evidence=False
+            ),
+        )
+        # Both upstream collectors produce 1 uncertainty note each
+        self.assertGreaterEqual(len(result.uncertainty_notes), 2)
+
+    # -- claim_id format -------------------------------------------------
+
+    def test_claim_id_format(self):
+        result = build_mapping_claims(
+            self._make_concept_collection(),
+            self._make_rtl_collection(),
+        )
+        claim = result.mapping_claims[0]
+        self.assertTrue(claim.claim_id.startswith("MC_"))
+        self.assertIn("peak_idx", claim.claim_id)
+
+    # -- evidence_ids contains both sides --------------------------------
+
+    def test_evidence_ids_merged_from_both_sides(self):
+        result = build_mapping_claims(
+            self._make_concept_collection(),
+            self._make_rtl_collection(),
+        )
+        claim = result.mapping_claims[0]
+        # Derived evidence_ids should contain items from both sides
+        self.assertIn("E:L5_L6:test:1:10:1", claim.evidence_ids)
+        self.assertIn("E:RTL:test:1:20:1", claim.evidence_ids)
+
+    # -- statement is descriptive ----------------------------------------
+
+    def test_statement_describes_mapping(self):
+        result = build_mapping_claims(
+            self._make_concept_collection(),
+            self._make_rtl_collection(),
+        )
+        claim = result.mapping_claims[0]
+        self.assertIn("peak_idx", claim.statement)
+        self.assertIn("bridge", claim.statement)
+
+    # -- bridge_evidence_ids ---------------------------------------------
+
+    def test_supported_claim_has_non_empty_bridge_evidence_ids(self):
+        """Supported claim must have non-empty bridge_evidence_ids
+        populated from the evidence that participated in the bridge
+        classification."""
+        result = build_mapping_claims(
+            self._make_concept_collection(),
+            self._make_rtl_collection(),
+        )
+        claim = result.mapping_claims[0]
+        self.assertEqual(claim.confidence, "supported")
+        self.assertGreater(len(claim.bridge_evidence_ids), 0)
+
+    def test_bridge_evidence_ids_included_in_derived_evidence_ids(self):
+        """The derived evidence_ids field should contain
+        bridge_evidence_ids items."""
+        result = build_mapping_claims(
+            self._make_concept_collection(),
+            self._make_rtl_collection(),
+        )
+        claim = result.mapping_claims[0]
+        for beid in claim.bridge_evidence_ids:
+            self.assertIn(beid, claim.evidence_ids)
+
+    def test_weak_only_rtl_never_supported_even_with_bridge_ids(self):
+        """Comment-only (weak) RTL evidence should never produce
+        supported confidence, even if bridge_evidence_ids is somehow
+        populated from the L5/L6 side."""
+        result = build_mapping_claims(
+            self._make_concept_collection(with_evidence=True),
+            self._make_rtl_collection(
+                with_evidence=True, weak_only=True
+            ),
+        )
+        claim = result.mapping_claims[0]
+        self.assertNotEqual(claim.confidence, "supported")
+
+    def test_unknown_bridge_does_not_require_bridge_evidence_ids(self):
+        """When bridge_kind is unknown, bridge_evidence_ids may be
+        empty — no overclaim obligation."""
+        result = build_mapping_claims(
+            self._make_concept_collection(
+                concept_name="ghost", with_evidence=False
+            ),
+            self._make_rtl_collection(
+                concept_name="ghost", with_evidence=False
+            ),
+        )
+        claim = result.mapping_claims[0]
+        self.assertEqual(claim.bridge_kind, "unknown")
+        # unknown bridge → no bridge_evidence_ids required
+        # (can be empty)
+        self.assertIsInstance(claim.bridge_evidence_ids, list)
 
 
 if __name__ == "__main__":
