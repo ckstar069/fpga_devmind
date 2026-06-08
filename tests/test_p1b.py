@@ -46,6 +46,12 @@ from fpga_devmind.p1b_collectors import (
     SourceCollection,
     collect_p1b_sources,
 )
+from fpga_devmind.p1b_concept import (
+    CONCEPT_COLLECTION_SCHEMA_VERSION,
+    ConceptCollection,
+    ConceptSubject,
+    collect_concept_evidence,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1233,6 +1239,371 @@ class TestP1bSourceCollector(unittest.TestCase):
             result = collect_p1b_sources(tmp, "test")
             for fp in result.l6_candidate_files:
                 self.assertNotIn("__pycache__", fp)
+
+
+# ---------------------------------------------------------------------------
+# P1b concept evidence collector (T003)
+# ---------------------------------------------------------------------------
+
+
+class TestP1bConceptCollector(unittest.TestCase):
+    """Tests for the P1b concept evidence collector.
+
+    Uses synthetic temp projects with known Python source files for
+    deterministic testing.  The real coarse_sync_glm smoke test is
+    skipped when the target is absent.
+    """
+
+    def _make_concept_project(self) -> tuple[Path, list[str]]:
+        """Create a minimal L5/L6 project with known concept occurrences.
+
+        Returns (project_root, candidate_files).
+        """
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_concept_"))
+        # L5 file with peak_idx as attribute and parameter
+        l5 = tmp / "src" / "python_model" / "L5_fixedpoint"
+        l5.mkdir(parents=True)
+        (l5 / "__init__.py").write_text("")
+        l5_code = (
+            "class PeakDetector:\n"
+            '    """Detect peak index in correlation output."""\n'
+            "    def __init__(self):\n"
+            "        self.peak_idx = 0\n"
+            "\n"
+            "    def compute_peak(self, corr_data):\n"
+            "        peak_idx = corr_data.argmax()\n"
+            "        self.peak_idx = peak_idx\n"
+            "        return peak_idx\n"
+        )
+        (l5 / "detector.py").write_text(l5_code)
+
+        # L6 file with peak_idx in dict and indexing
+        l6 = tmp / "src" / "python_model" / "L6_resource_opt"
+        l6.mkdir(parents=True)
+        (l6 / "__init__.py").write_text("")
+        l6_code = (
+            "class ResourceModel:\n"
+            '    """Resource-optimized peak detector."""\n'
+            "    def report(self):\n"
+            '        return {"peak_idx": self.peak_idx}\n'
+            "\n"
+            "def extract_metric(corr_re_0, peak_idx):\n"
+            "    value = corr_re_0[peak_idx]\n"
+            "    return value\n"
+        )
+        (l6 / "model.py").write_text(l6_code)
+
+        # Collect candidate file paths (mimics T002 output)
+        candidates: list[str] = []
+        for p in sorted(l5.rglob("*.py")):
+            if p.name != "__init__.py" and "__pycache__" not in p.parts:
+                candidates.append(str(p))
+        for p in sorted(l6.rglob("*.py")):
+            if p.name != "__init__.py" and "__pycache__" not in p.parts:
+                candidates.append(str(p))
+        return tmp, candidates
+
+    # -- basic structure tests -------------------------------------------
+
+    def test_schema_version_matches_output_contract(self):
+        self.assertEqual(
+            CONCEPT_COLLECTION_SCHEMA_VERSION,
+            "p1b-concept-collection-0.1",
+        )
+        cc = ConceptCollection()
+        self.assertEqual(cc.schema_version, CONCEPT_COLLECTION_SCHEMA_VERSION)
+
+    def test_concept_collection_defaults(self):
+        cc = ConceptCollection(concept_name="test")
+        self.assertEqual(cc.stage_side, "l5_l6")
+        self.assertEqual(cc.evidence_items, [])
+        self.assertEqual(cc.candidate_subjects, [])
+        self.assertEqual(cc.uncertainty_notes, [])
+        self.assertEqual(cc.collection_diagnostics, [])
+
+    def test_to_dict_is_json_serializable(self):
+        tmp, candidates = self._make_concept_project()
+        try:
+            result = collect_concept_evidence(tmp, "peak_idx", candidates)
+            serialized = json.dumps(result.to_dict())
+            parsed = json.loads(serialized)
+            self.assertEqual(parsed["concept_name"], "peak_idx")
+            self.assertEqual(parsed["stage_side"], "l5_l6")
+            self.assertIsInstance(parsed["evidence_items"], list)
+            self.assertIsInstance(parsed["candidate_subjects"], list)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- concept extraction tests ----------------------------------------
+
+    def test_finds_concept_in_classes_and_functions(self):
+        tmp, candidates = self._make_concept_project()
+        try:
+            result = collect_concept_evidence(tmp, "peak_idx", candidates)
+            # Should find concept in at least PeakDetector, compute_peak,
+            # report, extract_metric
+            subject_names = [s.name for s in result.candidate_subjects]
+            self.assertIn("PeakDetector", subject_names)
+            self.assertIn("compute_peak", subject_names)
+            self.assertIn("ResourceModel", subject_names)
+            self.assertIn("extract_metric", subject_names)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_evidence_items_have_valid_structure(self):
+        tmp, candidates = self._make_concept_project()
+        try:
+            result = collect_concept_evidence(tmp, "peak_idx", candidates)
+            self.assertGreater(len(result.evidence_items), 0)
+            for ei in result.evidence_items:
+                self.assertIsInstance(ei, EvidenceItem)
+                self.assertTrue(ei.evidence_id.startswith("E:p1b_concept:"))
+                self.assertEqual(ei.source_type, "concept_occurrence")
+                self.assertGreater(ei.start_line, 0)
+                self.assertGreaterEqual(ei.end_line, ei.start_line)
+                self.assertIn(
+                    ei.evidence_strength, ("strong", "medium", "weak")
+                )
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_strength_classification(self):
+        """Verify strength is classified as expected:
+        - attribute (self.peak_idx) → strong
+        - parameter (peak_idx) → strong
+        - local variable (peak_idx = ...) → medium
+        """
+        tmp, candidates = self._make_concept_project()
+        try:
+            result = collect_concept_evidence(tmp, "peak_idx", candidates)
+            strengths = {
+                ei.symbol: ei.evidence_strength
+                for ei in result.evidence_items
+            }
+            # PeakDetector has self.peak_idx → strong
+            self.assertEqual(strengths.get("PeakDetector"), "strong")
+            # compute_peak has self.peak_idx assignment inside → strong
+            self.assertEqual(strengths.get("compute_peak"), "strong")
+            # extract_metric has peak_idx as parameter → strong
+            self.assertEqual(strengths.get("extract_metric"), "strong")
+            # ResourceModel has self.peak_idx via attribute → strong
+            self.assertEqual(strengths.get("ResourceModel"), "strong")
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- unknown concept handling ----------------------------------------
+
+    def test_unknown_concept_produces_uncertainty_note(self):
+        tmp, candidates = self._make_concept_project()
+        try:
+            result = collect_concept_evidence(
+                tmp, "nonexistent_xyz", candidates
+            )
+            self.assertEqual(len(result.evidence_items), 0)
+            self.assertEqual(len(result.candidate_subjects), 0)
+            self.assertEqual(len(result.uncertainty_notes), 1)
+            note = result.uncertainty_notes[0]
+            self.assertIn("nonexistent_xyz", note.uncertainty_id)
+            self.assertEqual(note.topic, "concept_not_found")
+            self.assertEqual(note.current_interpretation, "unknown")
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_unknown_concept_produces_diagnostic(self):
+        tmp, candidates = self._make_concept_project()
+        try:
+            result = collect_concept_evidence(
+                tmp, "ghost_signal", candidates
+            )
+            self.assertEqual(len(result.collection_diagnostics), 1)
+            diag = result.collection_diagnostics[0]
+            self.assertEqual(diag["section"], "L5_L6")
+            self.assertEqual(diag["severity"], "info")
+            self.assertIn("ghost_signal", diag["message"])
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- evidence ID stability -------------------------------------------
+
+    def test_evidence_id_stability(self):
+        """Running the same extraction twice produces identical evidence
+        IDs (deterministic ordinal-based generation)."""
+        tmp, candidates = self._make_concept_project()
+        try:
+            r1 = collect_concept_evidence(tmp, "peak_idx", candidates)
+            r2 = collect_concept_evidence(tmp, "peak_idx", candidates)
+            ids1 = [ei.evidence_id for ei in r1.evidence_items]
+            ids2 = [ei.evidence_id for ei in r2.evidence_items]
+            self.assertEqual(ids1, ids2)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_evidence_id_stability_different_concept(self):
+        """Different concept produces different evidence IDs."""
+        tmp, candidates = self._make_concept_project()
+        try:
+            r1 = collect_concept_evidence(tmp, "peak_idx", candidates)
+            r2 = collect_concept_evidence(
+                tmp, "nonexistent_concept", candidates
+            )
+            self.assertGreater(len(r1.evidence_items), 0)
+            self.assertEqual(len(r2.evidence_items), 0)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- candidate subjects structure ------------------------------------
+
+    def test_candidate_subjects_have_correct_kinds(self):
+        tmp, candidates = self._make_concept_project()
+        try:
+            result = collect_concept_evidence(tmp, "peak_idx", candidates)
+            subject_kinds = {s.name: s.kind for s in result.candidate_subjects}
+            self.assertEqual(subject_kinds.get("PeakDetector"), "class")
+            self.assertEqual(subject_kinds.get("compute_peak"), "method")
+            self.assertEqual(subject_kinds.get("ResourceModel"), "class")
+            self.assertEqual(subject_kinds.get("extract_metric"), "function")
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_candidate_subjects_have_evidence_refs(self):
+        tmp, candidates = self._make_concept_project()
+        try:
+            result = collect_concept_evidence(tmp, "peak_idx", candidates)
+            for subj in result.candidate_subjects:
+                self.assertIsInstance(subj, ConceptSubject)
+                self.assertGreater(len(subj.evidence_ids), 0)
+                # Each evidence_id referenced in subject must exist
+                all_eids = {ei.evidence_id for ei in result.evidence_items}
+                for eid in subj.evidence_ids:
+                    self.assertIn(eid, all_eids)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_role_hint_classification(self):
+        tmp, candidates = self._make_concept_project()
+        try:
+            result = collect_concept_evidence(tmp, "peak_idx", candidates)
+            roles = {s.name: s.role_hint for s in result.candidate_subjects}
+            # PeakDetector has "detect" in name → calculation
+            self.assertEqual(roles.get("PeakDetector"), "calculation")
+            # compute_peak has "compute" in name → calculation
+            self.assertEqual(roles.get("compute_peak"), "calculation")
+            # ResourceModel docstring has "detect" (in "detector") → calculation
+            self.assertEqual(roles.get("ResourceModel"), "calculation")
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_syntax_error_file_is_skipped_with_diagnostic(self):
+        """A file with invalid syntax should not crash the collector.
+        Good files in the same batch must still produce evidence."""
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_syntax_err_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            bad_file = tmp / "broken.py"
+            bad_file.write_text("def incomplete(\n")  # SyntaxError
+            good_file = tmp / "good.py"
+            good_file.write_text("peak_idx = 42\n")
+            candidates = [str(bad_file), str(good_file)]
+            result = collect_concept_evidence(tmp, "peak_idx", candidates)
+            # Must not raise; good file evidence collected
+            self.assertGreater(len(result.evidence_items), 0)
+            good_found = any(
+                ei.file_path == str(good_file)
+                for ei in result.evidence_items
+            )
+            self.assertTrue(good_found)
+            # Diagnostic for the broken file
+            diag_paths = [d["file_path"] for d in result.collection_diagnostics]
+            self.assertIn(str(bad_file), diag_paths)
+            bad_diag = next(
+                d for d in result.collection_diagnostics
+                if d["file_path"] == str(bad_file)
+            )
+            self.assertEqual(bad_diag["severity"], "warning")
+            self.assertIn("SyntaxError", bad_diag["message"])
+
+    # -- edge cases ------------------------------------------------------
+
+    def test_empty_candidate_files_produces_unknown(self):
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_empty_concept_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            result = collect_concept_evidence(tmp, "peak_idx", [])
+            self.assertEqual(len(result.evidence_items), 0)
+            self.assertEqual(len(result.uncertainty_notes), 1)
+
+    def test_nonexistent_candidate_files_are_skipped(self):
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_missing_concept_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            result = collect_concept_evidence(
+                tmp,
+                "peak_idx",
+                ["/tmp/nonexistent_file_abc123.py"],
+            )
+            self.assertEqual(len(result.evidence_items), 0)
+            self.assertEqual(len(result.uncertainty_notes), 1)
+
+    def test_init_py_and_pycache_excluded(self):
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_excl_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            l6 = tmp / "src" / "python_model" / "L6_resource_opt"
+            l6.mkdir(parents=True)
+            (l6 / "__init__.py").write_text("peak_idx = 1\n")
+            pycache = l6 / "__pycache__"
+            pycache.mkdir()
+            (pycache / "helper.cpython-39.pyc").write_text("")
+            (l6 / "model.py").write_text("peak_idx = 42\n")
+            # Collect only non-__init__ files
+            candidates = [
+                str(l6 / "__init__.py"),
+                str(l6 / "model.py"),
+            ]
+            result = collect_concept_evidence(tmp, "peak_idx", candidates)
+            # __init__.py should be excluded
+            files = [ei.file_path for ei in result.evidence_items]
+            for f in files:
+                self.assertNotIn("__init__.py", f)
+
+    # -- real project smoke test -----------------------------------------
+
+    @unittest.skipUnless(
+        os.path.isdir(
+            "/Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm"
+        ),
+        "coarse_sync_glm project not available",
+    )
+    def test_coarse_sync_glm_peak_idx_extraction(self):
+        project = Path(
+            "/Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm"
+        )
+        sources = collect_p1b_sources(project, "peak_idx")
+        candidates = sources.l5_candidate_files + sources.l6_candidate_files
+        result = collect_concept_evidence(project, "peak_idx", candidates)
+        self.assertEqual(result.concept_name, "peak_idx")
+        # peak_idx must be found in L5/L6
+        self.assertGreater(len(result.evidence_items), 0)
+        # All evidence must have valid strength
+        for ei in result.evidence_items:
+            self.assertIn(ei.evidence_strength, ("strong", "medium", "weak"))
+        # No uncertainty for a known concept
+        self.assertEqual(len(result.uncertainty_notes), 0)
 
 
 if __name__ == "__main__":
