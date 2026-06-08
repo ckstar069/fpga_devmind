@@ -60,6 +60,7 @@ Implemented:
 - Conservative mapping claim builder (T005): `build_mapping_claims()` bridges T003/T004 evidence into `MappingClaim` with deterministic bridge_kind classification, confidence downgrade rules (naming_only → inferred, one-sided → unknown/inferred, both sides + non-weak bridge → supported). Never produces `confirmed` in first implementation. Propagates upstream uncertainty.
 - Grounding checker (T006): `check_grounding()` inspects mapping claims for blocking overclaims (unsupported confirmed, naming_only supported, missing evidence side, zero evidence) and non-blocking diagnostics (one-sided evidence, weak bridge). Defense-in-depth checks via mutation tests.
 - CLI pipeline / render / smoke (T007): `p1b-trace-concept` command chains T002–T006, builds `ConceptTraceGraph` and `ConceptTraceIndex`, renders `concept_trace.md` and `concept_trace.mmd`, and writes 6 artifacts. Output path guarded by `ensure_safe_output_dir()`. Returns nonzero exit code for blocking diagnostics. 194 tests (18 P1a + 176 P1b) pass.
+- Desktop app prototype (T009): PySide6-based minimum viable shell with artifact directory picker, Run Summary view, JSON Tree Browser, Markdown Preview, and Diagnostics tab. Graceful fallback when PySide6 is missing. Artifact loader (`desktop/artifact_loader.py`) and view models (`desktop/view_models.py`) are pure Python and testable without GUI. 229 tests (194 P1a/P1b + 35 desktop) pass.
 
 Not implemented yet:
 
@@ -139,7 +140,7 @@ run_metadata.json           # Elapsed time, status, artifact list
 P1b 结构化 artifact 就绪后，下一阶段推进桌面端 Agent Shell / Desktop GUI：
 
 - T008: Desktop artifact viewer contract — 定义桌面 GUI 如何读取 P1a/P1b artifact 并渲染交互视图。已完成：详见 `docs/tasks/T008-desktop-artifact-viewer-contract.md` 和 `docs/desktop-agent-shell-plan.md`。
-- T009: Desktop app prototype — 最小可运行桌面软件原型，支持 artifact 目录选择、JSON 树浏览、Markdown 渲染、Mermaid 图表展示。macOS/Linux 优先，Windows 其次。
+- **T009: Desktop app prototype ✅** — 最小可运行桌面软件原型，支持 artifact 目录选择、JSON 树浏览、Markdown 渲染、Mermaid 图表展示。macOS/Linux 优先，Windows 其次。详见 `docs/tasks/T009-desktop-app-prototype.md`。`
 - T010: P1b concept trace view — 在桌面 GUI 中渲染 concept trace graph（节点列表、边列表、claim 详情、grounding diagnostic 高亮）。
 
 方向约束：
