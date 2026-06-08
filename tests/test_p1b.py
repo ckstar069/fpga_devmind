@@ -1,12 +1,16 @@
-"""Tests for P1b schema and artifact contract (T001).
+"""Tests for P1b schema, artifact contract (T001) and source collector (T002).
 
-These tests validate the structural shape of P1b artifacts and
-enforce the mapping claim confidence rules from T005.
+These tests validate the structural shape of P1b artifacts,
+enforce the mapping claim confidence rules from T005,
+and test the read-only source collector.
 No external APIs, no target project access, no Vivado.
 """
 
 import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
 
 from fpga_devmind.p1b_schema import (
     BRIDGE_KIND_CALCULATION_ROLE,
@@ -36,6 +40,11 @@ from fpga_devmind.schema import (
     EvidenceItem,
     GroundingDiagnostic,
     UncertaintyNote,
+)
+from fpga_devmind.p1b_collectors import (
+    SOURCE_COLLECTION_SCHEMA_VERSION,
+    SourceCollection,
+    collect_p1b_sources,
 )
 
 
@@ -1026,6 +1035,204 @@ class TestConceptTraceGraphReusesP1aTypes(unittest.TestCase):
         self.assertEqual(
             parsed["uncertainty_notes"][0]["uncertainty_id"], "U001"
         )
+
+
+# ---------------------------------------------------------------------------
+# P1b source collector (T002)
+# ---------------------------------------------------------------------------
+
+
+class TestP1bSourceCollector(unittest.TestCase):
+    """Tests for the read-only P1b source file collector.
+
+    Uses synthetic temp projects for deterministic testing.  The real
+    coarse_sync_glm project test is skipped when the target is absent.
+    """
+
+    def _make_synthetic_project(self) -> Path:
+        """Create a minimal ai_project_template-style project in /tmp."""
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_test_"))
+        # L5
+        l5 = tmp / "src" / "python_model" / "L5_fixedpoint"
+        l5.mkdir(parents=True)
+        (l5 / "model.py").write_text("class FixedPointModel:\n    pass\n")
+        (l5 / "__init__.py").write_text("")
+        # L6
+        l6 = tmp / "src" / "python_model" / "L6_resource_opt"
+        l6.mkdir(parents=True)
+        (l6 / "model.py").write_text("class ResourceModel:\n    pass\n")
+        (l6 / "__init__.py").write_text("")
+        # RTL
+        rtl = tmp / "src" / "verilog_model" / "rtl"
+        rtl.mkdir(parents=True)
+        (rtl / "top.v").write_text("module top(); endmodule\n")
+        (rtl / "sub.v").write_text("module sub(); endmodule\n")
+        # Tests
+        tests = tmp / "tests"
+        tests.mkdir()
+        (tests / "test_model.py").write_text("def test_smoke(): pass\n")
+        verilog_tests = tests / "verilog"
+        verilog_tests.mkdir()
+        (verilog_tests / "tb_top.v").write_text("module tb_top; endmodule\n")
+        return tmp
+
+    def test_synthetic_project_discovers_all_sections(self):
+        tmp = self._make_synthetic_project()
+        try:
+            result = collect_p1b_sources(tmp, "test_concept")
+            self.assertEqual(result.project_id, tmp.name)
+            self.assertEqual(result.concept_name, "test_concept")
+            # L5: 1 file (model.py, not __init__.py)
+            self.assertEqual(len(result.l5_candidate_files), 1)
+            self.assertTrue(
+                result.l5_candidate_files[0].endswith("model.py")
+            )
+            # L6: 1 file
+            self.assertEqual(len(result.l6_candidate_files), 1)
+            # RTL: 2 files
+            self.assertEqual(len(result.rtl_candidate_files), 2)
+            # Tests: 1 py + 1 v = 2 files
+            self.assertEqual(len(result.test_candidate_files), 2)
+            # No missing sections
+            self.assertEqual(result.missing_sections, [])
+            self.assertEqual(result.collection_diagnostics, [])
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_synthetic_project_deterministic_ordering(self):
+        tmp = self._make_synthetic_project()
+        try:
+            r1 = collect_p1b_sources(tmp, "c1")
+            r2 = collect_p1b_sources(tmp, "c2")
+            self.assertEqual(
+                r1.l5_candidate_files, r2.l5_candidate_files
+            )
+            self.assertEqual(
+                r1.rtl_candidate_files, r2.rtl_candidate_files
+            )
+            self.assertEqual(
+                r1.test_candidate_files, r2.test_candidate_files
+            )
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_synthetic_project_to_dict_is_json_serializable(self):
+        tmp = self._make_synthetic_project()
+        try:
+            result = collect_p1b_sources(tmp, "test_concept")
+            serialized = json.dumps(result.to_dict())
+            parsed = json.loads(serialized)
+            self.assertEqual(parsed["project_id"], tmp.name)
+            self.assertEqual(parsed["concept_name"], "test_concept")
+            self.assertIsInstance(parsed["l5_candidate_files"], list)
+            self.assertIsInstance(parsed["rtl_candidate_files"], list)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_empty_project_reports_missing_sections(self):
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_empty_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            result = collect_p1b_sources(tmp, "ghost")
+            self.assertEqual(result.project_id, tmp.name)
+            self.assertEqual(result.l5_candidate_files, [])
+            self.assertEqual(result.l6_candidate_files, [])
+            self.assertEqual(result.rtl_candidate_files, [])
+            self.assertEqual(result.test_candidate_files, [])
+            self.assertIn("L5_fixedpoint", result.missing_sections)
+            self.assertIn("L6_resource_opt", result.missing_sections)
+            self.assertIn("RTL", result.missing_sections)
+            self.assertIn("tests", result.missing_sections)
+            # Diagnostics should explain each missing section
+            sections_in_diag = {
+                d["section"] for d in result.collection_diagnostics
+            }
+            self.assertIn("L5_fixedpoint", sections_in_diag)
+            self.assertIn("L6_resource_opt", sections_in_diag)
+            self.assertIn("RTL", sections_in_diag)
+            self.assertIn("tests", sections_in_diag)
+
+    def test_nonexistent_project_root_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            collect_p1b_sources(
+                Path("/tmp/fpga_devmind_nonexistent__xyz"), "peak_idx"
+            )
+
+    def test_file_path_instead_of_directory_raises_value_error(self):
+        with tempfile.NamedTemporaryFile(
+            prefix="fpga_devmind_notdir_", suffix=".txt"
+        ) as f:
+            with self.assertRaises(ValueError):
+                collect_p1b_sources(Path(f.name), "peak_idx")
+
+    @unittest.skipUnless(
+        os.path.isdir(
+            "/Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm"
+        ),
+        "coarse_sync_glm project not available",
+    )
+    def test_coarse_sync_glm_discovers_known_files(self):
+        project = Path(
+            "/Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm"
+        )
+        result = collect_p1b_sources(project, "peak_idx")
+        self.assertEqual(result.project_id, "fpga_project_coarse_sync_glm")
+        self.assertEqual(result.concept_name, "peak_idx")
+        # L6 must have multiple files
+        self.assertGreaterEqual(len(result.l6_candidate_files), 3)
+        # RTL must have .v files
+        self.assertGreaterEqual(len(result.rtl_candidate_files), 5)
+        # All RTL paths should end with .v or .vh
+        for fp in result.rtl_candidate_files:
+            self.assertTrue(
+                fp.endswith(".v") or fp.endswith(".sv") or fp.endswith(".vh"),
+                "Unexpected RTL file: {}".format(fp),
+            )
+        # L5 should exist for this project
+        self.assertGreaterEqual(len(result.l5_candidate_files), 1)
+        # No missing L6 or RTL sections
+        self.assertNotIn("L6_resource_opt", result.missing_sections)
+        self.assertNotIn("RTL", result.missing_sections)
+
+    def test_schema_version_matches_output_contract(self):
+        self.assertEqual(
+            SOURCE_COLLECTION_SCHEMA_VERSION, "p1b-source-collection-0.1"
+        )
+        sc = SourceCollection()
+        self.assertEqual(sc.schema_version, SOURCE_COLLECTION_SCHEMA_VERSION)
+
+    def test_init_py_files_excluded(self):
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_initpy_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            l6 = tmp / "src" / "python_model" / "L6_resource_opt"
+            l6.mkdir(parents=True)
+            (l6 / "__init__.py").write_text("")
+            (l6 / "model.py").write_text("pass\n")
+            result = collect_p1b_sources(tmp, "test")
+            # __init__.py should be excluded
+            for fp in result.l6_candidate_files:
+                self.assertNotIn("__init__.py", fp)
+
+    def test_pycache_directories_excluded(self):
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_pycache_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            l6 = tmp / "src" / "python_model" / "L6_resource_opt"
+            l6.mkdir(parents=True)
+            (l6 / "model.py").write_text("pass\n")
+            pycache = l6 / "__pycache__"
+            pycache.mkdir()
+            (pycache / "model.cpython-39.pyc").write_text("")
+            result = collect_p1b_sources(tmp, "test")
+            for fp in result.l6_candidate_files:
+                self.assertNotIn("__pycache__", fp)
 
 
 if __name__ == "__main__":
