@@ -10,11 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from fpga_devmind.desktop.agent_panel_models import (
-    AgentPanelResponse,
-    _deduplicate_diagnostics,
-    _extract_claim_id,
-    _extract_evidence_id,
+from fpga_devmind.desktop.agent_query_utils import (
+    deduplicate_diagnostics,
+    extract_claim_id,
+    extract_evidence_id,
+    has_any,
 )
 from fpga_devmind.desktop.artifact_loader import (
     ArtifactBundle,
@@ -67,7 +67,7 @@ class AgentPlanPreview:
 def build_agent_plan_preview(
     bundle: ArtifactBundle,
     question: str,
-    response: AgentPanelResponse | None = None,
+    response: Any | None = None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanPreview:
     """Build a read-only tool plan preview for *question*.
 
@@ -93,49 +93,49 @@ def build_agent_plan_preview(
     graph = get_graph(bundle)
     index = get_index(bundle) or {}
     grounding = get_grounding_report(bundle) or {}
-    meta = get_run_metadata(bundle) or {}
+    _meta = get_run_metadata(bundle) or {}  # noqa: F841
 
     normalized = question.strip().lower()
 
     # Specific ID lookups first (use original question to preserve case).
-    claim_match = _extract_claim_id(question)
+    claim_match = extract_claim_id(question)
     if claim_match:
         return _plan_claim_detail(
             question, graph, claim_match, index, grounding, response
         )
 
-    evidence_match = _extract_evidence_id(question)
+    evidence_match = extract_evidence_id(question)
     if evidence_match:
         return _plan_evidence_detail(
             question, graph, evidence_match, index, response
         )
 
     # Keyword-based routing.
-    if _has_any(normalized, ["summary", "概况", "做了什么", "overview", "about"]):
-        return _plan_summary(question, graph, meta, grounding, response)
+    if has_any(normalized, ["summary", "概况", "做了什么", "overview", "about"]):
+        return _plan_summary(question, graph, _meta, grounding, response)
 
-    if _has_any(
+    if has_any(
         normalized, ["claims", "mapping", "映射", "claim", "mapping claims"]
     ):
         return _plan_claims(question, graph, index, response)
 
-    if _has_any(normalized, ["evidence", "证据", "proof"]):
+    if has_any(normalized, ["evidence", "证据", "proof"]):
         return _plan_evidence(question, graph, index, response)
 
-    if _has_any(
+    if has_any(
         normalized, ["diagnostics", "grounding", "诊断", "checker"]
     ):
         return _plan_diagnostics(question, graph, grounding, response)
 
-    if _has_any(
+    if has_any(
         normalized, ["unknown", "不确定", "uncertainty", "unsure"]
     ):
         return _plan_unknown(question, graph, response)
 
-    if _has_any(normalized, ["nodes", "node", "节点"]):
+    if has_any(normalized, ["nodes", "node", "节点"]):
         return _plan_nodes(question, graph, response)
 
-    if _has_any(normalized, ["edges", "edge", "边"]):
+    if has_any(normalized, ["edges", "edge", "边"]):
         return _plan_edges(question, graph, response)
 
     # Fallback.
@@ -154,11 +154,6 @@ def build_agent_plan_preview(
 # ---------------------------------------------------------------------------
 
 
-def _has_any(text: str, terms: list[str]) -> bool:
-    """Return True if *text* contains any of *terms*."""
-    return any(term in text for term in terms)
-
-
 def _default_safety_notes() -> list[str]:
     return [
         "read-only artifact query — no write to artifact directory",
@@ -170,19 +165,12 @@ def _default_safety_notes() -> list[str]:
     ]
 
 
-def _artifact_list_for_bundle(
-    bundle: ArtifactBundle,
-) -> list[str]:
-    """Return sorted list of artifact names in the bundle."""
-    return sorted(bundle.artifacts.keys())
-
-
 def _base_step(
     step_id: str,
     title: str,
     rationale: str,
     read_artifacts: list[str] | None = None,
-    response: AgentPanelResponse | None = None,
+    response: Any | None = None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanStep:
     """Create a plan step, optionally inheriting referenced IDs from *response*."""
     step = AgentPlanStep(
@@ -192,11 +180,17 @@ def _base_step(
         read_artifacts=list(read_artifacts) if read_artifacts else [],
     )
     if response:
-        step.referenced_claim_ids = list(response.referenced_claim_ids)
-        step.referenced_evidence_ids = list(response.referenced_evidence_ids)
-        step.referenced_node_ids = list(response.referenced_node_ids)
+        step.referenced_claim_ids = list(
+            getattr(response, "referenced_claim_ids", [])
+        )
+        step.referenced_evidence_ids = list(
+            getattr(response, "referenced_evidence_ids", [])
+        )
+        step.referenced_node_ids = list(
+            getattr(response, "referenced_node_ids", [])
+        )
         step.referenced_diagnostic_ids = list(
-            response.referenced_diagnostic_ids
+            getattr(response, "referenced_diagnostic_ids", [])
         )
     return step
 
@@ -208,10 +202,10 @@ def _base_step(
 
 def _plan_summary(
     question: str,
-    graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
-    meta: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-    grounding: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-    response: AgentPanelResponse | None,
+    _graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
+    _meta: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+    _grounding: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+    response: Any | None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanPreview:
     steps = [
         _base_step(
@@ -245,9 +239,9 @@ def _plan_summary(
 
 def _plan_claims(
     question: str,
-    graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
+    _graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
     index: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-    response: AgentPanelResponse | None,
+    response: Any | None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanPreview:
     steps = [
         _base_step(
@@ -278,9 +272,9 @@ def _plan_claims(
 
 def _plan_evidence(
     question: str,
-    graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
+    _graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
     index: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-    response: AgentPanelResponse | None,
+    response: Any | None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanPreview:
     steps = [
         _base_step(
@@ -313,9 +307,9 @@ def _plan_diagnostics(
     question: str,
     graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
     grounding: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-    response: AgentPanelResponse | None,
+    response: Any | None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanPreview:
-    diags = _deduplicate_diagnostics(graph, grounding)
+    diags = deduplicate_diagnostics(graph, grounding)
     steps = [
         _base_step(
             "S1",
@@ -358,7 +352,7 @@ def _plan_diagnostics(
 def _plan_unknown(
     question: str,
     graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
-    response: AgentPanelResponse | None,
+    response: Any | None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanPreview:
     steps = [
         _base_step(
@@ -400,8 +394,8 @@ def _plan_unknown(
 
 def _plan_nodes(
     question: str,
-    graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
-    response: AgentPanelResponse | None,
+    _graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
+    response: Any | None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanPreview:
     steps = [
         _base_step(
@@ -423,8 +417,8 @@ def _plan_nodes(
 
 def _plan_edges(
     question: str,
-    graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
-    response: AgentPanelResponse | None,
+    _graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
+    response: Any | None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanPreview:
     steps = [
         _base_step(
@@ -450,7 +444,7 @@ def _plan_claim_detail(
     claim_id: str,
     index: dict[str, Any],  # pyright: ignore[reportExplicitAny]
     grounding: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-    response: AgentPanelResponse | None,
+    response: Any | None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanPreview:
     steps: list[AgentPlanStep] = [
         _base_step(
@@ -466,12 +460,12 @@ def _plan_claim_detail(
             _base_step(
                 "S2",
                 "Read concept_trace_index",
-                "Cross-reference claim via claim_index.".format(claim_id),
+                "Cross-reference claim via claim_index.",
                 ["concept_trace_index.json"],
             )
         )
     # Add dedup diagnostics step if any exist.
-    all_diags = _deduplicate_diagnostics(graph, grounding)
+    all_diags = deduplicate_diagnostics(graph, grounding)
     matching = [d for d in all_diags if d.get("target_claim_id") == claim_id]
     if matching:
         steps.append(
@@ -500,10 +494,10 @@ def _plan_claim_detail(
 
 def _plan_evidence_detail(
     question: str,
-    graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
+    _graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
     evidence_id: str,
     index: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-    response: AgentPanelResponse | None,
+    response: Any | None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPlanPreview:
     steps: list[AgentPlanStep] = [
         _base_step(
@@ -519,9 +513,7 @@ def _plan_evidence_detail(
             _base_step(
                 "S2",
                 "Read concept_trace_index",
-                "Cross-reference evidence via evidence_index.".format(
-                    evidence_id
-                ),
+                "Cross-reference evidence via evidence_index.",
                 ["concept_trace_index.json"],
             )
         )

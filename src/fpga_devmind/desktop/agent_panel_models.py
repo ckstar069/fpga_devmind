@@ -6,10 +6,15 @@ no API key.  Pure Python; testable without PySide6.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from fpga_devmind.desktop.agent_query_utils import (
+    deduplicate_diagnostics,
+    extract_claim_id,
+    extract_evidence_id,
+    has_any,
+)
 from fpga_devmind.desktop.artifact_loader import (
     ArtifactBundle,
     get_graph,
@@ -17,9 +22,6 @@ from fpga_devmind.desktop.artifact_loader import (
     get_index,
     get_run_metadata,
 )
-
-if TYPE_CHECKING:
-    from fpga_devmind.desktop.agent_plan_models import AgentPlanPreview
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +44,6 @@ class AgentPanelResponse:
     referenced_diagnostic_ids: list[str] = field(default_factory=list)
     uncertainty_notes: list[str] = field(default_factory=list)
     unsupported_reason: str | None = None
-    plan_preview: "AgentPlanPreview | None" = None
     is_loaded: bool = False
     load_error: str | None = None
 
@@ -85,42 +86,42 @@ def query_artifact_bundle(
     normalized = question.strip().lower()
 
     # Specific ID lookups first (use original question to preserve case).
-    claim_match = _extract_claim_id(question)
+    claim_match = extract_claim_id(question)
     if claim_match:
         return _answer_claim_detail(
             normalized, graph, claim_match, index, grounding
         )
 
-    evidence_match = _extract_evidence_id(question)
+    evidence_match = extract_evidence_id(question)
     if evidence_match:
         return _answer_evidence_detail(normalized, graph, evidence_match)
 
     # Keyword-based routing.
-    if _has_any(normalized, ["summary", "概况", "做了什么", "overview", "about"]):
+    if has_any(normalized, ["summary", "概况", "做了什么", "overview", "about"]):
         return _answer_summary(normalized, graph, meta, grounding)
 
-    if _has_any(
+    if has_any(
         normalized, ["claims", "mapping", "映射", "claim", "mapping claims"]
     ):
         return _answer_claims(normalized, graph)
 
-    if _has_any(normalized, ["evidence", "证据", "proof"]):
+    if has_any(normalized, ["evidence", "证据", "proof"]):
         return _answer_evidence(normalized, graph)
 
-    if _has_any(
+    if has_any(
         normalized, ["diagnostics", "grounding", "诊断", "checker"]
     ):
         return _answer_diagnostics(normalized, graph, grounding)
 
-    if _has_any(
+    if has_any(
         normalized, ["unknown", "不确定", "uncertainty", "unsure"]
     ):
         return _answer_unknown(normalized, graph)
 
-    if _has_any(normalized, ["nodes", "node", "节点"]):
+    if has_any(normalized, ["nodes", "node", "节点"]):
         return _answer_nodes(normalized, graph)
 
-    if _has_any(normalized, ["edges", "edge", "边"]):
+    if has_any(normalized, ["edges", "edge", "边"]):
         return _answer_edges(normalized, graph)
 
     # Fallback.
@@ -137,65 +138,6 @@ def query_artifact_bundle(
         unsupported_reason="question_type_not_recognized",
         is_loaded=True,
     )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _has_any(text: str, terms: list[str]) -> bool:
-    """Return True if *text* contains any of *terms*."""
-    return any(term in text for term in terms)
-
-
-def _deduplicate_diagnostics(
-    graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
-    grounding: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-) -> list[dict[str, Any]]:  # pyright: ignore[reportExplicitAny]
-    """Merge and de-duplicate diagnostics from graph and grounding report.
-
-    Primary key is ``diagnostic_id``.  If missing, fallback to
-    ``(target_claim_id, issue_type, message)``.
-    """
-    seen: set[str] = set()
-    result: list[dict[str, Any]] = []  # pyright: ignore[reportExplicitAny]
-
-    def _key(diag: dict[str, Any]) -> str:  # pyright: ignore[reportExplicitAny]
-        did = diag.get("diagnostic_id")
-        if did:
-            return str(did)
-        return "{}|{}|{}".format(
-            diag.get("target_claim_id") or "",
-            diag.get("issue_type") or "",
-            diag.get("message") or "",
-        )
-
-    for source in (
-        (graph or {}).get("grounding_diagnostics", []),
-        grounding.get("diagnostics", []),
-    ):
-        for diag in source:
-            if isinstance(diag, dict):
-                k = _key(diag)
-                if k not in seen:
-                    seen.add(k)
-                    result.append(diag)
-    return result
-
-
-_CLAIM_ID_RE = re.compile(r"\b(MC_[A-Za-z0-9_]+)\b", re.IGNORECASE)
-_EVIDENCE_ID_RE = re.compile(r"\b(E:[A-Za-z0-9_:/-]+)\b", re.IGNORECASE)
-
-
-def _extract_claim_id(text: str) -> str | None:
-    m = _CLAIM_ID_RE.search(text)
-    return m.group(1) if m else None
-
-
-def _extract_evidence_id(text: str) -> str | None:
-    m = _EVIDENCE_ID_RE.search(text)
-    return m.group(1) if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +282,7 @@ def _answer_diagnostics(
     graph: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
     grounding: dict[str, Any],  # pyright: ignore[reportExplicitAny]
 ) -> AgentPanelResponse:
-    diags = _deduplicate_diagnostics(graph, grounding)
+    diags = deduplicate_diagnostics(graph, grounding)
 
     if not diags:
         return AgentPanelResponse(
@@ -544,7 +486,7 @@ def _answer_claim_detail(
         lines.append("- Missing evidence: {}".format("; ".join(missing)))
 
     # Count diagnostics targeting this claim (deduplicated).
-    all_diags = _deduplicate_diagnostics(graph, grounding)
+    all_diags = deduplicate_diagnostics(graph, grounding)
     diag_count = sum(
         1 for d in all_diags if d.get("target_claim_id") == claim_id
     )

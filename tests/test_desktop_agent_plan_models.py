@@ -11,15 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fpga_devmind.desktop.agent_panel_models import (
-    AgentPanelResponse,
-    query_artifact_bundle,
-)
-from fpga_devmind.desktop.agent_plan_models import (
-    AgentPlanPreview,
-    AgentPlanStep,
-    build_agent_plan_preview,
-)
+from fpga_devmind.desktop.agent_panel_models import query_artifact_bundle
+from fpga_devmind.desktop.agent_plan_models import build_agent_plan_preview
 from fpga_devmind.desktop.artifact_loader import P1B_REQUIRED_ARTIFACTS, load_bundle
 
 
