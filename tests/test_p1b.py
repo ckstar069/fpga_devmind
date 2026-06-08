@@ -3190,5 +3190,368 @@ class TestP1bGroundingChecker(unittest.TestCase):
         self.assertEqual(len(blocking), 0)
 
 
+# ---------------------------------------------------------------------------
+# P1b CLI / render smoke (T007)
+# ---------------------------------------------------------------------------
+
+
+class TestP1bCliRunner(unittest.TestCase):
+    """Tests for the P1b CLI runner (run_p1b_trace_concept).
+
+    Uses synthetic temp projects to verify end-to-end pipeline execution,
+    artifact generation, and rendering.  No external APIs, no Vivado.
+    """
+
+    def _make_full_pipeline_project(self) -> Path:
+        """Create a minimal project with L5/L6 + RTL that references
+        ``peak_idx`` for deterministic pipeline testing."""
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_cli_"))
+
+        # L5
+        l5 = tmp / "src" / "python_model" / "L5_fixedpoint"
+        l5.mkdir(parents=True)
+        (l5 / "__init__.py").write_text("")
+        (l5 / "detector.py").write_text(
+            "class PeakDetector:\n"
+            '    """Detect peak index."""\n'
+            "    def __init__(self):\n"
+            "        self.peak_idx = 0\n"
+            "    def compute_peak(self, data):\n"
+            "        peak_idx = data.argmax()\n"
+            "        return peak_idx\n"
+        )
+
+        # L6
+        l6 = tmp / "src" / "python_model" / "L6_resource_opt"
+        l6.mkdir(parents=True)
+        (l6 / "__init__.py").write_text("")
+        (l6 / "model.py").write_text(
+            "class ResourceModel:\n"
+            "    def report(self):\n"
+            '        return {"peak_idx": self.peak_idx}\n'
+        )
+
+        # RTL
+        rtl = tmp / "src" / "verilog_model" / "rtl"
+        rtl.mkdir(parents=True)
+        (rtl / "peak_detect.v").write_text(
+            "module peak_detect (\n"
+            "    input  wire             clk,\n"
+            "    output wire [7:0]       out_peak_idx\n"
+            ");\n"
+            "reg [7:0] peak_idx;\n"
+            "always @(posedge clk) begin\n"
+            "    peak_idx <= 0;\n"
+            "end\n"
+            "assign out_peak_idx = peak_idx;\n"
+            "endmodule\n"
+        )
+
+        # Tests
+        tests = tmp / "tests"
+        tests.mkdir()
+        (tests / "test_smoke.py").write_text("def test_smoke(): pass\n")
+
+        return tmp
+
+    # -- successful run ---------------------------------------------------
+
+    def _assert_edge_endpoints_exist(self, graph: dict) -> None:
+        """Assert every edge's from_node_id / to_node_id exists in nodes."""
+        node_ids = {n["node_id"] for n in graph["nodes"]}
+        for edge in graph["edges"]:
+            self.assertIn(
+                edge["from_node_id"], node_ids,
+                "Edge {} from_node_id '{}' missing in nodes".format(
+                    edge["edge_id"], edge["from_node_id"]
+                ),
+            )
+            self.assertIn(
+                edge["to_node_id"], node_ids,
+                "Edge {} to_node_id '{}' missing in nodes".format(
+                    edge["edge_id"], edge["to_node_id"]
+                ),
+            )
+
+    def test_successful_run_writes_all_artifacts(self):
+        from fpga_devmind.p1b_cli import run_p1b_trace_concept
+
+        project = self._make_full_pipeline_project()
+        out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+        try:
+            meta = run_p1b_trace_concept(project, "peak_idx", out)
+            self.assertEqual(meta["status"], "ok")
+            for name in (
+                "concept_trace_graph.json",
+                "concept_trace_index.json",
+                "concept_trace.md",
+                "concept_trace.mmd",
+                "grounding_report.json",
+                "run_metadata.json",
+            ):
+                path = out / name
+                self.assertTrue(
+                    path.exists(),
+                    "Missing artifact: {}".format(name),
+                )
+            # Edge endpoint integrity
+            graph = json.loads(
+                (out / "concept_trace_graph.json").read_text()
+            )
+            self._assert_edge_endpoints_exist(graph)
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    # -- unknown concept --------------------------------------------------
+
+    def test_unknown_concept_writes_artifacts(self):
+        from fpga_devmind.p1b_cli import run_p1b_trace_concept
+
+        project = self._make_full_pipeline_project()
+        out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+        try:
+            meta = run_p1b_trace_concept(
+                project, "nonexistent_xyz", out
+            )
+            # Unknown concept → no blocking diagnostics (legitimate unknown)
+            self.assertEqual(meta["status"], "ok")
+            # All artifacts still written
+            for name in (
+                "concept_trace_graph.json",
+                "concept_trace_index.json",
+                "concept_trace.md",
+                "concept_trace.mmd",
+                "grounding_report.json",
+                "run_metadata.json",
+            ):
+                self.assertTrue(
+                    (out / name).exists(),
+                    "Missing artifact for unknown concept: {}".format(name),
+                )
+            # Edge endpoint integrity — no dangling node references
+            graph = json.loads(
+                (out / "concept_trace_graph.json").read_text()
+            )
+            self._assert_edge_endpoints_exist(graph)
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    # -- unsafe path raises ValueError ------------------------------------
+
+    def test_unsafe_output_path_raises_value_error(self):
+        from fpga_devmind.p1b_cli import run_p1b_trace_concept
+
+        project = self._make_full_pipeline_project()
+        unsafe = Path("/tmp/fpga_project_test/output")
+        try:
+            with self.assertRaises(ValueError):
+                run_p1b_trace_concept(project, "peak_idx", unsafe)
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+
+    # -- artifact content validation --------------------------------------
+
+    def test_graph_artifact_has_schema_version(self):
+        from fpga_devmind.p1b_cli import run_p1b_trace_concept
+
+        project = self._make_full_pipeline_project()
+        out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+        try:
+            run_p1b_trace_concept(project, "peak_idx", out)
+            graph = json.loads((out / "concept_trace_graph.json").read_text())
+            self.assertEqual(graph["schema_version"], P1B_SCHEMA_VERSION)
+            self.assertEqual(graph["concept"], "peak_idx")
+            self.assertIsInstance(graph["nodes"], list)
+            self.assertIsInstance(graph["edges"], list)
+            self.assertIsInstance(graph["mapping_claims"], list)
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    def test_index_artifact_has_schema_version(self):
+        from fpga_devmind.p1b_cli import run_p1b_trace_concept
+
+        project = self._make_full_pipeline_project()
+        out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+        try:
+            run_p1b_trace_concept(project, "peak_idx", out)
+            index = json.loads(
+                (out / "concept_trace_index.json").read_text()
+            )
+            self.assertEqual(index["schema_version"], P1B_SCHEMA_VERSION)
+            self.assertEqual(index["concept"], "peak_idx")
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    def test_grounding_report_artifact_has_schema_version(self):
+        from fpga_devmind.p1b_cli import run_p1b_trace_concept
+
+        project = self._make_full_pipeline_project()
+        out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+        try:
+            run_p1b_trace_concept(project, "peak_idx", out)
+            gr = json.loads(
+                (out / "grounding_report.json").read_text()
+            )
+            self.assertEqual(
+                gr["schema_version"], "p1b-grounding-report-0.1"
+            )
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    def test_metadata_artifact_has_required_fields(self):
+        from fpga_devmind.p1b_cli import run_p1b_trace_concept
+
+        project = self._make_full_pipeline_project()
+        out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+        try:
+            run_p1b_trace_concept(project, "peak_idx", out)
+            meta = json.loads(
+                (out / "run_metadata.json").read_text()
+            )
+            self.assertEqual(meta["concept"], "peak_idx")
+            self.assertIn("schema_version", meta)
+            self.assertIn("elapsed_seconds", meta)
+            self.assertIn("status", meta)
+            self.assertIn("artifacts", meta)
+            self.assertEqual(len(meta["artifacts"]), 6)
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    # -- markdown rendering -----------------------------------------------
+
+    def test_markdown_contains_concept_header(self):
+        from fpga_devmind.p1b_cli import run_p1b_trace_concept
+
+        project = self._make_full_pipeline_project()
+        out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+        try:
+            run_p1b_trace_concept(project, "peak_idx", out)
+            md = (out / "concept_trace.md").read_text()
+            self.assertIn("# Concept Trace: peak_idx", md)
+            self.assertIn("## Summary", md)
+            self.assertIn("## Grounding Diagnostics", md)
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    # -- mermaid rendering ------------------------------------------------
+
+    def test_mermaid_contains_graph_directive(self):
+        from fpga_devmind.p1b_cli import run_p1b_trace_concept
+
+        project = self._make_full_pipeline_project()
+        out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+        try:
+            run_p1b_trace_concept(project, "peak_idx", out)
+            mmd = (out / "concept_trace.mmd").read_text()
+            self.assertIn("graph TD", mmd)
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    # -- CLI dispatch -----------------------------------------------------
+
+    def test_cli_dispatch_returns_zero_for_clean_run(self):
+        from fpga_devmind.cli import main
+
+        project = self._make_full_pipeline_project()
+        out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+        try:
+            rc = main([
+                "p1b-trace-concept",
+                "--project", str(project),
+                "--concept", "peak_idx",
+                "--out", str(out),
+            ])
+            self.assertEqual(rc, 0)
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    def test_cli_dispatch_unknown_concept(self):
+        from fpga_devmind.cli import main
+
+        project = self._make_full_pipeline_project()
+        out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+        try:
+            rc = main([
+                "p1b-trace-concept",
+                "--project", str(project),
+                "--concept", "ghost_xyz",
+                "--out", str(out),
+            ])
+            # Unknown concept → no blocking diagnostics → rc=0
+            self.assertEqual(rc, 0)
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    def test_cli_dispatch_unsafe_path_errors(self):
+        from fpga_devmind.cli import main
+
+        project = self._make_full_pipeline_project()
+        try:
+            with self.assertRaises(SystemExit):
+                main([
+                    "p1b-trace-concept",
+                    "--project", str(project),
+                    "--concept", "peak_idx",
+                    "--out", "/tmp/fpga_project_test/output",
+                ])
+        finally:
+            import shutil
+            shutil.rmtree(project, ignore_errors=True)
+
+    # -- skip-when-absent smoke -------------------------------------------
+
+    def test_empty_project_still_writes_artifacts(self):
+        """Even an empty project (no L5/L6/RTL) must complete and write
+        all 6 artifacts."""
+        from fpga_devmind.p1b_cli import run_p1b_trace_concept
+
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_empty_p1b_"
+        ) as tmp_str:
+            project = Path(tmp_str)
+            out = Path(tempfile.mkdtemp(prefix="fpga_devmind_p1b_out_"))
+            try:
+                meta = run_p1b_trace_concept(
+                    project, "ghost_concept", out
+                )
+                self.assertIn(meta["status"], ("ok", "blocked"))
+                for name in (
+                    "concept_trace_graph.json",
+                    "concept_trace_index.json",
+                    "concept_trace.md",
+                    "concept_trace.mmd",
+                    "grounding_report.json",
+                    "run_metadata.json",
+                ):
+                    self.assertTrue(
+                        (out / name).exists(),
+                        "Missing artifact: {}".format(name),
+                    )
+            finally:
+                import shutil
+                shutil.rmtree(out, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -59,6 +59,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     provider_config.add_argument("--provider", choices=["deepseek", "glm", "openai"], required=True)
     provider_config.add_argument("--out", type=Path, default=DEFAULT_PROVIDER_CONFIG_OUT)
+
+    p1b = sub.add_parser(
+        "p1b-trace-concept",
+        help="Run P1b concept trace pipeline (T002-T006) and write artifacts",
+    )
+    p1b.add_argument("--project", type=Path, required=True)
+    p1b.add_argument("--concept", required=True)
+    p1b.add_argument("--out", type=Path, required=True)
+
     return parser
 
 
@@ -131,6 +140,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Enabled by default: {draft['enabled_by_default']}")
         print(f"API key value included: {draft['api_key_value_included']}")
         return 0
+    if args.command == "p1b-trace-concept":
+        from .p1b_cli import run_p1b_trace_concept as _run_p1b
+
+        try:
+            metadata = _run_p1b(args.project, args.concept, args.out)
+        except ValueError as exc:
+            parser.error(str(exc))
+            return 2
+        print(f"Wrote P1b trace artifacts to {metadata['output_dir']}")
+        print(f"Concept: {metadata['concept']}")
+        print(f"Status: {metadata['status']}")
+        print(f"Mapping claims: {metadata['mapping_claims']}")
+        print(f"Evidence items: {metadata['evidence_items']}")
+        print(f"Blocking diagnostics: {metadata['blocking_diagnostics']}")
+        print(f"Elapsed: {metadata['elapsed_seconds']}s")
+        return 1 if metadata["status"] == "blocked" else 0
     parser.error(f"unknown command {args.command}")
     return 2
 
