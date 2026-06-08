@@ -399,7 +399,7 @@ P1b + Desktop Shell V0.1 不做：
 
 ## 下一阶段（可选）
 
-- T011: Agent interaction panel — 查询输入、响应展示、工具建议（只读）。
+- ✅ T011: Agent interaction panel — 查询输入、响应展示、工具建议（只读）。已完成：详见 `docs/tasks/T011-desktop-local-agent-panel.md`。
 - P1b+: 批量多概念 trace、partial SystemVerilog parser、跨概念 structural edge。
 - P1c: Verification coverage trace。
 - V0.2: LLM provider 适配、语义 claim 生成、交互式 claim 精炼。

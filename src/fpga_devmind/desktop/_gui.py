@@ -13,6 +13,10 @@ from typing import Any
 from PySide6 import QtCore, QtWidgets  # type: ignore[import-untyped]
 
 from fpga_devmind.desktop.artifact_loader import load_bundle
+from fpga_devmind.desktop.agent_panel_models import (
+    AgentPanelResponse,
+    query_artifact_bundle,
+)
 from fpga_devmind.desktop.trace_view_models import (
     ConceptTraceViewModel,
     build_concept_trace_view_model,
@@ -195,6 +199,29 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._trace_layout.addWidget(self._trace_subtabs)
         self._tabs.addTab(self._trace_widget, "Concept Trace")
+
+        # Agent tab (T011)
+        self._agent_widget = QtWidgets.QWidget()
+        self._agent_layout = QtWidgets.QVBoxLayout(self._agent_widget)
+
+        # Input row
+        self._agent_input_row = QtWidgets.QHBoxLayout()
+        self._agent_question = QtWidgets.QLineEdit()
+        self._agent_question.setPlaceholderText(
+            "Ask a question (e.g. summary, claims, evidence, diagnostics, unknown, nodes, edges, or a claim/evidence ID)"
+        )
+        self._agent_ask_btn = QtWidgets.QPushButton("Ask")
+        self._agent_ask_btn.clicked.connect(self._on_agent_ask)
+        self._agent_input_row.addWidget(self._agent_question, stretch=1)
+        self._agent_input_row.addWidget(self._agent_ask_btn)
+        self._agent_layout.addLayout(self._agent_input_row)
+
+        # Answer output
+        self._agent_answer = QtWidgets.QPlainTextEdit()
+        self._agent_answer.setReadOnly(True)
+        self._agent_layout.addWidget(self._agent_answer)
+
+        self._tabs.addTab(self._agent_widget, "Agent")
 
         self._bundle = None
         if artifact_dir is not None:
@@ -459,6 +486,60 @@ class MainWindow(QtWidgets.QMainWindow):
             table.setItem(
                 i, 5, QtWidgets.QTableWidgetItem(row.recommended_action)
             )
+
+
+    def _on_agent_ask(self) -> None:
+        """Handle Ask button click in the Agent tab."""
+        question = self._agent_question.text().strip()
+        if not question:
+            self._agent_answer.setPlainText(
+                "Please enter a question.\n"
+                "Supported: summary, claims, evidence, diagnostics, "
+                "unknown, nodes, edges, or a specific claim/evidence ID."
+            )
+            return
+        if self._bundle is None:
+            self._agent_answer.setPlainText(
+                "No bundle loaded. Please load an artifact bundle first."
+            )
+            return
+
+        vm = query_artifact_bundle(self._bundle, question)
+        if not vm.is_loaded:
+            self._agent_answer.setPlainText(
+                vm.load_error or "Query failed."
+            )
+            return
+
+        lines = [vm.answer_text]
+        if vm.referenced_claim_ids:
+            lines.append("")
+            lines.append(
+                "Referenced claims: {}".format(
+                    ", ".join(vm.referenced_claim_ids)
+                )
+            )
+        if vm.referenced_evidence_ids:
+            lines.append("")
+            lines.append(
+                "Referenced evidence: {}".format(
+                    ", ".join(vm.referenced_evidence_ids)
+                )
+            )
+        if vm.referenced_diagnostic_ids:
+            lines.append("")
+            lines.append(
+                "Referenced diagnostics: {}".format(
+                    ", ".join(vm.referenced_diagnostic_ids)
+                )
+            )
+        if vm.uncertainty_notes:
+            lines.append("")
+            lines.append("Uncertainty notes:")
+            for note in vm.uncertainty_notes:
+                lines.append("  - {}".format(note))
+
+        self._agent_answer.setPlainText("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------

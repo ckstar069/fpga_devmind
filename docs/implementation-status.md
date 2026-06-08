@@ -65,6 +65,7 @@ Implemented:
 - Grounding checker (T006): `check_grounding()` inspects mapping claims for blocking overclaims (unsupported confirmed, naming_only supported, missing evidence side, zero evidence) and non-blocking diagnostics (one-sided evidence, weak bridge). Defense-in-depth checks via mutation tests.
 - CLI pipeline / render / smoke (T007): `p1b-trace-concept` command chains T002–T006, builds `ConceptTraceGraph` and `ConceptTraceIndex`, renders `concept_trace.md` and `concept_trace.mmd`, and writes 6 artifacts. Output path guarded by `ensure_safe_output_dir()`. Returns nonzero exit code for blocking diagnostics. 194 tests (18 P1a + 176 P1b) pass.
 - Desktop app prototype (T009): PySide6-based minimum viable shell with artifact directory picker, Run Summary view, JSON Tree Browser, Markdown Preview, and Diagnostics tab. Graceful fallback when PySide6 is missing. Artifact loader (`desktop/artifact_loader.py`) and view models (`desktop/view_models.py`) are pure Python and testable without GUI. 229 tests (194 P1a/P1b + 35 desktop) pass.
+- Local Agent Interaction Panel (T011): Deterministic rule-based query panel inside the Desktop Shell Agent tab. No external LLM, no API key, no Web server. Supports bilingual keyword routing for summary, claims, evidence, diagnostics, unknown, nodes, edges, and specific claim/evidence ID lookups. Returns `AgentPanelResponse` with referenced IDs, uncertainty notes, and unsupported fallback. Pure Python view model (`desktop/agent_panel_models.py`) with 35 dedicated tests. 274 tests total pass.
 
 Not implemented yet:
 
@@ -146,6 +147,7 @@ P1b 结构化 artifact 就绪后，下一阶段推进桌面端 Agent Shell / Des
 - T008: Desktop artifact viewer contract — 定义桌面 GUI 如何读取 P1a/P1b artifact 并渲染交互视图。已完成：详见 `docs/tasks/T008-desktop-artifact-viewer-contract.md` 和 `docs/desktop-agent-shell-plan.md`。
 - **T009: Desktop app prototype ✅** — 最小可运行桌面软件原型，支持 artifact 目录选择、JSON 树浏览、Markdown 预览与 Mermaid source 展示。macOS/Linux 优先，Windows 其次。详见 `docs/tasks/T009-desktop-app-prototype.md`。
 - **T010: P1b concept trace view ✅** — 在桌面 GUI 中以结构化表格展示 concept trace：Nodes、Edges、Claims、Evidence、Diagnostics 五个子表。支持 cross-reference 解析、dangling reference 标记、unknown confidence 正常展示。详见 `docs/tasks/T010-desktop-p1b-concept-trace-view.md`。非图布局引擎，非 Agent chat。
+- **T011: Local Agent Interaction Panel ✅** — 桌面 Agent Tab，支持用户输入确定性问题，基于当前已加载的 P1a/P1b artifact bundle 做本地规则化查询并返回答案。不调用外部 LLM，不加载 API key。支持 summary、claims、evidence、diagnostics、unknown、nodes、edges、claim_detail、evidence_detail 共 9 类问题类型，中英双语关键词匹配。详见 `docs/tasks/T011-desktop-local-agent-panel.md`。
 
 方向约束：
 ```text
