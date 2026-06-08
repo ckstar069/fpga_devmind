@@ -51,6 +51,16 @@ Implemented:
 - Disabled external provider route for DeepSeek / GLM / OpenAI that writes blocked provider_call metadata without loading API keys or calling external APIs.
 - Explicit `--allow-external-api` gate that currently reaches `external_provider_not_implemented` without loading API keys or calling external APIs.
 
+### P1b (T001–T007) — One-concept L5/L6-to-RTL trace pipeline
+
+- P1b artifact schema (T001): `ConceptTraceGraph`, `ConceptTraceIndex`, `ConceptTraceNode`, `ConceptTraceEdge`, `MappingClaim`, `StageConceptView`, `RTLEvidenceView` with strict validation (confidence, bridge_kind, node_kind, edge_type enums) and JSON round-trip.
+- Read-only source collector (T002): `collect_p1b_sources()` discovers L5/L6 Python, RTL Verilog/SystemVerilog and test candidate files from project tree. Produces `SourceCollection` with deterministic ordering, `__init__.py` / `__pycache__` exclusion and missing-section diagnostics.
+- Concept evidence collector (T003): `collect_concept_evidence()` extracts L5/L6 class/function/method occurrences with strength classification (strong/medium/weak), role hints (calculation, state_update, interface, pipeline) and deterministic `evidence_id` generation. Handles syntax errors gracefully.
+- RTL evidence collector (T004): `collect_rtl_evidence()` scans modules, always blocks, assigns, signals, parameters and comments via regex-based line matching. Distinguishes name-match vs body-match vs comment-only. Produces `RTLEvidenceCollection` with `RTLObjectView`.
+- Conservative mapping claim builder (T005): `build_mapping_claims()` bridges T003/T004 evidence into `MappingClaim` with deterministic bridge_kind classification, confidence downgrade rules (naming_only → inferred, one-sided → unknown/inferred, both sides + non-weak bridge → supported). Never produces `confirmed` in first implementation. Propagates upstream uncertainty.
+- Grounding checker (T006): `check_grounding()` inspects mapping claims for blocking overclaims (unsupported confirmed, naming_only supported, missing evidence side, zero evidence) and non-blocking diagnostics (one-sided evidence, weak bridge). Defense-in-depth checks via mutation tests.
+- CLI pipeline / render / smoke (T007): `p1b-trace-concept` command chains T002–T06, builds `ConceptTraceGraph` and `ConceptTraceIndex`, renders `concept_trace.md` and `concept_trace.mmd`, and writes 6 artifacts. Output path guarded by `ensure_safe_output_dir()`. Returns nonzero exit code for blocking diagnostics. 194 tests (18 P1a + 176 P1b) pass.
+
 Not implemented yet:
 
 - LLM provider integration.
@@ -65,11 +75,79 @@ Not implemented yet:
 - Full fixed-point spec extraction.
 - Full interface / pipeline / state event extraction.
 - Full symbolic resource total evaluation.
-- P1b L6-to-RTL mapping.
 - P1c verification coverage.
-- Desktop artifact viewer.
-- Desktop app prototype for macOS / Linux first, Windows second.
+- Desktop artifact viewer / GUI prototype.
 - Interactive memory.
+
+### P1b Current Limitations
+
+```text
+- Deterministic evidence extraction only (no LLM in pipeline).
+- Regex-based RTL scanning; no full SystemVerilog parser.
+- Single-concept trace per run (no batch multi-concept).
+- No interactive graph editing or claim mutation.
+- Mermaid render is static text; no live diagram viewer.
+- No cross-concept structural edges (evolution / structural).
+- No AST-level def-use or proven dataflow.
+```
+
+## P1b Commands
+
+Run one-concept trace:
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1b-trace-concept \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --concept peak_idx \
+  --out /tmp/fpga_devmind/p1b_peak_idx
+```
+
+Unknown concept (legitimate unresolved output):
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1b-trace-concept \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --concept nonexistent_xyz \
+  --out /tmp/fpga_devmind/p1b_unknown
+```
+
+Unsafe path is rejected:
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1b-trace-concept \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --concept peak_idx \
+  --out /tmp/fpga_project_test/output
+# → error: path must not be inside an fpga_project_* tree
+```
+
+## P1b Artifacts
+
+Each run writes 6 artifacts to the output directory:
+
+```text
+concept_trace_graph.json    # ConceptTraceGraph: nodes, edges, claims, evidence, diagnostics
+concept_trace_index.json    # ConceptTraceIndex: claim/evidence/node/edge/cross-ref indexes
+concept_trace.md            # Human-readable Markdown summary
+concept_trace.mmd           # Mermaid diagram (static text)
+grounding_report.json       # T006 grounding diagnostics + summary
+run_metadata.json           # Elapsed time, status, artifact list
+```
+
+## Next Phase: Desktop Agent Shell (T008–T010)
+
+P1b 结构化 artifact 就绪后，下一阶段目标是桌面端 Agent 壳（不做 Web/Desktop UI）：
+
+- T008: Artifact viewer contract — 定义桌面壳如何读取 P1a/P1b artifact 并渲染交互视图。
+- T009: Desktop app prototype — 最小可运行壳，支持 artifact 目录选择、JSON 树浏览、Markdown 渲染。
+- T010: P1b concept trace view — 在桌面壳中渲染 concept trace graph（节点列表、边列表、claim 详情、grounding diagnostic 高亮）。
+
+方向约束：
+```text
+- 不做 Web/Desktop UI → T008-T010 是 CLI/壳层，不是 Electron/Qt/Web 应用。
+- 目标是 Agent runtime shell：读取 artifact → 渲染 → 接受用户指令 → 调用后续工具。
+- 壳层本身不运行 Vivado，不修改 fpga_project_*。
+```
 
 Ready for controlled implementation planning:
 

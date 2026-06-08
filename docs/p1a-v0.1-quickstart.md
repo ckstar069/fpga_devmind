@@ -250,4 +250,88 @@ P1a V0.1 不做：
 - proven dataflow extraction
 ```
 
-当前价值是把“读懂、建图、解释、可追溯、可查询、可失效”跑通，为后续 LLM/ReAct Agent 层提供可复用底座。
+当前价值是把”读懂、建图、解释、可追溯、可查询、可失效”跑通，为后续 LLM/ReAct Agent 层提供可复用底座。
+
+---
+
+## P1b Quickstart
+
+P1b 在 P1a 基础上增加 L5/L6-to-RTL 单概念 trace 能力。它不调用 LLM，不运行 Vivado，不修改目标项目。
+
+### Smoke
+
+```bash
+PYTHONPATH=src python3 -m unittest tests.test_p1b -v
+```
+
+194 tests (18 P1a + 176 P1b) 应全部通过。
+
+### Run One Concept
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1b-trace-concept \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --concept peak_idx \
+  --out /tmp/fpga_devmind/p1b_peak_idx
+```
+
+输出 6 个 artifact：
+
+```text
+/tmp/fpga_devmind/p1b_peak_idx/
+├── concept_trace_graph.json
+├── concept_trace_index.json
+├── concept_trace.md
+├── concept_trace.mmd
+├── grounding_report.json
+└── run_metadata.json
+```
+
+### Unknown Concept
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli p1b-trace-concept \
+  --project /Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm \
+  --concept nonexistent_xyz \
+  --out /tmp/fpga_devmind/p1b_unknown
+```
+
+期望 `Status: ok`，因为合法 unknown 不产生 blocking diagnostics。graph 中会包含 `N_CONCEPT_nonexistent_xyz` 节点和 `N_RTL_UNKNOWN` 占位节点，edge 端点完整无悬空。
+
+### Artifacts
+
+| Artifact | 内容 |
+|---|---|
+| `concept_trace_graph.json` | `ConceptTraceGraph`：nodes、edges、mapping_claims、evidence_items、grounding_diagnostics、uncertainty_notes |
+| `concept_trace_index.json` | `ConceptTraceIndex`：claim_index、evidence_index、node_index、edge_index、cross_references |
+| `concept_trace.md` | Markdown 摘要：Summary、L5/L6 Evidence、RTL Evidence、Mapping Claims、Grounding Diagnostics |
+| `concept_trace.mmd` | Mermaid 流程图：`graph TD` 语法，可在支持 Mermaid 的 viewer 中渲染 |
+| `grounding_report.json` | T006 grounding checker 输出：blocking/non_blocking diagnostics、summary counts |
+| `run_metadata.json` | 运行元数据：elapsed_seconds、status、mapping_claims 数、evidence_items 数、artifact 列表 |
+
+### Boundaries
+
+P1b 不做：
+
+```text
+- LLM semantic reasoning
+- Full SystemVerilog parser（仅用 regex 行匹配）
+- 批量多概念 trace（每次只跑一个 concept）
+- 交互式 graph 编辑
+- 实时 Mermaid 渲染 viewer
+- 跨概念 structural / evolution edge
+- AST 级 def-use 或 proven dataflow
+- Vivado / synthesis / implementation / bitstream
+- 修改任何 fpga_project_* 目标项目
+- PASS / HOLD / finding / audit
+```
+
+### Next Steps
+
+P1b artifact 就绪后，下一阶段是桌面端 Agent 壳（T008–T010）：
+
+- T008: Artifact viewer contract — 定义壳如何读取 P1a/P1b artifact。
+- T009: Desktop app prototype — 最小可运行壳（artifact 目录选择、JSON 树浏览、Markdown 渲染）。
+- T010: P1b concept trace view — 在壳中渲染 concept trace（节点、边、claim、diagnostic 高亮）。
+
+约束：不做 Web/Desktop UI（壳层不是 Electron/Qt/Web 应用），而是 Agent runtime shell。
