@@ -52,6 +52,12 @@ from fpga_devmind.p1b_concept import (
     ConceptSubject,
     collect_concept_evidence,
 )
+from fpga_devmind.p1b_rtl import (
+    RTL_EVIDENCE_SCHEMA_VERSION,
+    RTLEvidenceCollection,
+    RTLObjectView,
+    collect_rtl_evidence,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1604,6 +1610,409 @@ class TestP1bConceptCollector(unittest.TestCase):
             self.assertIn(ei.evidence_strength, ("strong", "medium", "weak"))
         # No uncertainty for a known concept
         self.assertEqual(len(result.uncertainty_notes), 0)
+
+
+# ---------------------------------------------------------------------------
+# P1b RTL evidence collector (T004)
+# ---------------------------------------------------------------------------
+
+
+class TestP1bRTLCcollector(unittest.TestCase):
+    """Tests for the P1b RTL evidence collector.
+
+    Uses synthetic temp RTL fixtures for deterministic testing.
+    Real project smoke test skipped when target is absent.
+    """
+
+    def _make_rtl_project(self) -> tuple[Path, list[str]]:
+        """Create a minimal RTL project with known peak_idx patterns.
+
+        Returns (tmp_root, candidate_files).
+        """
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_rtl_"))
+        rtl = tmp / "rtl"
+        rtl.mkdir()
+
+        # Module that declares and uses peak_idx
+        s2_code = (
+            "`timescale 1ns / 1ps\n"
+            "\n"
+            "module peak_detect #(\n"
+            "    parameter int WIDTH = 12\n"
+            ") (\n"
+            "    input  wire             clk,\n"
+            "    input  wire             rst_n,\n"
+            "    input  wire [WIDTH-1:0] in_data,\n"
+            "    output wire [WIDTH-1:0] out_peak_idx,\n"
+            "    output wire             out_peak_found\n"
+            ");\n"
+            "\n"
+            "reg [WIDTH-1:0] peak_idx;\n"
+            "reg peak_detected;\n"
+            "\n"
+            "always @(posedge clk or negedge rst_n) begin\n"
+            "    if (!rst_n) begin\n"
+            "        peak_idx      <= 0;\n"
+            "        peak_detected <= 1'b0;\n"
+            "    end else if (in_data > peak_idx) begin\n"
+            "        peak_idx      <= in_data;\n"
+            "        peak_detected <= 1'b1;\n"
+            "    end\n"
+            "end\n"
+            "\n"
+            "assign out_peak_idx   = peak_idx;\n"
+            "assign out_peak_found = peak_detected;\n"
+            "\n"
+            "endmodule\n"
+        )
+        (rtl / "peak_detect.v").write_text(s2_code)
+
+        # Module that does NOT mention peak_idx
+        other_code = (
+            "module other_mod (\n"
+            "    input  wire clk,\n"
+            "    output wire data_out\n"
+            ");\n"
+            "assign data_out = 0;\n"
+            "endmodule\n"
+        )
+        (rtl / "other.v").write_text(other_code)
+
+        # Module with comment referencing peak_idx (inside module body)
+        comment_code = (
+            "module comment_mod (\n"
+            "    input  wire clk\n"
+            ");\n"
+            "    // This module uses peak_idx internally\n"
+            "endmodule\n"
+        )
+        (rtl / "comment_mod.v").write_text(comment_code)
+
+        candidates = [str(p) for p in sorted(rtl.glob("*.v"))]
+        return tmp, candidates
+
+    # -- basic structure -------------------------------------------------
+
+    def test_schema_version_matches_output_contract(self):
+        self.assertEqual(RTL_EVIDENCE_SCHEMA_VERSION, "p1b-rtl-evidence-0.1")
+        rc = RTLEvidenceCollection()
+        self.assertEqual(rc.schema_version, RTL_EVIDENCE_SCHEMA_VERSION)
+
+    def test_collection_defaults(self):
+        rc = RTLEvidenceCollection(concept_name="peak_idx")
+        self.assertEqual(rc.rtl_views, [])
+        self.assertEqual(rc.evidence_items, [])
+        self.assertEqual(rc.uncertainty_notes, [])
+        self.assertEqual(rc.collection_diagnostics, [])
+
+    def test_to_dict_is_json_serializable(self):
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("peak_idx", candidates)
+            serialized = json.dumps(result.to_dict())
+            parsed = json.loads(serialized)
+            self.assertEqual(parsed["concept_name"], "peak_idx")
+            self.assertIsInstance(parsed["rtl_views"], list)
+            self.assertIsInstance(parsed["evidence_items"], list)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- module detection ------------------------------------------------
+
+    def test_finds_module_with_concept_in_name(self):
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("peak_idx", candidates)
+            modules = [
+                v for v in result.rtl_views if v.object_type == "module"
+            ]
+            module_names = [v.name for v in modules]
+            # peak_detect module contains peak_idx in its body
+            self.assertIn("peak_detect", module_names)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_ignores_unrelated_module(self):
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("peak_idx", candidates)
+            module_names = [
+                v.name for v in result.rtl_views if v.object_type == "module"
+            ]
+            self.assertNotIn("other_mod", module_names)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_module_with_concept_comment_is_found(self):
+        """Module whose body has only a comment referencing the concept
+        should NOT produce module evidence; only comment evidence via
+        _scan_comments()."""
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("peak_idx", candidates)
+            module_names = [
+                v.name for v in result.rtl_views if v.object_type == "module"
+            ]
+            # comment_mod body only has a comment mentioning peak_idx —
+            # no module evidence should be generated.
+            self.assertNotIn("comment_mod", module_names)
+            # But a comment evidence should exist for the comment line.
+            comment_views = [
+                v for v in result.rtl_views if v.object_type == "comment"
+            ]
+            comment_files = [v.file_path for v in comment_views]
+            comment_mod_path = str(tmp / "rtl" / "comment_mod.v")
+            self.assertIn(comment_mod_path, comment_files)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- signal / assign / always detection -------------------------------
+
+    def test_finds_signal_declarations(self):
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("peak_idx", candidates)
+            signals = [
+                v for v in result.rtl_views if v.object_type == "signal"
+            ]
+            sig_names = [v.name for v in signals]
+            # out_peak_idx is a signal in the port list
+            self.assertTrue(
+                any("peak_idx" in n for n in sig_names),
+                "Expected a signal containing 'peak_idx', got: {}".format(
+                    sig_names
+                ),
+            )
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_finds_assign_with_concept(self):
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("peak_idx", candidates)
+            assigns = [
+                v for v in result.rtl_views if v.object_type == "assign"
+            ]
+            assign_names = [v.name for v in assigns]
+            self.assertIn("out_peak_idx", assign_names)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_finds_always_block_with_concept(self):
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("peak_idx", candidates)
+            always_views = [
+                v for v in result.rtl_views
+                if v.object_type == "always_block"
+            ]
+            self.assertGreater(len(always_views), 0)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- evidence structure -----------------------------------------------
+
+    def test_evidence_items_have_valid_structure(self):
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("peak_idx", candidates)
+            self.assertGreater(len(result.evidence_items), 0)
+            for ei in result.evidence_items:
+                self.assertIsInstance(ei, EvidenceItem)
+                self.assertTrue(ei.evidence_id.startswith("E:p1b_rtl:"))
+                self.assertEqual(ei.source_type, "rtl_source")
+                self.assertGreater(ei.start_line, 0)
+                self.assertGreaterEqual(ei.end_line, ei.start_line)
+                self.assertIn(
+                    ei.evidence_strength, ("strong", "medium", "weak")
+                )
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_rtl_views_have_evidence_refs(self):
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("peak_idx", candidates)
+            all_eids = {ei.evidence_id for ei in result.evidence_items}
+            for view in result.rtl_views:
+                self.assertIsInstance(view, RTLObjectView)
+                for eid in view.evidence_ids:
+                    self.assertIn(eid, all_eids)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- unknown concept -------------------------------------------------
+
+    def test_unknown_concept_produces_uncertainty_note(self):
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("nonexistent_xyz", candidates)
+            self.assertEqual(len(result.evidence_items), 0)
+            self.assertEqual(len(result.uncertainty_notes), 1)
+            note = result.uncertainty_notes[0]
+            self.assertIn("nonexistent_xyz", note.uncertainty_id)
+            self.assertEqual(note.topic, "concept_not_found_in_rtl")
+            self.assertEqual(note.current_interpretation, "unknown")
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_unknown_concept_produces_diagnostic(self):
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("ghost_signal", candidates)
+            self.assertGreater(len(result.collection_diagnostics), 0)
+            diag = result.collection_diagnostics[0]
+            self.assertEqual(diag["section"], "RTL")
+            self.assertEqual(diag["severity"], "info")
+            self.assertIn("ghost_signal", diag["message"])
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- edge cases ------------------------------------------------------
+
+    def test_empty_candidate_files_produces_unknown(self):
+        result = collect_rtl_evidence("peak_idx", [])
+        self.assertEqual(len(result.evidence_items), 0)
+        self.assertEqual(len(result.uncertainty_notes), 1)
+
+    def test_non_verilog_files_are_skipped(self):
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_rtl_nonv_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            py_file = tmp / "model.py"
+            py_file.write_text("peak_idx = 42\n")
+            result = collect_rtl_evidence("peak_idx", [str(py_file)])
+            self.assertEqual(len(result.evidence_items), 0)
+            self.assertEqual(len(result.uncertainty_notes), 1)
+
+    def test_unreadable_file_produces_diagnostic(self):
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_rtl_unread_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            bad = tmp / "bad.v"
+            bad.write_text("module m; endmodule\n")
+            # Use a path that looks valid but doesn't exist
+            result = collect_rtl_evidence(
+                "peak_idx", ["/tmp/nonexistent_rtl_file_xyz.v"]
+            )
+            # Nonexistent file is skipped (not an OSError diagnostic
+            # since is_file() returns False); produces unknown concept
+            self.assertEqual(len(result.evidence_items), 0)
+
+    # -- real project smoke test -----------------------------------------
+
+    @unittest.skipUnless(
+        os.path.isdir(
+            "/Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm"
+        ),
+        "coarse_sync_glm project not available",
+    )
+    def test_coarse_sync_glm_peak_idx_rtl_evidence(self):
+        project = Path(
+            "/Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm"
+        )
+        sources = collect_p1b_sources(project, "peak_idx")
+        candidates = sources.rtl_candidate_files
+        result = collect_rtl_evidence("peak_idx", candidates)
+        self.assertEqual(result.concept_name, "peak_idx")
+        # peak_idx must be found in RTL
+        self.assertGreater(len(result.evidence_items), 0)
+        # Must find at least one module
+        modules = [
+            v for v in result.rtl_views if v.object_type == "module"
+        ]
+        self.assertGreater(len(modules), 0)
+        # All evidence must have valid strength
+        for ei in result.evidence_items:
+            self.assertIn(ei.evidence_strength, ("strong", "medium", "weak"))
+        # No uncertainty for a known concept
+        self.assertEqual(len(result.uncertainty_notes), 0)
+
+    # -- comment-only overclaim prevention --------------------------------
+
+    def test_always_block_comment_only_no_evidence(self):
+        """An always block where only comments reference the concept should
+        NOT produce always_block evidence — only comment evidence."""
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_rtl_always_comment_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            code = (
+                "module test_mod (\n"
+                "    input wire clk\n"
+                ");\n"
+                "always @(posedge clk) begin\n"
+                "    // peak_idx is updated elsewhere\n"
+                "    data <= 0;\n"
+                "end\n"
+                "endmodule\n"
+            )
+            f = tmp / "test.v"
+            f.write_text(code)
+            result = collect_rtl_evidence("peak_idx", [str(f)])
+            always_views = [
+                v for v in result.rtl_views
+                if v.object_type == "always_block"
+            ]
+            # No always_block evidence — only comment in body
+            self.assertEqual(len(always_views), 0)
+            # But comment evidence should exist
+            comment_views = [
+                v for v in result.rtl_views if v.object_type == "comment"
+            ]
+            self.assertGreater(len(comment_views), 0)
+
+    # -- SystemVerilog logic support --------------------------------------
+
+    def test_systemverilog_logic_signal(self):
+        """SystemVerilog logic keyword should be recognized as signal
+        declaration."""
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_rtl_sv_logic_"
+        ) as tmp_str:
+            tmp = Path(tmp_str)
+            code = (
+                "module sv_mod (\n"
+                "    input wire clk\n"
+                ");\n"
+                "logic [7:0] peak_idx;\n"
+                "endmodule\n"
+            )
+            f = tmp / "sv_mod.sv"
+            f.write_text(code)
+            result = collect_rtl_evidence("peak_idx", [str(f)])
+            signals = [
+                v for v in result.rtl_views if v.object_type == "signal"
+            ]
+            sig_names = [v.name for v in signals]
+            self.assertIn("peak_idx", sig_names)
+
+    # -- evidence ID deduplication ----------------------------------------
+
+    def test_evidence_ids_are_unique(self):
+        """All evidence IDs in the collection must be unique."""
+        tmp, candidates = self._make_rtl_project()
+        try:
+            result = collect_rtl_evidence("peak_idx", candidates)
+            ids = [ei.evidence_id for ei in result.evidence_items]
+            self.assertEqual(len(ids), len(set(ids)),
+                             "Duplicate evidence IDs found: {}".format(ids))
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
