@@ -27,7 +27,7 @@ on top of this contract.
 
 ### What It Is Not
 
-- **Not a Web GUI.**  No browser, no Electron, no web server.
+- **不做 Web GUI。** 不提供 browser-accessible URL，不启动 Web server，不做 Web app。Electron 默认排除。
 - **Not a traditional report viewer.**  Static PDF/HTML export is out of scope.
 - **Not an IDE.**  No source editing, no synthesis, no bitstream generation.
 - **Not an auditor.**  No PASS/HOLD gate, no sign-off workflow.
@@ -369,7 +369,8 @@ diagnostics.  Each diagnostic is an independent observation.
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  HARD CONSTRAINTS (must be enforced by T009/T010 implementation)        │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  ✗ No Web GUI (no browser, no Electron, no web server)                  │
+│  ✗ No Web GUI (no browser-accessible URL, no Web server, no Web app;    │
+│    Electron excluded by default)                                         │
 │  ✗ No Vivado / synthesis / implementation / bitstream                   │
 │  ✗ No modification of fpga_project_* target projects                    │
 │  ✗ No API key loading or external LLM provider calls                    │
@@ -398,23 +399,27 @@ and display the 7 views above in a tabbed or sidebar layout.
 
 **Suggested Technology Stack (1-2 candidates):**
 
-1. **Tauri + WebView (Rust + frontend framework)**
-   - Pros: Small binary, native feel, good macOS/Linux support, secure
-     sandbox, WebView for rendering Markdown/Mermaid without full Electron.
-   - Cons: Rust build complexity; WebView is still browser-based rendering
-     (but not a Web GUI in the traditional sense since it's a native app
-     wrapper).
-
-2. **PyQt / PySide6 (Python-native)**
+1. **PySide6 (Python-native) — Recommended priority candidate**
    - Pros: Full Python ecosystem, tight integration with existing
      fpga_devmind code, no JS/WebView needed, mature on all platforms.
-   - Cons: Larger binary size, LGPL licensing considerations for PyQt
-     (PySide6 is LGPL-friendly), less modern UI defaults.
+   - Cons: Larger binary size (~50–100 MB), less modern UI defaults than
+     web-based alternatives, packaging complexity on macOS.
+
+2. **Tauri + WebView (Rust + frontend framework) — Local rendering layer only**
+   - Pros: Small binary (~5–15 MB), native feel, good macOS/Linux support,
+     secure sandbox.
+   - Cons: Rust build complexity; WebView is browser-based rendering but
+     **only as a local desktop rendering layer** — it does not expose a
+     network service, does not provide a browser-accessible URL, and is not
+     a Web GUI. Interfacing with Python dataclasses requires a bridge.
 
 **Decision criteria for T009:**
-- If the team prefers staying in Python → PySide6.
-- If binary size and security sandbox are critical → Tauri.
-- Do not decide now; T009 should prototype one and measure.
+- **Default recommendation → PySide6.**  It stays in the Python codebase,
+  reuses existing dataclasses directly, and avoids WebView security surface.
+- Tauri is acceptable only if binary size and security sandbox prove
+  critical after PySide6 prototype evaluation. Even then, WebView must remain
+  a closed local rendering layer — never a Web GUI.
+- T009 should prototype PySide6 first and measure.
 
 **T009 Minimum Views:**
 - File picker for artifact directory.

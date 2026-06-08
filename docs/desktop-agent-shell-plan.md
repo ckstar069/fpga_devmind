@@ -83,9 +83,13 @@ Secondary: Linux  (Ubuntu / Debian / Fedora)
 Tertiary:  Windows  (after macOS/Linux are stable)
 ```
 
-No Web GUI.  No Electron.  The desktop app is a native application using
-a toolkit that renders its own widgets (PySide6/Qt) or uses a lightweight
-WebView within a native wrapper (Tauri).
+不做 Web GUI：不提供 browser-accessible URL，不启动 Web server，不做 Web app。
+Electron 默认排除。
+
+The desktop app is a native application.  Preferred approach: a toolkit that
+renders its own widgets (PySide6/Qt).  Alternative: a lightweight WebView
+within a native wrapper (Tauri) — but only as a **local desktop rendering
+layer**, never as a Web GUI.
 
 ---
 
@@ -106,19 +110,20 @@ Cons:
   - Packaging complexity on macOS (notarization, signing).
 ```
 
-### Candidate B: Tauri (Rust + WebView)
+### Candidate B: Tauri (Rust + WebView) — Local rendering layer only
 
 ```text
 Pros:
   - Very small binary (~5-15MB).
   - Secure sandbox model.
   - Native feel on macOS/Linux.
-  - Modern UI via standard web technologies (but not a Web GUI in the
-    sense of a browser-accessible application).
+  - Modern UI via standard web technologies rendered inside a local WebView.
 
 Cons:
   - Rust build complexity.
-  - WebView is still browser rendering (security surface).
+  - WebView is browser-based rendering (security surface), but it is
+    **only a local desktop rendering layer** — it does not expose a network
+    service, does not provide a browser-accessible URL, and is not a Web GUI.
   - Interfacing with Python dataclasses requires bridge (HTTP/IPC).
 ```
 
@@ -177,7 +182,8 @@ contract.  Summary:
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ HARD CONSTRAINTS                                                            │
 ├────────────────────────────────────────────────────────────────────────────┤
-│ ✗ No Web GUI (no browser-accessible URL, no web server)                    │
+│ ✗ No Web GUI (no browser-accessible URL, no Web server, no Web app;        │
+│   Electron excluded by default)                                            │
 │ ✗ No Vivado / synthesis / implementation / bitstream                       │
 │ ✗ No modification of fpga_project_* target projects                        │
 │ ✗ No API key loading or external LLM calls from the desktop shell          │
