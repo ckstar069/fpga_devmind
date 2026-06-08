@@ -143,15 +143,17 @@ def build_concept_trace_view_model(
 
     # Build lookup tables.
     node_map = _build_node_map(graph)
-    claim_diag_counts = _build_claim_diag_counts(graph, grounding)
+    all_diagnostics = _deduplicate_diagnostics(graph, grounding)
+    claim_diag_counts = _build_claim_diag_counts(all_diagnostics)
     evidence_claim_refs = _build_evidence_claim_refs(index)
+    claim_ids_with_diag = set(claim_diag_counts.keys())
 
     # Build rows.
-    nodes = _build_node_rows(graph, claim_diag_counts)
+    nodes = _build_node_rows(graph, index, claim_ids_with_diag)
     edges = _build_edge_rows(graph, node_map)
     claims = _build_claim_rows(graph, claim_diag_counts)
     evidence = _build_evidence_rows(graph, evidence_claim_refs)
-    diagnostics = _build_diagnostic_rows(graph, grounding)
+    diagnostics = _build_diagnostic_rows_from_list(all_diagnostics)
 
     return ConceptTraceViewModel(
         nodes=nodes,
@@ -179,23 +181,49 @@ def _build_node_map(graph: dict[str, Any]) -> dict[str, str]:  # pyright: ignore
     return mapping
 
 
-def _build_claim_diag_counts(
+def _deduplicate_diagnostics(
     graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
     grounding: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-) -> dict[str, int]:
-    """Count how many diagnostics target each claim_id.
+) -> list[dict[str, Any]]:  # pyright: ignore[reportExplicitAny]
+    """Merge and de-duplicate diagnostics from graph and grounding report.
 
-    Combines graph-level grounding_diagnostics and grounding_report
-    diagnostics.
+    Primary key is ``diagnostic_id``.  If missing, fallback to
+    ``(target_claim_id, issue_type, message)``.
     """
-    counts: dict[str, int] = {}
-    # Graph-level diagnostics.
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []  # pyright: ignore[reportExplicitAny]
+
+    def _key(diag: dict[str, Any]) -> str:  # pyright: ignore[reportExplicitAny]
+        did = diag.get("diagnostic_id")
+        if did:
+            return str(did)
+        return "{}|{}|{}".format(
+            diag.get("target_claim_id") or "",
+            diag.get("issue_type") or "",
+            diag.get("message") or "",
+        )
+
     for diag in graph.get("grounding_diagnostics", []):
-        target = diag.get("target_claim_id")
-        if target:
-            counts[target] = counts.get(target, 0) + 1
-    # Grounding report diagnostics.
+        if isinstance(diag, dict):
+            k = _key(diag)
+            if k not in seen:
+                seen.add(k)
+                result.append(diag)
     for diag in grounding.get("diagnostics", []):
+        if isinstance(diag, dict):
+            k = _key(diag)
+            if k not in seen:
+                seen.add(k)
+                result.append(diag)
+    return result
+
+
+def _build_claim_diag_counts(
+    all_diagnostics: list[dict[str, Any]],  # pyright: ignore[reportExplicitAny]
+) -> dict[str, int]:
+    """Count how many de-duplicated diagnostics target each claim_id."""
+    counts: dict[str, int] = {}
+    for diag in all_diagnostics:
         target = diag.get("target_claim_id")
         if target:
             counts[target] = counts.get(target, 0) + 1
@@ -219,14 +247,40 @@ def _build_evidence_claim_refs(
 
 def _build_node_rows(
     graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-    claim_diag_counts: dict[str, int],
+    index: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+    claim_ids_with_diag: set[str],
 ) -> list[NodeRow]:
-    """Build NodeRow list from graph.nodes."""
+    """Build NodeRow list from graph.nodes.
+
+    ``has_diagnostics`` is derived conservatively: if any of the node's
+    evidence items is referenced by a claim that has diagnostics, the node
+    is flagged.  Missing or dangling references default to ``False``.
+    """
     rows: list[NodeRow] = []
+    evidence_index = index.get("evidence_index", {})
+    if not isinstance(evidence_index, dict):
+        evidence_index = {}
+
     for node in graph.get("nodes", []):
         node_id = node.get("node_id", "")
         evidence_ids = node.get("evidence_ids", [])
-        has_diag = bool(claim_diag_counts.get(node_id, 0))
+        evidence_count = (
+            len(evidence_ids) if isinstance(evidence_ids, list) else 0
+        )
+        has_diag = False
+        if isinstance(evidence_ids, list):
+            for eid in evidence_ids:
+                info = evidence_index.get(eid)
+                if isinstance(info, dict):
+                    cids = info.get("claim_ids", [])
+                    if isinstance(cids, list):
+                        for cid in cids:
+                            if cid in claim_ids_with_diag:
+                                has_diag = True
+                                break
+                if has_diag:
+                    break
+
         rows.append(
             NodeRow(
                 node_id=node_id,
@@ -234,7 +288,7 @@ def _build_node_rows(
                 kind=node.get("kind", ""),
                 stage_id=node.get("stage_id") or "",
                 confidence=node.get("confidence", ""),
-                evidence_count=len(evidence_ids) if isinstance(evidence_ids, list) else 0,
+                evidence_count=evidence_count,
                 has_diagnostics=has_diag,
             )
         )
@@ -320,14 +374,12 @@ def _build_evidence_rows(
     return rows
 
 
-def _build_diagnostic_rows(
-    graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
-    grounding: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+def _build_diagnostic_rows_from_list(
+    all_diagnostics: list[dict[str, Any]],  # pyright: ignore[reportExplicitAny]
 ) -> list[DiagnosticRow]:
-    """Build DiagnosticRow list from graph + grounding report diagnostics."""
+    """Build DiagnosticRow list from de-duplicated diagnostics."""
     rows: list[DiagnosticRow] = []
-
-    def _add(diag: dict[str, Any]) -> None:  # pyright: ignore[reportExplicitAny]
+    for diag in all_diagnostics:
         rows.append(
             DiagnosticRow(
                 diagnostic_id=diag.get("diagnostic_id", ""),
@@ -338,11 +390,4 @@ def _build_diagnostic_rows(
                 recommended_action=diag.get("recommended_action", ""),
             )
         )
-
-    for diag in graph.get("grounding_diagnostics", []):
-        if isinstance(diag, dict):
-            _add(diag)
-    for diag in grounding.get("diagnostics", []):
-        if isinstance(diag, dict):
-            _add(diag)
     return rows

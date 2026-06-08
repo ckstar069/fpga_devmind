@@ -215,7 +215,7 @@ class TestConceptTraceViewModel(unittest.TestCase):
             "evidence_index": {
                 "E:p1b_concept:path:1:10:1": {
                     "source_type": "concept_occurrence",
-                    "claim_ids": ["MC_peak_idx_001"],
+                    "claim_ids": ["MC_peak_idx_001", "MC_peak_idx_UNKNOWN"],
                 },
                 "E:p1b_rtl:path:5:20:1": {
                     "source_type": "rtl_source",
@@ -258,6 +258,17 @@ class TestConceptTraceViewModel(unittest.TestCase):
                     "recommended_action": "Add evidence",
                     "related_evidence_ids": [],
                     "message": "Claim has no evidence",
+                },
+                {
+                    # Duplicate of GD_0001 from graph to test de-duplication.
+                    "diagnostic_id": "GD_0001",
+                    "target_claim_id": "MC_peak_idx_UNKNOWN",
+                    "target_output_id": None,
+                    "severity": "non_blocking",
+                    "issue_type": "one_sided_mapping_evidence",
+                    "recommended_action": "Review claim evidence",
+                    "related_evidence_ids": [],
+                    "message": "Claim has one-sided evidence",
                 },
             ],
             "summary": {
@@ -367,12 +378,27 @@ class TestConceptTraceViewModel(unittest.TestCase):
         try:
             bundle = load_bundle(tmp)
             vm = build_concept_trace_view_model(bundle)
-            # The unknown claim has 2 diagnostics (1 graph + 1 grounding).
-            # Node diagnostics are keyed by node_id, but our test data has
-            # diagnostics targeting claims.  has_diagnostics on nodes uses
-            # node_id lookup, so nodes should not have diagnostics here.
-            for node in vm.nodes:
-                self.assertFalse(node.has_diagnostics)
+            # N_CONCEPT_peak_idx evidence "E:p1b_concept:path:1:10:1" is
+            # referenced by both MC_peak_idx_001 (no diagnostics) and
+            # MC_peak_idx_UNKNOWN (has diagnostics).  Therefore this node
+            # should be flagged.
+            concept_node = next(
+                (n for n in vm.nodes if n.node_id == "N_CONCEPT_peak_idx"),
+                None,
+            )
+            self.assertIsNotNone(concept_node)
+            self.assertTrue(concept_node.has_diagnostics)
+            # RTL nodes only reference MC_peak_idx_001 (no diagnostics).
+            rtl_node = next(
+                (
+                    n
+                    for n in vm.nodes
+                    if n.node_id == "N_RTL_module_peak_detect"
+                ),
+                None,
+            )
+            self.assertIsNotNone(rtl_node)
+            self.assertFalse(rtl_node.has_diagnostics)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -525,6 +551,34 @@ class TestConceptTraceViewModel(unittest.TestCase):
             self.assertIsNotNone(diag)
             self.assertEqual(diag.severity, "blocking")
             self.assertEqual(diag.target_claim_id, "MC_peak_idx_UNKNOWN")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_diagnostic_deduplication(self):
+        tmp = self._make_complete_p1b_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = build_concept_trace_view_model(bundle)
+            # GD_0001 appears in both graph.grounding_diagnostics and
+            # grounding_report.diagnostics; after de-duplication it must
+            # appear exactly once.
+            gd_0001_count = sum(
+                1 for d in vm.diagnostics if d.diagnostic_id == "GD_0001"
+            )
+            self.assertEqual(gd_0001_count, 1)
+            # Total diagnostics: GD_0001 (deduped) + GD_0002 = 2.
+            self.assertEqual(len(vm.diagnostics), 2)
+            # Claim diagnostic_count must not double-count.
+            claim = next(
+                (
+                    c
+                    for c in vm.claims
+                    if c.claim_id == "MC_peak_idx_UNKNOWN"
+                ),
+                None,
+            )
+            self.assertIsNotNone(claim)
+            self.assertEqual(claim.diagnostic_count, 2)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
