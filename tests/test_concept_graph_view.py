@@ -1,4 +1,4 @@
-"""Tests for concept_graph_view module (T022).
+"""Tests for concept_graph_view module (T022/T023).
 
 Pure Python — no PySide6 required for view model tests.
 """
@@ -15,6 +15,7 @@ from fpga_devmind.desktop.concept_graph_view import (
     GraphEdge,
     GraphNode,
     build_concept_graph_view_model,
+    build_node_detail,
 )
 from fpga_devmind.desktop.artifact_loader import load_bundle
 
@@ -73,13 +74,79 @@ def _make_p1b_graph() -> dict[str, Any]:
         ],
         "mapping_claims": [],
         "evidence_items": [],
+        "grounding_diagnostics": [],
+        "uncertainty_notes": [],
     }
 
 
-def _write_p1b_bundle(tmp: Path) -> Path:
+def _make_p1b_graph_with_claims() -> dict[str, Any]:
+    """Build a P1b graph with mapping_claims for three-layer tests."""
+    return {
+        "schema_version": "concept-trace-graph-0.1",
+        "concept": "peak_idx",
+        "nodes": [
+            {
+                "node_id": "N1",
+                "label": "peak_idx",
+                "kind": "stage_view",
+                "stage": "L6",
+                "confidence": "supported",
+                "evidence_ids": ["EV_0"],
+            },
+            {
+                "node_id": "N2",
+                "label": "rtl_peak",
+                "kind": "rtl_module",
+                "stage": "RTL",
+                "confidence": "inferred",
+                "evidence_ids": ["EV_1"],
+            },
+        ],
+        "edges": [
+            {
+                "edge_id": "E1",
+                "from_node_id": "N1",
+                "to_node_id": "N2",
+                "edge_type": "bridge",
+                "confidence": "supported",
+            }
+        ],
+        "mapping_claims": [
+            {
+                "claim_id": "MC_peak_idx_001",
+                "concept": "peak_idx",
+                "confidence": "supported",
+                "bridge_kind": "calculation_role",
+                "evidence_ids": ["EV_0", "EV_1"],
+                "l5_l6_evidence_ids": ["EV_0"],
+                "rtl_evidence_ids": ["EV_1"],
+            }
+        ],
+        "evidence_items": [
+            {
+                "evidence_id": "EV_0",
+                "source_type": "concept_occurrence",
+                "evidence_strength": "strong",
+                "file_path": "/some/file.py",
+                "symbol": "func_a",
+            },
+            {
+                "evidence_id": "EV_1",
+                "source_type": "rtl_source",
+                "evidence_strength": "medium",
+                "file_path": "/some/rtl.v",
+                "symbol": "module_a",
+            },
+        ],
+        "grounding_diagnostics": [],
+        "uncertainty_notes": [],
+    }
+
+
+def _write_p1b_bundle(tmp: Path, graph: dict[str, Any] | None = None) -> Path:
     """Write a minimal P1b bundle to *tmp*."""
     tmp.mkdir(parents=True, exist_ok=True)
-    graph = _make_p1b_graph()
+    graph = graph or _make_p1b_graph()
     (tmp / "concept_trace_graph.json").write_text(
         json.dumps(graph), encoding="utf-8"
     )
@@ -103,8 +170,8 @@ def _write_p1b_bundle(tmp: Path) -> Path:
                 "concept": "peak_idx",
                 "project_root": "/some/project",
                 "status": "ok",
-                "mapping_claims": 0,
-                "evidence_items": 0,
+                "mapping_claims": 1,
+                "evidence_items": 2,
                 "blocking_diagnostics": 0,
             }
         ),
@@ -201,6 +268,120 @@ class TestConceptGraphViewModel(unittest.TestCase):
             vm = build_concept_graph_view_model(bundle)
             self.assertFalse(vm.is_loaded)
             self.assertIn("P1b", vm.load_error or "")
+
+
+class TestConceptGraphThreeLayer(unittest.TestCase):
+    """Virtual claim nodes create Concept -> Claim -> RTL structure."""
+
+    def test_virtual_claim_node_created(self) -> None:
+        """mapping_claims produce virtual claim nodes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_p1b_bundle(
+                Path(tmp) / "p1b", graph=_make_p1b_graph_with_claims()
+            )
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(bundle)
+            claim_nodes = [n for n in vm.nodes if n.kind == "claim"]
+            self.assertEqual(len(claim_nodes), 1)
+            self.assertIn("MC_peak_idx_001", claim_nodes[0].label)
+
+    def test_concept_to_claim_edge(self) -> None:
+        """Concept -> Claim edge exists."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_p1b_bundle(
+                Path(tmp) / "p1b", graph=_make_p1b_graph_with_claims()
+            )
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(bundle)
+            ec_edges = [e for e in vm.edges if e.edge_type == "claims"]
+            self.assertEqual(len(ec_edges), 1)
+            self.assertTrue(ec_edges[0].from_id.startswith("N"))
+            self.assertTrue(ec_edges[0].to_id.startswith("__claim_"))
+
+    def test_claim_to_rtl_edge(self) -> None:
+        """Claim -> RTL edge exists."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_p1b_bundle(
+                Path(tmp) / "p1b", graph=_make_p1b_graph_with_claims()
+            )
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(bundle)
+            cr_edges = [e for e in vm.edges if e.edge_type == "realizes"]
+            self.assertEqual(len(cr_edges), 1)
+            self.assertTrue(cr_edges[0].from_id.startswith("__claim_"))
+            self.assertTrue(cr_edges[0].to_id.startswith("N"))
+
+
+class TestGraphFilterState(unittest.TestCase):
+    """Graph filtering hides/shows nodes by kind."""
+
+    def test_filter_hides_rtl_modules(self) -> None:
+        """Unchecking show_modules hides rtl_module nodes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_p1b_bundle(Path(tmp) / "p1b")
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(bundle)
+            vm.filter_state.show_modules = False
+            visible = vm.visible_nodes()
+            visible_kinds = {n.kind for n in visible}
+            self.assertNotIn("rtl_module", visible_kinds)
+            self.assertIn("stage_view", visible_kinds)
+
+    def test_filter_hides_rtl_signals(self) -> None:
+        """Unchecking show_signals hides rtl_signal nodes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_p1b_bundle(Path(tmp) / "p1b")
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(bundle)
+            vm.filter_state.show_signals = False
+            visible = vm.visible_nodes()
+            visible_kinds = {n.kind for n in visible}
+            self.assertNotIn("rtl_signal", visible_kinds)
+
+    def test_claim_nodes_always_visible(self) -> None:
+        """Claim nodes are always visible regardless of filters."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_p1b_bundle(Path(tmp) / "p1b")
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(bundle)
+            vm.filter_state.show_modules = False
+            vm.filter_state.show_signals = False
+            vm.filter_state.show_always_assign = False
+            visible = vm.visible_nodes()
+            visible_kinds = {n.kind for n in visible}
+            self.assertIn("claim", visible_kinds)
+
+
+class TestGraphNodeDetail(unittest.TestCase):
+    """Node detail builder from graph data."""
+
+    def test_node_detail_from_raw_node(self) -> None:
+        """build_node_detail returns info for raw graph nodes."""
+        graph = _make_p1b_graph()
+        detail = build_node_detail("N1", graph)
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        self.assertEqual(detail.node_id, "N1")
+        self.assertEqual(detail.label, "peak_idx")
+        self.assertEqual(detail.kind, "stage_view")
+        self.assertEqual(detail.evidence_count, 1)
+        self.assertIn("EV_0", detail.evidence_ids)
+
+    def test_node_detail_from_virtual_claim(self) -> None:
+        """build_node_detail returns info for virtual claim nodes."""
+        graph = _make_p1b_graph_with_claims()
+        detail = build_node_detail("__claim_MC_peak_idx_001", graph)
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        self.assertEqual(detail.kind, "claim")
+        self.assertEqual(detail.confidence, "supported")
+        self.assertEqual(detail.label, "MC_peak_idx_001")
+
+    def test_node_detail_missing_returns_none(self) -> None:
+        """build_node_detail returns None for unknown node_id."""
+        graph = _make_p1b_graph()
+        detail = build_node_detail("NONEXISTENT", graph)
+        self.assertIsNone(detail)
 
 
 class TestGraphDataClasses(unittest.TestCase):

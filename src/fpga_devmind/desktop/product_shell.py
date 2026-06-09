@@ -22,7 +22,9 @@ from fpga_devmind.desktop.agent_plan_models import (
 )
 from fpga_devmind.desktop.concept_graph_view import (
     ConceptGraphScene,
+    GraphFilterState,
     build_concept_graph_view_model,
+    build_node_detail,
 )
 from fpga_devmind.desktop.trace_view_models import (
     build_concept_trace_view_model,
@@ -220,6 +222,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ct_graph_view = QtWidgets.QGraphicsView()
         self._ct_graph_scene: Any = None  # ConceptGraphScene; pyright: ignore[reportExplicitAny]
         self._ct_graph_info = QtWidgets.QLabel()
+        self._ct_graph_detail = QtWidgets.QTextEdit()
+        self._ct_filter_modules = QtWidgets.QCheckBox()
+        self._ct_filter_signals = QtWidgets.QCheckBox()
+        self._ct_filter_always = QtWidgets.QCheckBox()
+        self._ct_filter_weak = QtWidgets.QCheckBox()
         self._ct_summary = QtWidgets.QTextEdit()
         self._ct_nodes_table = QtWidgets.QTableWidget()
         self._ct_edges_table = QtWidgets.QTableWidget()
@@ -231,6 +238,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._evidence_stack = QtWidgets.QStackedWidget()
         self._evidence_header = QtWidgets.QTextEdit()
         self._evidence_groups_layout = QtWidgets.QVBoxLayout()
+        self._evidence_detail = QtWidgets.QTextEdit()
         self._evidence_empty = QtWidgets.QLabel()
 
         # Unknowns page widgets
@@ -759,11 +767,34 @@ class MainWindow(QtWidgets.QMainWindow):
         page = self._make_page_widget("概念追踪")
         layout = getattr(page, "_content_layout")
 
-        # Concept Graph (graph first — T022)
+        # Concept Graph (graph first — T022/T023)
         graph_label = QtWidgets.QLabel("概念图")
         graph_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #333;")
         layout.addWidget(graph_label)
 
+        # Filter bar
+        filter_bar = QtWidgets.QHBoxLayout()
+        self._ct_filter_modules = QtWidgets.QCheckBox("模块")
+        self._ct_filter_modules.setChecked(True)
+        self._ct_filter_modules.stateChanged.connect(self._on_graph_filter_changed)
+        filter_bar.addWidget(self._ct_filter_modules)
+        self._ct_filter_signals = QtWidgets.QCheckBox("信号")
+        self._ct_filter_signals.setChecked(True)
+        self._ct_filter_signals.stateChanged.connect(self._on_graph_filter_changed)
+        filter_bar.addWidget(self._ct_filter_signals)
+        self._ct_filter_always = QtWidgets.QCheckBox("always/assign")
+        self._ct_filter_always.setChecked(True)
+        self._ct_filter_always.stateChanged.connect(self._on_graph_filter_changed)
+        filter_bar.addWidget(self._ct_filter_always)
+        self._ct_filter_weak = QtWidgets.QCheckBox("weak 证据")
+        self._ct_filter_weak.setChecked(True)
+        self._ct_filter_weak.stateChanged.connect(self._on_graph_filter_changed)
+        filter_bar.addWidget(self._ct_filter_weak)
+        filter_bar.addStretch(1)
+        layout.addLayout(filter_bar)
+
+        # Graph + detail panel
+        graph_row = QtWidgets.QHBoxLayout()
         self._ct_graph_view = QtWidgets.QGraphicsView()
         self._ct_graph_view.setMinimumHeight(280)
         self._ct_graph_view.setRenderHints(
@@ -773,7 +804,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ct_graph_scene = ConceptGraphScene()
         self._ct_graph_scene.node_clicked.connect(self._on_graph_node_clicked)
         self._ct_graph_view.setScene(self._ct_graph_scene)
-        layout.addWidget(self._ct_graph_view)
+        graph_row.addWidget(self._ct_graph_view, stretch=2)
+
+        self._ct_graph_detail = QtWidgets.QTextEdit()
+        self._ct_graph_detail.setReadOnly(True)
+        self._ct_graph_detail.setMaximumWidth(280)
+        self._ct_graph_detail.setPlaceholderText("点击图节点查看详情")
+        graph_row.addWidget(self._ct_graph_detail, stretch=1)
+        layout.addLayout(graph_row)
 
         self._ct_graph_info = QtWidgets.QLabel("")
         self._ct_graph_info.setStyleSheet(
@@ -848,8 +886,56 @@ class MainWindow(QtWidgets.QMainWindow):
 
         return page
 
+    def _on_graph_filter_changed(self) -> None:
+        """Re-render graph when filter checkboxes change."""
+        if self._bundle is None:
+            return
+        vm = build_concept_graph_view_model(self._bundle)
+        if not vm.is_loaded:
+            return
+        vm.filter_state = GraphFilterState(
+            show_modules=self._ct_filter_modules.isChecked(),
+            show_signals=self._ct_filter_signals.isChecked(),
+            show_always_assign=self._ct_filter_always.isChecked(),
+            show_weak_evidence=self._ct_filter_weak.isChecked(),
+        )
+        self._ct_graph_scene.set_view_model(vm)
+
     def _on_graph_node_clicked(self, node: Any) -> None:
-        """Handle click on a graph node."""
+        """Handle click on a graph node — show full detail panel."""
+        lines = ["【选中对象详情】", ""]
+        lines.append("Node ID: {}".format(node.node_id))
+        lines.append("Label: {}".format(node.label))
+        lines.append("Kind: {}".format(node.kind))
+        if node.stage:
+            lines.append("Stage: {}".format(node.stage))
+        if node.confidence:
+            lines.append("Confidence: {}".format(node.confidence))
+        if node.evidence_count:
+            lines.append("Evidence: {} 条".format(node.evidence_count))
+        if node.has_diagnostics:
+            lines.append("Diagnostics: 有")
+
+        # Try to enrich from graph data.
+        from fpga_devmind.desktop.artifact_loader import get_graph
+        if self._bundle is not None:
+            graph = get_graph(self._bundle)
+            detail = build_node_detail(node.node_id, graph)
+            if detail is not None:
+                if detail.evidence_ids:
+                    lines.append("\n关联证据:")
+                    for eid in detail.evidence_ids[:10]:
+                        lines.append("  • {}".format(eid))
+                    if len(detail.evidence_ids) > 10:
+                        lines.append("  ... 以及 {} 条".format(len(detail.evidence_ids) - 10))
+                if detail.claim_ids:
+                    lines.append("\n关联声明:")
+                    for cid in detail.claim_ids:
+                        lines.append("  • {}".format(cid))
+
+        self._ct_graph_detail.setPlainText("\n".join(lines))
+
+        # Also update info line.
         info = "节点: {} | 类型: {} | 可信度: {}".format(
             node.label, node.kind, node.confidence or "—"
         )
@@ -860,6 +946,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_concept_trace(self) -> None:
         self._ct_summary.clear()
         self._ct_graph_info.clear()
+        self._ct_graph_detail.setPlainText("点击图节点查看详情")
         for table in [
             self._ct_nodes_table,
             self._ct_edges_table,
@@ -898,9 +985,15 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         self._ct_summary.setPlainText(format_concept_trace_summary(vm))
-        self._ct_graph_scene.set_view_model(
-            build_concept_graph_view_model(self._bundle)
-        )
+        gvm = build_concept_graph_view_model(self._bundle)
+        if gvm.is_loaded:
+            gvm.filter_state = GraphFilterState(
+                show_modules=self._ct_filter_modules.isChecked(),
+                show_signals=self._ct_filter_signals.isChecked(),
+                show_always_assign=self._ct_filter_always.isChecked(),
+                show_weak_evidence=self._ct_filter_weak.isChecked(),
+            )
+        self._ct_graph_scene.set_view_model(gvm)
 
         # Populate tables
         self._ct_nodes_table.setRowCount(len(vm.nodes))
@@ -990,6 +1083,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._evidence_groups_layout.setContentsMargins(0, 0, 0, 0)
         loaded_layout.addWidget(groups_widget, stretch=1)
 
+        # Evidence detail panel
+        detail_label = QtWidgets.QLabel("证据详情")
+        detail_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #333;")
+        loaded_layout.addWidget(detail_label)
+        self._evidence_detail = QtWidgets.QTextEdit()
+        self._evidence_detail.setReadOnly(True)
+        self._evidence_detail.setMaximumHeight(160)
+        self._evidence_detail.setPlaceholderText("选中上方表格中的证据行查看解释")
+        loaded_layout.addWidget(self._evidence_detail)
+
         self._evidence_stack.addWidget(loaded_widget)
 
         # Page 1: empty/error
@@ -1009,6 +1112,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 if w is not None:
                     w.deleteLater()
 
+        self._evidence_detail.setPlainText("")
+
         if self._bundle is None:
             self._evidence_stack.setCurrentIndex(1)
             self._evidence_empty.setText("请先加载 artifact bundle。")
@@ -1027,6 +1132,9 @@ class MainWindow(QtWidgets.QMainWindow):
             "RTL 证据": "从 RTL Verilog/SystemVerilog 中提取的模块、信号、always、assign 等证据项。",
             "桥接/映射证据": "连接 L5/L6 和 RTL 两边的桥接证据项。",
         }
+
+        # Collect all evidence rows for lookup.
+        all_evidence_rows: list[Any] = []  # pyright: ignore[reportExplicitAny]
 
         for group in vm.groups:
             group_label = QtWidgets.QLabel(group.title)
@@ -1062,7 +1170,71 @@ class MainWindow(QtWidgets.QMainWindow):
                 table.setItem(i, 3, QtWidgets.QTableWidgetItem(row.symbol))
                 table.setItem(i, 4, QtWidgets.QTableWidgetItem(row.evidence_strength))
                 table.setItem(i, 5, QtWidgets.QTableWidgetItem(row.referenced_by_claims))
+                all_evidence_rows.append(row)
+
+            # Connect selection to detail panel.
+            table.itemSelectionChanged.connect(
+                lambda t=table, rows=all_evidence_rows: self._on_evidence_row_selected(t, rows)
+            )
             self._evidence_groups_layout.addWidget(table)
+
+    def _on_evidence_row_selected(
+        self,
+        table: QtWidgets.QTableWidget,
+        rows: list[Any],  # pyright: ignore[reportExplicitAny]
+    ) -> None:
+        """Show detail explanation for the selected evidence row."""
+        selected = table.selectedItems()
+        if not selected:
+            return
+        row_idx = selected[0].row()
+        if row_idx < 0 or row_idx >= len(rows):
+            return
+        row = rows[row_idx]
+        lines = ["【证据详情解释】", ""]
+        lines.append("Evidence ID: {}".format(row.evidence_id))
+        lines.append("来源类型: {}".format(row.source_type))
+        if "concept" in row.source_type.lower() or "l5" in row.source_type.lower() or "l6" in row.source_type.lower():
+            lines.append("分类: L5/L6 代码证据")
+        elif "rtl" in row.source_type.lower():
+            lines.append("分类: RTL 证据")
+        else:
+            lines.append("分类: 其他证据")
+        lines.append("符号: {}".format(row.symbol))
+        lines.append("文件: {}".format(row.file_path))
+        lines.append("")
+
+        strength = row.evidence_strength
+        lines.append("证据强度: {}".format(strength))
+        if strength == "strong":
+            lines.append("含义: 高置信度匹配，可直接支撑 mapping claim。")
+        elif strength == "medium":
+            lines.append("含义: 中等置信度，需要额外验证或上下文确认。")
+        elif strength == "weak":
+            lines.append("含义: 低置信度，仅供参考，不建议单独作为映射依据。")
+        elif strength == "unknown":
+            lines.append("含义: 未评估或无法判断强度。")
+        else:
+            lines.append("含义: 未定义强度等级。")
+
+        lines.append("")
+        if row.referenced_by_claims:
+            lines.append("关联声明: {}".format(row.referenced_by_claims))
+            lines.append("说明: 这条证据被上述 mapping claim 引用，是 claim 成立的基础之一。")
+        else:
+            lines.append("关联声明: 无")
+            lines.append("说明: 当前这条证据未被任何 mapping claim 直接引用。")
+
+        lines.append("")
+        lines.append("为什么重要:")
+        lines.append("证据是 mapping claim 的根基。没有足够数量和强度的证据，")
+        lines.append("claim 的可信度只能停留在 inferred 或 unknown。")
+        if strength in ("strong", "medium"):
+            lines.append("当前证据强度较高，对 claim 有实质性支撑作用。")
+        elif strength == "weak":
+            lines.append("当前证据强度较低，建议补充更多证据或人工 review。")
+
+        self._evidence_detail.setPlainText("\n".join(lines))
 
     # ========================================================================
     # Page 3: Unknowns

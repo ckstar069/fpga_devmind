@@ -276,6 +276,12 @@ def _answer_evidence(
     )]
     other = [i for i in items if i not in l5_l6 and i not in rtl]
 
+    # Strength breakdown
+    strong_count = sum(1 for i in items if i.get("evidence_strength") == "strong")
+    medium_count = sum(1 for i in items if i.get("evidence_strength") == "medium")
+    weak_count = sum(1 for i in items if i.get("evidence_strength") == "weak")
+    unknown_count = sum(1 for i in items if i.get("evidence_strength") == "unknown")
+
     lines = ["共有 {} 条证据支持当前概念追踪：".format(len(items)), ""]
     if l5_l6:
         lines.append("L5/L6 代码证据 {} 条".format(len(l5_l6)))
@@ -283,6 +289,16 @@ def _answer_evidence(
         lines.append("RTL 证据 {} 条".format(len(rtl)))
     if other:
         lines.append("其他证据 {} 条".format(len(other)))
+    lines.append("")
+    lines.append("强度分布：")
+    if strong_count:
+        lines.append("  • strong {} 条 — 高置信度，可直接支撑 mapping claim".format(strong_count))
+    if medium_count:
+        lines.append("  • medium {} 条 — 中等置信度，需额外验证".format(medium_count))
+    if weak_count:
+        lines.append("  • weak {} 条 — 低置信度，仅供参考".format(weak_count))
+    if unknown_count:
+        lines.append("  • unknown {} 条 — 未评估".format(unknown_count))
     lines.append("")
 
     eids: list[str] = []
@@ -300,6 +316,9 @@ def _answer_evidence(
         )
     if len(items) > 20:
         lines.append("\n... 以及另外 {} 条".format(len(items) - 20))
+
+    lines.append("")
+    lines.append("💡 提示：在 Evidence 页面选中证据行可查看详细解释。")
 
     return AgentPanelResponse(
         question=question,
@@ -457,8 +476,32 @@ def _answer_edges(
         )
 
     edges = graph.get("edges", [])
+    nodes = graph.get("nodes", [])
     node_map = _build_node_map(graph)
+
+    # Count nodes by kind and confidence.
+    l5_l6_nodes = [n for n in nodes if n.get("kind") in ("stage_view", "concept")]
+    rtl_nodes = [n for n in nodes if str(n.get("kind", "")).startswith("rtl")]
+    claim_nodes = [n for n in nodes if n.get("kind") in ("claim", "bridge")]
+    supported = sum(1 for e in edges if e.get("confidence") in ("supported", "confirmed"))
+    inferred = sum(1 for e in edges if e.get("confidence") == "inferred")
+    unknown_conf = sum(1 for e in edges if e.get("confidence") == "unknown")
+
     lines = ["概念图中共 {} 条关系边：".format(len(edges)), ""]
+    lines.append("节点构成：")
+    lines.append("  • L5/L6 概念节点 {} 个".format(len(l5_l6_nodes)))
+    lines.append("  • Mapping claim 节点 {} 个".format(len(claim_nodes)))
+    lines.append("  • RTL 对象节点 {} 个".format(len(rtl_nodes)))
+    lines.append("")
+    lines.append("边可信度分布：")
+    if supported:
+        lines.append("  • supported/confirmed {} 条".format(supported))
+    if inferred:
+        lines.append("  • inferred {} 条".format(inferred))
+    if unknown_conf:
+        lines.append("  • unknown {} 条".format(unknown_conf))
+    lines.append("")
+
     for edge in edges:
         eid = edge.get("edge_id", "")
         fid = edge.get("from_node_id", "")
@@ -472,6 +515,9 @@ def _answer_edges(
                 eid, fl, tl, et, conf
             )
         )
+
+    lines.append("")
+    lines.append("💡 提示：在 Concept Graph 页面可直观查看节点和边的关系。")
 
     return AgentPanelResponse(
         question=question,

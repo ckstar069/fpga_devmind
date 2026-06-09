@@ -110,17 +110,22 @@ def build_agent_plan_preview(
             question, graph, evidence_match, index, response
         )
 
-    # Keyword-based routing.
-    if has_any(normalized, ["summary", "概况", "做了什么", "overview", "about"]):
+    # Keyword-based routing — MUST match agent_panel_models.py order.
+    # Summary first (broadest).
+    if has_any(
+        normalized, ["summary", "概况", "整体情况", "做了什么", "overview", "about"]
+    ):
         return _plan_summary(question, graph, _meta, grounding, response)
+
+    # Evidence before claims to avoid "有什么证据支持这些映射"
+    # being mis-routed to claims because it contains "映射".
+    if has_any(normalized, ["evidence", "证据", "proof"]):
+        return _plan_evidence(question, graph, index, response)
 
     if has_any(
         normalized, ["claims", "mapping", "映射", "claim", "mapping claims"]
     ):
         return _plan_claims(question, graph, index, response)
-
-    if has_any(normalized, ["evidence", "证据", "proof"]):
-        return _plan_evidence(question, graph, index, response)
 
     if has_any(
         normalized, ["diagnostics", "grounding", "诊断", "checker"]
@@ -132,11 +137,13 @@ def build_agent_plan_preview(
     ):
         return _plan_unknown(question, graph, response)
 
+    # Edges before nodes to avoid "节点之间的关系是什么"
+    # being mis-routed to nodes because it contains "节点".
+    if has_any(normalized, ["edges", "edge", "边", "关系"]):
+        return _plan_edges(question, graph, response)
+
     if has_any(normalized, ["nodes", "node", "节点"]):
         return _plan_nodes(question, graph, response)
-
-    if has_any(normalized, ["edges", "edge", "边"]):
-        return _plan_edges(question, graph, response)
 
     # Fallback.
     return AgentPlanPreview(
