@@ -333,6 +333,31 @@ PySide6 桌面 Agent Shell 用于浏览 P1a/P1b artifact bundle。
 - **V0.1 Readiness Review** (T009–T010): `docs/reviews/0007-p1b-desktop-v0.1-readiness-review.md`
 - **V0.2 Readiness Review** (T011–T012a): `docs/reviews/0008-desktop-agent-shell-v0.2-readiness-review.md` — Desktop Agent Shell 已从 artifact viewer 进化到本地确定性 Agent shell 原型。结论: READY WITH LIMITATIONS。推荐下一步: T015 Agent Runtime Contract。
 
+### 一键试用 (T018)
+
+```bash
+# 安装桌面依赖
+pip install -e ".[desktop]"
+
+# 一键生成 sample artifact（P1b + agent-runtime）
+PYTHONPATH=src python3 -m fpga_devmind.cli desktop-sample-run
+
+# 启动 GUI
+PYTHONPATH=src python3 -m fpga_devmind.desktop_app --recent
+```
+
+`desktop-sample-run` 默认使用 `fpga_project_coarse_sync_glm` / `peak_idx` / `summary`，输出到 `/tmp/fpga_devmind/desktop_sample`。不需要手动串联多个 CLI 命令。
+
+也可以覆盖默认参数：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli desktop-sample-run \
+  --project /path/to/other_project \
+  --concept some_concept \
+  --question "custom question" \
+  --out /tmp/fpga_devmind/custom_sample
+```
+
 ### 依赖
 
 ```bash
@@ -430,6 +455,7 @@ P1b + Desktop Shell V0.1 不做：
 - ✅ T016: Local No-op ReAct Dry Run — 确定性单轮 Agent runtime，串联 T011/T012/T015 输出 contract-backed trace。19 tests。380 total。
 - ✅ T014: Desktop Shell Usability Hardening — PySide6 可选依赖、sample artifact 发现、`--recent` 标志、GUI 空状态改善、手工 smoke 文档。6 tests。387 total。
 - ✅ T017: Desktop Agent Runtime Trace Viewer — GUI 读取并展示 `agent_runtime_trace.json` 的结构化 trace。Summary form + Steps 时间线 + Diagnostics 表格。14 tests。401 total。
+- ✅ T018: Desktop GUI First-Run Smoke and Usability Hardening — `desktop-sample-run` 一键 CLI、Quick Start 文档、GUI 能力边界声明。6 tests。
 
 ### Agent No-op Dry Run
 

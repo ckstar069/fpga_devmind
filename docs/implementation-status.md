@@ -25,6 +25,7 @@ Implemented:
 - CLI entry point: `fpga-devmind p1a-freshness`
 - CLI entry point: `fpga-devmind p1a-smoke`
 - CLI entry point: `fpga-devmind p1a-agent-understand-stage`
+- CLI entry point: `fpga-devmind desktop-sample-run` (T018)
 - P1a dataclass schema objects.
 - Read-only project tree scan.
 - Read-only L6 Python symbol and evidence extraction.
@@ -75,6 +76,7 @@ Implemented:
   - T016a: Propagate runtime validation diagnostics — `validate_runtime_trace()` errors now propagated into `trace.runtime_diagnostics` and cause `status="blocked"`. 20 dedicated tests. 381 total.
 - Desktop Shell Usability Hardening (T014): PySide6 optional dependency in `pyproject.toml` (`.[desktop]`), sample artifact discovery helper (`find_recent_artifact_bundles()`), `--recent` CLI flag, GUI load-state clarity improvements (Diagnostics/Concept Trace/Plan Preview empty states), manual GUI smoke test docs. 387 tests total pass.
 - Desktop Agent Runtime Trace Viewer (T017): GUI recognizes, loads, and displays `agent_runtime_trace.json` from T016's `agent-noop-run`. New Agent Runtime tab with summary form, steps timeline table, and runtime diagnostics table. Pure viewer — no Agent execution, no LLM. View model (`desktop/agent_trace_view_models.py`) with 8 section types (task/observation/reasoning/plan/proposal/result/answer/graph_write). Graph write status uses "blocked"/"allowed", never PASS/HOLD. T016 no-op always generates "blocked"; "allowed" display is forward-compatible only, does not enable graph mutation. 14 new tests (13 view model + 1 sample artifacts). 401 tests total pass.
+- Desktop GUI First-Run Smoke and Usability Hardening (T018): New `desktop-sample-run` CLI subcommand chains `p1b-trace-concept` → `agent-noop-run` into one invocation with sensible defaults. New `desktop_sample_run.py` module with `DesktopSampleResult` dataclass. Updated smoke-test docs with Quick Start section and Current GUI Capabilities declaration. Updated quickstart with one-click trial command. 6 new tests. No LLM, no API, no Vivado, no fpga_project_* mutation, no graph write execution, no PASS/HOLD/finding/audit.
 
 Not implemented yet:
 

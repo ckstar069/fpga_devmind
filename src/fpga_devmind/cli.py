@@ -6,6 +6,12 @@ import argparse
 from pathlib import Path
 
 from .agent import DEFAULT_AGENT_OUT, run_p1a_semantic_agent_dry_run
+from .desktop_sample_run import (
+    DEFAULT_SAMPLE_CONCEPT,
+    DEFAULT_SAMPLE_OUT,
+    DEFAULT_SAMPLE_PROJECT,
+    DEFAULT_SAMPLE_QUESTION,
+)
 from .p1a import DEFAULT_OUT, DEFAULT_PROJECT, run_p1a
 from .provider_config import DEFAULT_PROVIDER_CONFIG_OUT, write_provider_config_draft
 from .query import answer_question, check_freshness
@@ -75,6 +81,15 @@ def build_parser() -> argparse.ArgumentParser:
     noop.add_argument("--artifact-dir", type=Path, required=True)
     noop.add_argument("--question", required=True)
     noop.add_argument("--out", type=Path, required=True)
+
+    sample = sub.add_parser(
+        "desktop-sample-run",
+        help="Generate sample artifacts for Desktop Shell (P1b + agent-runtime)",
+    )
+    sample.add_argument("--project", type=Path, default=DEFAULT_SAMPLE_PROJECT)
+    sample.add_argument("--concept", default=DEFAULT_SAMPLE_CONCEPT)
+    sample.add_argument("--question", default=DEFAULT_SAMPLE_QUESTION)
+    sample.add_argument("--out", type=Path, default=DEFAULT_SAMPLE_OUT)
 
     return parser
 
@@ -187,6 +202,32 @@ def main(argv: list[str] | None = None) -> int:
         print("Diagnostics: {}".format(len(result.diagnostics)))
         print("Graph write: blocked")
         return 1 if result.status != "ok" else 0
+    if args.command == "desktop-sample-run":
+        from .desktop_sample_run import run_desktop_sample
+
+        try:
+            result = run_desktop_sample(
+                project_root=args.project,
+                concept=args.concept,
+                question=args.question,
+                out_root=args.out,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+            return 2
+        for msg in result.messages:
+            print(msg)
+        print("")
+        print("P1b bundle:   {}".format(result.p1b_dir))
+        print("No-op bundle: {}".format(result.noop_dir))
+        print("")
+        print("Open in Desktop Shell:")
+        print("  PYTHONPATH=src python3 -m fpga_devmind.desktop_app --recent")
+        print(
+            "  PYTHONPATH=src python3 -m fpga_devmind.desktop_app "
+            "--artifact-dir {}".format(result.p1b_dir)
+        )
+        return 1 if result.status == "error" else 0
     parser.error(f"unknown command {args.command}")
     return 2
 

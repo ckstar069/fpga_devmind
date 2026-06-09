@@ -1,8 +1,74 @@
-# Desktop GUI Smoke Test (T014)
+# Desktop GUI Smoke Test (T014 / T018)
 
 手工 smoke 文档：验证桌面 GUI 可打开、可加载 bundle、各 tab 可浏览。
 
-## 1. 安装 PySide6
+## Quick Start (T018)
+
+从零到 GUI 内容的最少步骤。
+
+### 0. 安装桌面依赖
+
+```bash
+pip install -e ".[desktop]"
+```
+
+### 1. 一键生成 sample artifact
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli desktop-sample-run
+```
+
+默认参数：project=`fpga_project_coarse_sync_glm`, concept=`peak_idx`, question=`summary`, out=`/tmp/fpga_devmind/desktop_sample`。
+
+期望输出包含：
+- `P1b bundle:   /tmp/fpga_devmind/desktop_sample/p1b`
+- `No-op bundle: /tmp/fpga_devmind/desktop_sample/noop_run`
+
+### 2. 启动 GUI
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.desktop_app --recent
+```
+
+或直接指定 bundle：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.desktop_app \
+  --artifact-dir /tmp/fpga_devmind/desktop_sample/p1b
+```
+
+### 3. 观察结果
+
+| Bundle | 可查看 Tab |
+|---|---|
+| P1b bundle (`.../p1b`) | Run Summary, JSON Tree, Markdown, Diagnostics, Concept Trace, Agent |
+| Agent Runtime bundle (`.../noop_run`) | Agent Runtime (Summary + Steps + Diagnostics) |
+
+> **注意**: 如果未安装 PySide6，入口点会打印依赖提示并以 exit code 0 退出。这是正常的 fallback 行为。安装后重新执行即可。
+
+## Current GUI Capabilities
+
+**当前是：**
+- Artifact viewer（P1a/P1b/agent_runtime bundle 的只读浏览）
+- Deterministic local query panel（9 类问题，中英双语关键词）
+- Read-only tool plan preview（展示未来 Agent 模式需要读取什么）
+- No-op runtime trace viewer（observe→plan→propose→result→answer→graph-write 时间线）
+- 一键 sample 生成（`desktop-sample-run` CLI 子命令）
+
+**还不是：**
+- Real LLM Agent
+- 自动开发 FPGA 的 Agent
+- 可修改工程/graph 的工具
+- Vivado wrapper
+- 审计器 / PASS/HOLD
+- Web GUI / Web server
+- Multi-turn ReAct loop
+
+## 详细 Smoke 步骤
+
+以下步骤覆盖每个 Tab 的详细验证。
+
+### 1. 安装 PySide6
 
 ```bash
 cd /path/to/fpga_devmind
