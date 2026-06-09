@@ -43,6 +43,11 @@ from fpga_devmind.desktop.overview_models import (
     build_overview_view_model,
     format_concept_trace_summary,
 )
+from fpga_devmind.desktop.project_run_helpers import (
+    get_default_concepts,
+    get_default_output_dir,
+    get_default_project_root,
+)
 from fpga_devmind.desktop.page_view_models import (
     build_evidence_page_view_model,
     build_unknowns_page_view_model,
@@ -284,6 +289,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # Project settings page widgets
         self._settings_path = QtWidgets.QLineEdit()
         self._settings_info = QtWidgets.QFormLayout()
+        self._settings_project_path = QtWidgets.QLineEdit()
+        self._settings_concepts = QtWidgets.QLineEdit()
+        self._settings_out_dir = QtWidgets.QLineEdit()
+        self._settings_run_btn = QtWidgets.QPushButton()
+        self._settings_status = QtWidgets.QTextEdit()
+        self._settings_run_worker: Any = None  # pyright: ignore[reportExplicitAny]
 
         # Plan tools page widgets
         self._plan_display = QtWidgets.QTextEdit()
@@ -1951,10 +1962,97 @@ class MainWindow(QtWidgets.QMainWindow):
         page = self._make_page_widget("项目设置")
         layout = getattr(page, "_content_layout")
 
-        # Artifact path
-        path_label = QtWidgets.QLabel("Artifact 目录")
-        path_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #333;")
-        layout.addWidget(path_label)
+        # --- Section: Run project trace ---
+        run_label = QtWidgets.QLabel("生成项目理解图")
+        run_label.setStyleSheet(
+            "font-size: 15px; font-weight: bold; color: #333;"
+        )
+        layout.addWidget(run_label)
+
+        run_desc = QtWidgets.QLabel(
+            "选择 FPGA 项目目录，输入 concepts，点击生成。"
+            "完成后自动加载 artifact bundle 并切换到概念追踪页。"
+        )
+        run_desc.setStyleSheet(
+            "color: {}; font-size: 12px;".format(_TEXT_DIM)
+        )
+        run_desc.setWordWrap(True)
+        layout.addWidget(run_desc)
+
+        layout.addSpacing(8)
+
+        # Project path
+        proj_label = QtWidgets.QLabel("项目路径")
+        proj_label.setStyleSheet("font-weight: bold; color: #555;")
+        layout.addWidget(proj_label)
+
+        proj_row = QtWidgets.QHBoxLayout()
+        self._settings_project_path = QtWidgets.QLineEdit()
+        default_proj = get_default_project_root()
+        if default_proj:
+            self._settings_project_path.setText(str(default_proj))
+        self._settings_project_path.setPlaceholderText(
+            "/path/to/fpga_project"
+        )
+        proj_browse_btn = QtWidgets.QPushButton("Browse...")
+        proj_browse_btn.clicked.connect(self._on_browse_project)
+        proj_row.addWidget(self._settings_project_path, stretch=1)
+        proj_row.addWidget(proj_browse_btn)
+        layout.addLayout(proj_row)
+
+        # Concepts
+        concepts_label = QtWidgets.QLabel("Concepts（逗号分隔）")
+        concepts_label.setStyleSheet("font-weight: bold; color: #555;")
+        layout.addWidget(concepts_label)
+
+        self._settings_concepts = QtWidgets.QLineEdit()
+        self._settings_concepts.setText(get_default_concepts())
+        self._settings_concepts.setPlaceholderText("peak_idx,cfo,smooth_detect")
+        layout.addWidget(self._settings_concepts)
+
+        # Output dir
+        out_label = QtWidgets.QLabel("输出目录")
+        out_label.setStyleSheet("font-weight: bold; color: #555;")
+        layout.addWidget(out_label)
+
+        self._settings_out_dir = QtWidgets.QLineEdit()
+        self._settings_out_dir.setText(str(get_default_output_dir()))
+        layout.addWidget(self._settings_out_dir)
+
+        layout.addSpacing(8)
+
+        # Run button
+        self._settings_run_btn = QtWidgets.QPushButton("▶ 生成项目理解图")
+        self._settings_run_btn.setStyleSheet(
+            "QPushButton { background-color: #3b82f6; color: white; "
+            "font-weight: bold; font-size: 13px; padding: 8px 16px; }"
+        )
+        self._settings_run_btn.clicked.connect(self._on_run_project)
+        layout.addWidget(self._settings_run_btn)
+
+        layout.addSpacing(16)
+
+        # Status area
+        status_label = QtWidgets.QLabel("运行状态")
+        status_label.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #333;"
+        )
+        layout.addWidget(status_label)
+
+        self._settings_status = QtWidgets.QTextEdit()
+        self._settings_status.setReadOnly(True)
+        self._settings_status.setMaximumHeight(180)
+        self._settings_status.setPlaceholderText("点击生成后显示运行状态...")
+        layout.addWidget(self._settings_status)
+
+        layout.addSpacing(16)
+
+        # --- Section: Load existing artifact ---
+        load_label = QtWidgets.QLabel("加载已有 Artifact")
+        load_label.setStyleSheet(
+            "font-size: 15px; font-weight: bold; color: #333;"
+        )
+        layout.addWidget(load_label)
 
         path_row = QtWidgets.QHBoxLayout()
         self._settings_path = QtWidgets.QLineEdit()
@@ -1972,7 +2070,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Bundle info
         info_label = QtWidgets.QLabel("当前 Bundle 信息")
-        info_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #333;")
+        info_label.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #333;"
+        )
         layout.addWidget(info_label)
 
         self._settings_info = QtWidgets.QFormLayout()
@@ -2010,6 +2110,83 @@ class MainWindow(QtWidgets.QMainWindow):
         if path:
             self._dir_input.setText(path)
             self._on_load()
+
+    def _on_browse_project(self) -> None:
+        path = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "选择 FPGA 项目目录"
+        )
+        if path:
+            self._settings_project_path.setText(path)
+
+    def _on_run_project(self) -> None:
+        """Start the project trace worker."""
+        from fpga_devmind.desktop.project_run_helpers import (
+            parse_concepts,
+            validate_run_params,
+        )
+
+        project_str = self._settings_project_path.text().strip()
+        concepts_str = self._settings_concepts.text().strip()
+        out_str = self._settings_out_dir.text().strip()
+
+        project_root = Path(project_str) if project_str else Path("")
+        concepts = parse_concepts(concepts_str)
+        out_dir = Path(out_str) if out_str else Path("")
+
+        error = validate_run_params(project_root, concepts)
+        if error:
+            self._settings_status.setText("错误：{}".format(error))
+            return
+
+        # Disable run button during execution.
+        self._settings_run_btn.setEnabled(False)
+        self._settings_run_btn.setText("⏳ 运行中...")
+        self._settings_status.setText(
+            "开始生成项目理解图...\n项目：{}\nConcepts：{}\n输出：{}".format(
+                project_root, ", ".join(concepts), out_dir
+            )
+        )
+
+        # Ensure output dir exists.
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Start worker thread.
+        from fpga_devmind.desktop.project_run_worker import ProjectRunWorker
+
+        self._settings_run_worker = ProjectRunWorker(
+            project_root, concepts, out_dir, parent=self
+        )
+        self._settings_run_worker.finished_success.connect(
+            self._on_run_success
+        )
+        self._settings_run_worker.finished_error.connect(self._on_run_error)
+        self._settings_run_worker.start()
+
+    def _on_run_success(self, metadata: dict[str, Any]) -> None:  # pyright: ignore[reportExplicitAny]
+        """Handle successful project run."""
+        from fpga_devmind.desktop.project_run_helpers import format_run_status
+
+        self._settings_run_btn.setEnabled(True)
+        self._settings_run_btn.setText("▶ 生成项目理解图")
+        self._settings_status.setText(
+            "生成成功！\n\n{}".format(format_run_status(metadata))
+        )
+
+        out_dir = metadata.get("output_dir", "")
+        if out_dir:
+            path = Path(out_dir)
+            self._dir_input.setText(str(path))
+            self._settings_path.setText(str(path))
+            self._bundle = load_bundle(path)
+            self._refresh_all()
+            # Navigate to concept trace page.
+            self._navigate_to("concept_trace")
+
+    def _on_run_error(self, error_msg: str) -> None:
+        """Handle failed project run."""
+        self._settings_run_btn.setEnabled(True)
+        self._settings_run_btn.setText("▶ 生成项目理解图")
+        self._settings_status.setText("生成失败：\n{}".format(error_msg))
 
     # ========================================================================
     # Page 11: General Settings
