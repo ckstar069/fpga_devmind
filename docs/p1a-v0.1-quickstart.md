@@ -407,10 +407,36 @@ P1b + Desktop Shell V0.1 不做：
 - Web GUI / Web server / browser URL
 ```
 
-## 下一阶段（可选）
+## 下一阶段
 
-- ✅ T011: Agent interaction panel — 查询输入、响应展示、工具建议（只读）。已完成：详见 `docs/tasks/T011-desktop-local-agent-panel.md`。
-- ✅ T012: Agent Tool Plan Preview — 只读工具计划预览，展示未来 Agent 模式需要读取的 artifact 和证据。不执行工具，不调用 LLM。已完成：详见 `docs/tasks/T012-agent-tool-plan-preview.md`。
+### 已完成
+
+- ✅ T011: Agent interaction panel — 查询输入、响应展示、工具建议（只读）。详见 `docs/tasks/T011-desktop-local-agent-panel.md`。
+- ✅ T012: Agent Tool Plan Preview — 只读工具计划预览。详见 `docs/tasks/T012-agent-tool-plan-preview.md`。
+- ✅ T012a: Import cycle / helper cleanup。
+- ✅ T013: Desktop Agent Shell V0.2 Readiness Review — 结论: READY WITH LIMITATIONS。详见 `docs/reviews/0008-desktop-agent-shell-v0.2-readiness-review.md`。
+
+### 推荐下一步: T015 Agent Runtime Contract
+
+先定义 ReAct-like runtime loop 的结构化 artifact contract，不接入真实 LLM：
+
+```text
+UserTask          — 用户原始问题 + context bundle 引用
+Observation       — loop 起点时相关 artifact 状态快照
+ReasoningSummary  — 对 observation 的推理摘要（deterministic 或未来 LLM）
+ToolPlan          — 有序工具调用提案列表 + rationale
+ToolCallProposal  — 单次工具调用：工具名、参数、预期读取的 artifact
+ToolResult        — 工具调用输出（deterministic 或 mock）
+Answer            — 最终结构化答案 + referenced IDs + confidence
+GraphWriteProposal — 对 artifact graph 的拟议变更（默认 blocked）
+```
+
+这一步不调用外部 API，不加载 API key，不运行 Vivado，不修改 fpga_project_*。
+
+### 后续阶段
+
+- **T014** (可选，可与 T015 并行): Desktop Shell usability hardening — PySide6 依赖策略、sample artifact 命令、GUI smoke 截图文档。
+- **T016** (依赖 T015): Local No-op ReAct Dry Run — 用 deterministic/noop provider 模拟 observe → plan → propose → answer 单次 loop，不执行危险工具，不调用外部 API。
+- **真实 LLM provider integration** 是更后续阶段，不是当前下一步。
 - P1b+: 批量多概念 trace、partial SystemVerilog parser、跨概念 structural edge。
 - P1c: Verification coverage trace。
-- V0.2: LLM provider 适配、语义 claim 生成、交互式 claim 精炼。
