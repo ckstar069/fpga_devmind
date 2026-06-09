@@ -1,4 +1,4 @@
-# Desktop GUI Smoke Test (T014 / T018 / T019)
+# Desktop GUI Smoke Test (T014 / T018 / T019 / T020)
 
 手工 smoke 文档：验证桌面 GUI 可打开、可加载 bundle、各 tab 可浏览。
 
@@ -39,24 +39,34 @@ PYTHONPATH=src python3 -m fpga_devmind.desktop_app \
 
 ### 3. 观察结果
 
-推荐浏览顺序：**Overview → Concept Understanding → Agent**
+推荐浏览顺序：**概览 → 概念追踪 → Agent 问答**
 
-| Bundle | 可查看 Tab |
+| Bundle | 可查看页面 |
 |---|---|
-| P1b bundle (`.../p1b`) | Overview, Concept Understanding, Agent, Markdown, Diagnostics, Developer |
-| Agent Runtime bundle (`.../noop_run`) | Overview, Agent Runtime (自动启用) |
+| P1b bundle (`.../p1b`) | 概览、概念追踪、证据、不确定项、Agent 问答、开发者区 |
+| Agent Runtime bundle (`.../noop_run`) | 概览、Agent Runtime、Agent 问答 |
+
+左侧导航结构：
+- **项目理解**：概览、概念追踪、证据、不确定项
+- **Agent**：Agent 问答、Agent Runtime、计划与工具
+- **开发者**：Raw Data、Markdown、Diagnostics
+- **设置**：项目设置、通用设置
 
 > **注意**: 如果未安装 PySide6，入口点会打印依赖提示并以 exit code 0 退出。这是正常的 fallback 行为。安装后重新执行即可。
 
-## Current GUI Capabilities (T019)
+## Current GUI Capabilities (T020)
 
 **当前是：**
-- FPGA Understanding Agent Shell（用户可理解的概览 + 交互式查询）
-- Overview 首屏：自动生成人类可读的概念理解摘要、证据概览、映射可信度
-- Concept Understanding：三段式自然语言摘要（L5/L6 侧 → 映射声明 → RTL 侧）+ 结构化表格
-- Agent 查询面板：中文建议问题 + 确定性本地查询（9 类问题，中英双语关键词）
-- Read-only tool plan preview（展示未来 Agent 模式需要读取什么）
-- No-op runtime trace viewer（observe→plan→propose→result→answer→graph-write 时间线）
+- FPGA DevMind Desktop Product Shell（AgentScope-style 左侧导航 + 主工作区）
+- 左侧导航：项目理解 / Agent / 开发者 / 设置 四大模块
+- 概览首页：项目卡、概念卡、指标卡、理解摘要、建议问题、下一步入口
+- 概念追踪：三段式自然语言摘要 + 结构化子表
+- 证据页：按 L5/L6 / RTL / Bridge 分组展示
+- 不确定项：limitations、uncertainty notes、grounding diagnostics、为什么不是 confirmed
+- Agent 问答：建议问题、回答、引用证据、限制、计划预览
+- Agent Runtime：条件显示（P1b 下显示引导说明）
+- 开发者区：Raw Data / Markdown / Diagnostics
+- 确定性本地查询（9 类问题，中英双语关键词）
 - 一键 sample 生成（`desktop-sample-run` CLI 子命令）
 
 **还不是：**
@@ -119,36 +129,53 @@ PYTHONPATH=src python3 -m fpga_devmind.desktop_app
 
 然后在 GUI 顶部的输入框输入路径或点击 Browse...。
 
-## 4. 每个 Tab 应看到什么
+## 4. 每个页面应看到什么
 
-### Overview（首屏）
+### 概览（首屏）
 
-- 显示概念名 `peak_idx`、bundle 类型 `p1b`、项目路径
-- "当前理解" 自然语言段落：节点数、映射声明数、证据数
-- 证据概览表格：L5/L6 证据和 RTL 证据的强/中/弱/未知分布
-- 映射可信度：supported/inferred/unknown 计数
-- 不确定与限制：列表（如有）
-- 状态："正常，无阻断性诊断"
+- 大标题：FPGA DevMind
+- 副标题：FPGA Understanding Agent Shell
+- 项目卡：项目路径、bundle 类型、完整性
+- 概念卡：concept name `peak_idx`
+- 指标卡：Mapping Claims / Evidence Items / RTL Objects / Unknowns
+- "当前理解" 自然语言段落
+- 建议问题列表（可点击）
+- 下一步按钮：查看概念追踪、询问 Agent、查看证据
 
-### Concept Understanding
+### 概念追踪
 
 - 顶部：三段式自然语言摘要（L5/L6 代码侧 → 映射声明 → RTL 侧）
-- 下方 5 个子表（与之前 Concept Trace 相同）：
+- 下方 5 个子表：
   - **Nodes**: 至少包含 `N_CONCEPT_peak_idx` 节点
   - **Edges**: 可能为空或包含 bridge edge
   - **Claims**: 包含 mapping claims
   - **Evidence**: 包含 concept/RTL evidence
   - **Diagnostics**: grounding diagnostics
 
-### Agent
+### 证据
 
-- 顶部显示建议问题列表（中文）
-- 在输入框输入 `summary` 或 `概况`，点击 Ask
-- **Answer** 区域应显示 concept summary
-- **Plan Preview** 区域应显示只读工具计划预览（intent, steps, safety notes）
+- 按来源分组展示：L5/L6 证据、RTL 证据、桥接/映射证据
+- 每组一个表格，显示：Evidence ID、Source、File、Symbol、Strength、Claim Refs
 
-测试其他问题：
+### 不确定项
+
+- Unknown Limitations 列表
+- Uncertainty Notes 列表
+- Grounding Diagnostics 表格
+- "为什么不是 Confirmed" 说明
+
+### Agent 问答
+
+- 建议问题（ pill 按钮）
+- 输入框 + Ask 按钮
+- 回答区
+- 引用的证据
+- 限制与不确定
+- 计划预览
+
+测试问题：
 ```
+概况
 映射
 证据
 诊断
@@ -159,21 +186,16 @@ MC_peak_idx_001
 E:p1b_concept:path:1:10:1
 ```
 
-每种问题都应返回非空 answer 和 plan preview。
+### Agent Runtime
 
-### Markdown
+- P1b bundle 下显示说明：当前是 concept trace artifact，如需查看 runtime 请运行 desktop-sample-run
+- agent_runtime bundle 下显示：Summary form、Steps table、Diagnostics table
 
-- 显示 `concept_trace.md` 的内容
+### 开发者区
 
-### Diagnostics
-
-- 如果 bundle 完整，显示 "✓ 无诊断信息 — bundle 完整。"
-- 如果 bundle 不完整，显示 missing/error 诊断
-
-### Developer（原 JSON Tree）
-
-- 下拉框应列出 JSON artifact（concept_trace_graph.json, concept_trace_index.json 等）
-- 选择后显示树形结构
+- **Raw Data**: JSON artifact 树形浏览
+- **Markdown**: concept_trace.md 预览
+- **Diagnostics**: bundle 加载诊断
 
 ## 5. Agent No-op Dry Run（CLI）
 
