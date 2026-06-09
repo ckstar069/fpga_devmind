@@ -330,6 +330,9 @@ P1b 不做：
 
 PySide6 桌面 Agent Shell 用于浏览 P1a/P1b artifact bundle。
 
+- **V0.1 Readiness Review** (T009–T010): `docs/reviews/0007-p1b-desktop-v0.1-readiness-review.md`
+- **V0.2 Readiness Review** (T011–T012a): `docs/reviews/0008-desktop-agent-shell-v0.2-readiness-review.md` — Desktop Agent Shell 已从 artifact viewer 进化到本地确定性 Agent shell 原型。结论: READY WITH LIMITATIONS。推荐下一步: T015 Agent Runtime Contract。
+
 ### 依赖
 
 ```bash

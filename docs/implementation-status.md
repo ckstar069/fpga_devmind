@@ -2,18 +2,20 @@
 
 ## Current State
 
-**P1b + Desktop Shell V0.1 is READY.** Review 0007 passed on 2026-06-08 with 251/251 tests and zero failures.
+**P1b + Desktop Shell V0.2 is READY WITH LIMITATIONS.** Review 0008 passed on 2026-06-09 with 293/293 tests and zero failures.
 
-V0.1 means:
+V0.2 means:
 
 ```text
 - P1a: Read-only L6_resource_opt understanding with grounded ProjectGraph and query shell.
 - P1b: One-concept L5/L6-to-RTL deterministic trace with 6 schema-validated artifacts.
-- Desktop Shell: Minimum viable PySide6 Agent Shell that reads P1a/P1b bundles and
-  displays structured trace tables (Nodes, Edges, Claims, Evidence, Diagnostics).
+- Desktop Shell V0.1 (T009–T010): PySide6 artifact viewer with structured trace tables.
+- Desktop Shell V0.2 (T011–T012a): Local deterministic Agent query panel + read-only tool
+  plan preview. 9 question types, bilingual keyword matching, referenced ID grounding,
+  fixed safety notes. No LLM, no execution, no mutation.
 - All artifacts are read-only. No target project mutation, no Vivado, no external API,
   no PASS/HOLD, no LLM in pipeline.
-- It is not yet a full FPGA Agent, multi-turn ReAct reasoner, audit tool, or RTL mapper.
+- It is a deterministic Agent shell prototype, not yet a real LLM/ReAct Agent.
 ```
 
 Implemented:
@@ -83,8 +85,9 @@ Not implemented yet:
 - Full interface / pipeline / state event extraction.
 - Full symbolic resource total evaluation.
 - P1c verification coverage.
-- Desktop GUI / Agent Shell prototype（桌面端软件，非 Web）。T009 + T010 已完成最小可运行桌面软件原型与结构化 trace 表格视图。详见 `docs/reviews/0007-p1b-desktop-v0.1-readiness-review.md`。
+- Desktop GUI / Agent Shell prototype（桌面端软件，非 Web）。T009–T012a 已完成从 artifact viewer 到本地确定性 Agent shell 原型的演进。详见 `docs/reviews/0007-p1b-desktop-v0.1-readiness-review.md`（V0.1）和 `docs/reviews/0008-desktop-agent-shell-v0.2-readiness-review.md`（V0.2）。
 - Interactive memory.
+- Agent Runtime Contract（T015 提案）：ReAct-like loop 的结构化 artifact 定义。详见 `docs/reviews/0008-desktop-agent-shell-v0.2-readiness-review.md` 第 6 节。
 
 ### P1b Current Limitations
 
