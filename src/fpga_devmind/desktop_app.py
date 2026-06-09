@@ -10,7 +10,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 
@@ -63,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Attempt PySide6 import with graceful fallback.
     try:
-        from PySide6 import QtWidgets  # type: ignore[import-untyped]
+        from PySide6 import QtWidgets  # pyright: ignore[reportMissingImports, reportUnusedImport, reportUnknownVariableType]
     except ImportError:
         print("=" * 60)
         print("  fpga_devmind Desktop Agent Shell (T009)")

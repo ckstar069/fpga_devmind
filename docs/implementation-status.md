@@ -73,7 +73,7 @@ Implemented:
   - T015a: Strengthened cross-reference validation — ToolPlan.steps task_id check, ToolResult.proposal_id existence check, Answer limitations auto-ensure `no_llm_semantic_reasoning`. 68 dedicated tests. 361 tests total pass.
 - Local No-op ReAct Dry Run (T016): Deterministic single-turn Agent runtime that chains T011 (query) + T012 (plan preview) + T015 (runtime contract) into one observe→plan→propose→simulated-result→answer→blocked-graph-write trace. No LLM, no API, no execution. CLI entry point: `agent-noop-run`. Outputs `agent_runtime_trace.json` + `answer.md`. 19 dedicated tests. 380 tests total pass.
   - T016a: Propagate runtime validation diagnostics — `validate_runtime_trace()` errors now propagated into `trace.runtime_diagnostics` and cause `status="blocked"`. 20 dedicated tests. 381 total.
-	- Desktop Shell Usability Hardening (T014): PySide6 optional dependency in `pyproject.toml` (`.[desktop]`), sample artifact discovery helper (`find_recent_artifact_bundles()`), `--recent` CLI flag, GUI load-state clarity improvements (Diagnostics/Concept Trace/Plan Preview empty states), manual GUI smoke test docs. 387 tests total pass.
+- Desktop Shell Usability Hardening (T014): PySide6 optional dependency in `pyproject.toml` (`.[desktop]`), sample artifact discovery helper (`find_recent_artifact_bundles()`), `--recent` CLI flag, GUI load-state clarity improvements (Diagnostics/Concept Trace/Plan Preview empty states), manual GUI smoke test docs. 387 tests total pass.
 
 Not implemented yet:
 
