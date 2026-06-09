@@ -44,6 +44,14 @@ P1A_OPTIONAL_ARTIFACTS: tuple[str, ...] = (
     "run_metadata.json",
 )
 
+AGENT_RUNTIME_REQUIRED_ARTIFACTS: tuple[str, ...] = (
+    "agent_runtime_trace.json",
+)
+
+AGENT_RUNTIME_OPTIONAL_ARTIFACTS: tuple[str, ...] = (
+    "answer.md",
+)
+
 
 # ---------------------------------------------------------------------------
 # Diagnostic types
@@ -66,14 +74,18 @@ class ArtifactDiagnostic:
 
 
 def detect_bundle_type(path: Path) -> str:
-    """Detect whether *path* is a P1b, P1a, or unknown artifact bundle.
+    """Detect whether *path* is a P1b, P1a, agent_runtime, or unknown bundle.
 
-    Returns one of ``"p1b"``, ``"p1a"``, ``"unknown"``.
+    Returns one of ``"agent_runtime"``, ``"p1b"``, ``"p1a"``, ``"unknown"``.
     """
     if not path.is_dir():
         return "unknown"
 
     files = {p.name for p in path.iterdir() if p.is_file()}
+
+    # Agent runtime detection: agent_runtime_trace.json is unique.
+    if "agent_runtime_trace.json" in files:
+        return "agent_runtime"
 
     # P1b detection: concept_trace_graph.json is the source of truth.
     if "concept_trace_graph.json" in files:
@@ -159,6 +171,32 @@ def validate_bundle(
                     )
                 )
 
+    elif bundle_type == "agent_runtime":
+        for name in AGENT_RUNTIME_REQUIRED_ARTIFACTS:
+            if name not in files:
+                diagnostics.append(
+                    ArtifactDiagnostic(
+                        severity="error",
+                        artifact=name,
+                        message=(
+                            "Required agent_runtime artifact missing: {}"
+                        ).format(name),
+                        code="MISSING_REQUIRED",
+                    )
+                )
+        for name in AGENT_RUNTIME_OPTIONAL_ARTIFACTS:
+            if name not in files:
+                diagnostics.append(
+                    ArtifactDiagnostic(
+                        severity="info",
+                        artifact=name,
+                        message=(
+                            "Optional agent_runtime artifact missing: {}"
+                        ).format(name),
+                        code="MISSING_OPTIONAL",
+                    )
+                )
+
     elif bundle_type == "p1a":
         required = P1A_REQUIRED_ARTIFACTS
         for name in required:
@@ -209,7 +247,7 @@ class LoadedArtifact:
 class ArtifactBundle:
     """A loaded artifact bundle with metadata and diagnostics."""
 
-    bundle_type: str  # "p1b" | "p1a"
+    bundle_type: str  # "p1b" | "p1a" | "agent_runtime" | "unknown"
     directory: Path
     artifacts: dict[str, LoadedArtifact] = field(default_factory=dict)
     diagnostics: list[ArtifactDiagnostic] = field(default_factory=list)
@@ -267,6 +305,9 @@ def load_bundle(path: Path) -> ArtifactBundle:
     # Determine which files to load.
     if bundle_type == "p1b":
         files_to_load = list(P1B_REQUIRED_ARTIFACTS)
+    elif bundle_type == "agent_runtime":
+        files_to_load = list(AGENT_RUNTIME_REQUIRED_ARTIFACTS)
+        files_to_load.extend(AGENT_RUNTIME_OPTIONAL_ARTIFACTS)
     else:
         files_to_load = list(P1A_REQUIRED_ARTIFACTS)
         files_to_load.extend(P1A_OPTIONAL_ARTIFACTS)
@@ -360,6 +401,18 @@ def load_bundle(path: Path) -> ArtifactBundle:
 def get_run_metadata(bundle: ArtifactBundle) -> dict[str, Any] | None:
     """Return run_metadata dict from a loaded bundle, or None."""
     artifact = bundle.artifacts.get("run_metadata.json")
+    if artifact is None:
+        return None
+    if isinstance(artifact.data, dict):
+        return artifact.data
+    return None
+
+
+def get_agent_runtime_trace(bundle: ArtifactBundle) -> dict[str, Any] | None:
+    """Return agent_runtime_trace.json dict from a bundle, or None."""
+    if bundle.bundle_type != "agent_runtime":
+        return None
+    artifact = bundle.artifacts.get("agent_runtime_trace.json")
     if artifact is None:
         return None
     if isinstance(artifact.data, dict):

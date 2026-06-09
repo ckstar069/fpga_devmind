@@ -25,6 +25,10 @@ from fpga_devmind.desktop.trace_view_models import (
     ConceptTraceViewModel,
     build_concept_trace_view_model,
 )
+from fpga_devmind.desktop.agent_trace_view_models import (
+    AgentRuntimeTraceViewModel,
+    build_agent_runtime_trace_view_model,
+)
 from fpga_devmind.desktop.view_models import (
     BundleSummaryViewModel,
     JsonTreeNode,
@@ -235,6 +239,43 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._tabs.addTab(self._agent_widget, "Agent")
 
+        # Agent Runtime tab (T017)
+        self._art_widget = QtWidgets.QWidget()
+        self._art_layout = QtWidgets.QVBoxLayout(self._art_widget)
+
+        # Summary form
+        self._art_summary_widget = QtWidgets.QWidget()
+        self._art_summary_layout = QtWidgets.QFormLayout(
+            self._art_summary_widget
+        )
+        self._art_layout.addWidget(self._art_summary_widget)
+
+        # Steps table
+        self._art_steps_table = QtWidgets.QTableWidget()
+        self._art_steps_table.setColumnCount(6)
+        self._art_steps_table.setHorizontalHeaderLabels(
+            ["Section", "ID", "Title", "Status", "Summary", "References"]
+        )
+        self._art_steps_table.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectRows
+        )
+        self._art_layout.addWidget(self._art_steps_table)
+
+        # Diagnostics table
+        self._art_diag_label = QtWidgets.QLabel("Runtime Diagnostics")
+        self._art_layout.addWidget(self._art_diag_label)
+        self._art_diag_table = QtWidgets.QTableWidget()
+        self._art_diag_table.setColumnCount(2)
+        self._art_diag_table.setHorizontalHeaderLabels(
+            ["Severity", "Message"]
+        )
+        self._art_diag_table.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectRows
+        )
+        self._art_layout.addWidget(self._art_diag_table)
+
+        self._tabs.addTab(self._art_widget, "Agent Runtime")
+
         self._bundle = None
         if artifact_dir is not None:
             self._on_load()
@@ -262,6 +303,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_markdown()
         self._update_diagnostics()
         self._update_concept_trace()
+        self._update_agent_runtime()
 
         summary = build_bundle_summary(self._bundle)
         status_text = (
@@ -625,6 +667,88 @@ class MainWindow(QtWidgets.QMainWindow):
             )
 
         return "\n".join(lines)
+
+    # --- Agent Runtime Trace (T017) ---
+
+    def _update_agent_runtime(self) -> None:
+        """Refresh the Agent Runtime Trace tab."""
+        self._clear_art_tables()
+
+        if self._bundle is None:
+            self._art_summary_layout.addRow(
+                "Status", QtWidgets.QLabel("No bundle loaded.")
+            )
+            return
+
+        if self._bundle.bundle_type != "agent_runtime":
+            self._art_summary_layout.addRow(
+                "Status",
+                QtWidgets.QLabel(
+                    "Load an agent runtime bundle containing "
+                    "agent_runtime_trace.json."
+                ),
+            )
+            return
+
+        vm = build_agent_runtime_trace_view_model(self._bundle)
+        if not vm.is_loaded:
+            self._art_summary_layout.addRow(
+                "Error",
+                QtWidgets.QLabel(vm.load_error or "Unknown error"),
+            )
+            return
+
+        # Summary form
+        for row in vm.summary_rows:
+            self._art_summary_layout.addRow(
+                row.field, QtWidgets.QLabel(row.value)
+            )
+
+        # Steps table
+        self._art_steps_table.setRowCount(len(vm.step_rows))
+        for i, row in enumerate(vm.step_rows):
+            self._art_steps_table.setItem(
+                i, 0, QtWidgets.QTableWidgetItem(row.section)
+            )
+            self._art_steps_table.setItem(
+                i, 1, QtWidgets.QTableWidgetItem(row.item_id)
+            )
+            self._art_steps_table.setItem(
+                i, 2, QtWidgets.QTableWidgetItem(row.title)
+            )
+            self._art_steps_table.setItem(
+                i, 3, QtWidgets.QTableWidgetItem(row.status)
+            )
+            self._art_steps_table.setItem(
+                i, 4, QtWidgets.QTableWidgetItem(row.summary)
+            )
+            self._art_steps_table.setItem(
+                i, 5, QtWidgets.QTableWidgetItem(row.references)
+            )
+
+        # Diagnostics table
+        self._art_diag_table.setRowCount(len(vm.diagnostic_rows))
+        for i, row in enumerate(vm.diagnostic_rows):
+            self._art_diag_table.setItem(
+                i, 0, QtWidgets.QTableWidgetItem(row.severity)
+            )
+            self._art_diag_table.setItem(
+                i, 1, QtWidgets.QTableWidgetItem(row.message)
+            )
+
+        # Hide diagnostics label/table when empty.
+        has_diags = len(vm.diagnostic_rows) > 0
+        self._art_diag_label.setVisible(has_diags)
+        self._art_diag_table.setVisible(has_diags)
+
+    def _clear_art_tables(self) -> None:
+        """Clear all Agent Runtime tab widgets."""
+        while self._art_summary_layout.rowCount() > 0:
+            self._art_summary_layout.removeRow(0)
+        self._art_steps_table.setRowCount(0)
+        self._art_diag_table.setRowCount(0)
+        self._art_diag_label.setVisible(True)
+        self._art_diag_table.setVisible(True)
 
 
 # ---------------------------------------------------------------------------

@@ -116,9 +116,34 @@ PYTHONPATH=src python3 -m fpga_devmind.cli agent-noop-run \
 - `/tmp/fpga_devmind/noop_run/answer.md`
 - Console 显示 status, task_id, confidence
 
-注意：当前 GUI 不能显示 `agent_runtime_trace.json` 的结构化视图（留给 T017 Desktop Agent Trace Viewer）。可以在 JSON Tree tab 中浏览原始 JSON。
+## 6. Agent Runtime Trace Tab（T017）
 
-## 6. 安全边界确认
+加载 agent runtime bundle 后查看结构化 trace：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.desktop_app \
+  --artifact-dir /tmp/fpga_devmind/noop_run
+```
+
+或使用 `--recent` 自动选择：
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.desktop_app --recent
+```
+
+### Agent Runtime Tab 应看到什么
+
+- **Summary form**: Schema Version, Task ID, Question, Bundle Type, Concept, Constraints, 各 section counts
+- **Steps table**: 按 section 排列的 trace 时间线（task → observation → reasoning → plan → proposal → result → answer → graph_write）
+  - 每行显示 Section, ID, Title, Status, Summary, References
+  - Graph Write Proposal 的 Status 应显示 "blocked" 或 "allowed"，绝无 PASS/HOLD
+- **Diagnostics table**: runtime_diagnostics 中的条目（Severity, Message）
+
+空状态验证：
+- 加载 P1b bundle → Summary 显示 "Load an agent runtime bundle containing agent_runtime_trace.json."
+- 未加载任何 bundle → "No bundle loaded."
+
+## 7. 安全边界确认
 
 - GUI 只读浏览 artifact，不写入 artifact 目录
 - 不读取 fpga_project_* 源码
@@ -127,7 +152,7 @@ PYTHONPATH=src python3 -m fpga_devmind.cli agent-noop-run \
 - 不调用外部 LLM
 - Plan Preview 不提供执行按钮
 
-## 7. --recent 无 bundle 时的行为
+## 8. --recent 无 bundle 时的行为
 
 ```bash
 # 确保 /tmp/fpga_devmind 下无 bundle

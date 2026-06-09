@@ -103,6 +103,20 @@ class TestFindRecentArtifactBundles(unittest.TestCase):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0].bundle_type, "p1a")
 
+    def test_find_recent_discovers_agent_runtime_bundle(self) -> None:
+        """An agent_runtime bundle is discovered via detect_bundle_type."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_test_") as base:
+            base_path = Path(base)
+            bundle_dir = base_path / "noop_run"
+            bundle_dir.mkdir()
+            (bundle_dir / "agent_runtime_trace.json").write_text(
+                json.dumps({"schema_version": "agent-runtime-contract-0.1"}),
+                encoding="utf-8",
+            )
+            results = find_recent_artifact_bundles(base_dirs=[base_path])
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].bundle_type, "agent_runtime")
+
 
 if __name__ == "__main__":
     unittest.main()

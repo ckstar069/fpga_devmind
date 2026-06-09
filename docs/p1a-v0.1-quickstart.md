@@ -371,6 +371,7 @@ PYTHONPATH=src python3 -m fpga_devmind.desktop_app
 | **Diagnostics** | bundle 加载时的 missing/load_error 诊断 |
 | **Concept Trace** | P1b 结构化表格：Nodes / Edges / Claims / Evidence / Diagnostics |
 | **Agent** | T011 本地确定性查询 + T012 只读工具计划预览 |
+| **Agent Runtime** | T017 Agent Runtime Trace 结构化浏览（Summary + Steps + Diagnostics） |
 
 ### Concept Trace 子表
 
@@ -428,6 +429,7 @@ P1b + Desktop Shell V0.1 不做：
 - ✅ T015a: Strengthen cross-reference validation — ToolPlan.steps task_id check, ToolResult.proposal_id existence, Answer limitations auto-ensure。68 tests。361 total。
 - ✅ T016: Local No-op ReAct Dry Run — 确定性单轮 Agent runtime，串联 T011/T012/T015 输出 contract-backed trace。19 tests。380 total。
 - ✅ T014: Desktop Shell Usability Hardening — PySide6 可选依赖、sample artifact 发现、`--recent` 标志、GUI 空状态改善、手工 smoke 文档。6 tests。387 total。
+- ✅ T017: Desktop Agent Runtime Trace Viewer — GUI 读取并展示 `agent_runtime_trace.json` 的结构化 trace。Summary form + Steps 时间线 + Diagnostics 表格。14 tests。401 total。
 
 ### Agent No-op Dry Run
 
@@ -450,11 +452,11 @@ PYTHONPATH=src python3 -m fpga_devmind.cli agent-noop-run \
 
 不调用 LLM，不调用外部 API，不执行工具，不修改目标项目，所有 graph write 都 blocked by default。
 
-### 推荐下一步: T017 Desktop Agent Trace Viewer
+### 推荐下一步: Real LLM Provider Integration
 
 ### 后续阶段
 
-- **T017** (未来): Desktop Agent Trace Viewer — 在 GUI 中渲染 `agent_runtime_trace.json`。
-- **真实 LLM provider integration** 是更后续阶段，不是当前下一步。
+- **T017** ✅: Desktop Agent Runtime Trace Viewer — 在 GUI 中渲染 `agent_runtime_trace.json`。已完成。
+- **真实 LLM provider integration** 是推荐下一步。
 - P1b+: 批量多概念 trace、partial SystemVerilog parser、跨概念 structural edge。
 - P1c: Verification coverage trace。
