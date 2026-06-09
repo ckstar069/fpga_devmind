@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from fpga_devmind.desktop.agent_panel_models import AgentPanelResponse
 from fpga_devmind.desktop.agent_query_utils import (
     deduplicate_diagnostics,
     extract_claim_id,
@@ -83,11 +84,11 @@ def build_agent_plan_preview(
             load_error="; ".join(errors) if errors else "Incomplete bundle",
         )
 
-    if bundle.bundle_type not in ("p1b", "p1a"):
+    if bundle.bundle_type not in ("p1b", "p1a", "project"):
         return AgentPlanPreview(
             question=question,
             is_loaded=False,
-            load_error="Agent plan available for P1a/P1b bundles only",
+            load_error="Agent plan available for P1a/P1b/project bundles only",
         )
 
     graph = get_graph(bundle)
@@ -96,6 +97,10 @@ def build_agent_plan_preview(
     _meta = get_run_metadata(bundle) or {}  # noqa: F841
 
     normalized = question.strip().lower()
+
+    # Project bundle early exit for project-specific questions.
+    if bundle.bundle_type == "project":
+        return _plan_project_question(question, normalized, _meta, response)
 
     # Specific ID lookups first (use original question to preserve case).
     claim_match = extract_claim_id(question)
@@ -152,6 +157,106 @@ def build_agent_plan_preview(
         steps=[],
         safety_notes=_default_safety_notes(),
         unsupported_reason="question_type_not_recognized",
+        is_loaded=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Project plan helper
+# ---------------------------------------------------------------------------
+
+
+def _plan_project_question(
+    question: str,
+    normalized: str,
+    meta: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+    response: AgentPanelResponse | None,
+) -> AgentPlanPreview:
+    """Build a plan preview for project-level questions."""
+    project = meta.get("project_root", "")
+    concepts = meta.get("concepts_processed", [])
+
+    # Order matters: more specific before broad.
+    if has_any(normalized, ["summary", "概况", "整体情况", "做了什么", "overview", "about"]):
+        intent = "summary"
+        steps = [
+            _base_step(
+                "P1",
+                "读取 project_understanding_graph.json",
+                "获取项目级概念图和聚合统计",
+                read_artifacts=["project_understanding_graph.json", "run_metadata.json"],
+            ),
+            _base_step(
+                "P2",
+                "汇总项目级概念列表",
+                "列出所有识别出的概念及其可信度",
+            ),
+        ]
+    elif has_any(normalized, ["不确定", "unknown", "哪些概念还不确定"]):
+        intent = "unknown"
+        steps = [
+            _base_step(
+                "P1",
+                "读取 project_understanding_graph.json",
+                "提取 confidence=unknown 的 concept 节点",
+                read_artifacts=["project_understanding_graph.json"],
+            ),
+        ]
+    elif has_any(normalized, ["rtl 映射", "映射", "mapped", "哪些概念有"]):
+        intent = "mapped"
+        steps = [
+            _base_step(
+                "P1",
+                "读取 project_understanding_graph.json",
+                "查找有 has_claim 边的 concept 节点",
+                read_artifacts=["project_understanding_graph.json"],
+            ),
+        ]
+    elif has_any(normalized, ["shared", "多个概念", "承载了多个概念", "共享"]):
+        intent = "shared"
+        steps = [
+            _base_step(
+                "P1",
+                "读取 project_understanding_graph.json",
+                "查找 shares_file / shares_rtl_object 边",
+                read_artifacts=["project_understanding_graph.json"],
+            ),
+        ]
+    elif has_any(normalized, ["概念", "concepts", "有哪些概念"]):
+        intent = "concepts"
+        steps = [
+            _base_step(
+                "P1",
+                "读取 project_understanding_graph.json",
+                "提取所有 concept 节点",
+                read_artifacts=["project_understanding_graph.json"],
+            ),
+        ]
+    elif has_any(normalized, ["graph", "图", "画出"]):
+        intent = "graph"
+        steps = [
+            _base_step(
+                "P1",
+                "读取 project_understanding_graph.json",
+                "统计节点和边类型分布",
+                read_artifacts=["project_understanding_graph.json"],
+            ),
+        ]
+    else:
+        return AgentPlanPreview(
+            question=question,
+            intent="unsupported",
+            steps=[],
+            safety_notes=_default_safety_notes(),
+            unsupported_reason="project_question_not_recognized",
+            is_loaded=True,
+        )
+
+    return AgentPlanPreview(
+        question=question,
+        intent=intent,
+        steps=steps,
+        safety_notes=_default_safety_notes(),
         is_loaded=True,
     )
 

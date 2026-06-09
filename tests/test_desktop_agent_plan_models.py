@@ -437,6 +437,125 @@ class TestAgentPlanModels(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
     # ------------------------------------------------------------------
+    # Project bundle plan preview
+    # ------------------------------------------------------------------
+
+    def _make_project_bundle(self) -> Path:
+        """Create a project bundle."""
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_proj_"))
+        graph = {
+            "schema_version": "project-understanding-0.1",
+            "project_id": "test_project",
+            "nodes": [
+                {"node_id": "PUG_PROJECT", "label": "test_project", "kind": "project"},
+                {
+                    "node_id": "PUG_CONCEPT_peak_idx",
+                    "label": "peak_idx",
+                    "kind": "concept",
+                    "confidence": "supported",
+                },
+            ],
+            "edges": [],
+            "grounding_diagnostics": [],
+            "uncertainty_notes": [],
+        }
+        metadata = {
+            "schema_version": "p1b-project-run-metadata-0.1",
+            "command": "p1b-trace-project",
+            "project_root": "/tmp/test_project",
+            "concepts_processed": ["peak_idx"],
+            "status": "ok",
+        }
+        (tmp / "project_understanding_graph.json").write_text(
+            json.dumps(graph), encoding="utf-8"
+        )
+        (tmp / "project_understanding_index.json").write_text(
+            json.dumps({"concept_index": {}}), encoding="utf-8"
+        )
+        (tmp / "run_metadata.json").write_text(
+            json.dumps(metadata), encoding="utf-8"
+        )
+        (tmp / "project_understanding.md").write_text("# Project\n", encoding="utf-8")
+        (tmp / "project_understanding.mmd").write_text("graph TD\n", encoding="utf-8")
+        return tmp
+
+    def test_project_summary_plan(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            plan = build_agent_plan_preview(bundle, "summary")
+            self.assertTrue(plan.is_loaded)
+            self.assertEqual(plan.intent, "summary")
+            self.assertTrue(plan.steps)
+            self.assertIn("project_understanding_graph.json", plan.steps[0].read_artifacts)
+            self.assertTrue(plan.safety_notes)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_concepts_plan(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            plan = build_agent_plan_preview(bundle, "有哪些概念")
+            self.assertTrue(plan.is_loaded)
+            self.assertEqual(plan.intent, "concepts")
+            self.assertTrue(plan.steps)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_mapped_plan(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            plan = build_agent_plan_preview(bundle, "哪些概念有 RTL 映射")
+            self.assertTrue(plan.is_loaded)
+            self.assertEqual(plan.intent, "mapped")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_unknown_plan(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            plan = build_agent_plan_preview(bundle, "哪些概念还不确定")
+            self.assertTrue(plan.is_loaded)
+            self.assertEqual(plan.intent, "unknown")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_shared_plan(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            plan = build_agent_plan_preview(bundle, "哪些文件被多个概念共享")
+            self.assertTrue(plan.is_loaded)
+            self.assertEqual(plan.intent, "shared")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_graph_plan(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            plan = build_agent_plan_preview(bundle, "图画出")
+            self.assertTrue(plan.is_loaded)
+            self.assertEqual(plan.intent, "graph")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_unsupported_plan(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            plan = build_agent_plan_preview(bundle, "nonsense question here")
+            self.assertTrue(plan.is_loaded)
+            self.assertEqual(plan.intent, "unsupported")
+            self.assertEqual(len(plan.steps), 0)
+            self.assertIsNotNone(plan.unsupported_reason)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # ------------------------------------------------------------------
     # Step properties
     # ------------------------------------------------------------------
 

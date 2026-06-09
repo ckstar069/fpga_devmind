@@ -13,6 +13,7 @@ from fpga_devmind.desktop.artifact_loader import (
     ArtifactBundle,
     get_agent_runtime_trace,
     get_graph,
+    get_project_graph,
     get_run_metadata,
 )
 from fpga_devmind.desktop.trace_view_models import (
@@ -129,12 +130,15 @@ def build_plan_tools_page_state(plan_preview_text: str) -> PlanToolsPageState:
 def build_evidence_page_view_model(
     bundle: ArtifactBundle,
 ) -> EvidencePageViewModel:
-    """Build evidence page data grouped by source type."""
+    """Build evidence page data grouped by source type or concept."""
     if not bundle.is_complete:
         return EvidencePageViewModel(
             is_loaded=False,
             load_error="Bundle incomplete. Load a valid artifact bundle.",
         )
+
+    if bundle.bundle_type == "project":
+        return _build_project_evidence_page_view_model(bundle)
 
     if bundle.bundle_type != "p1b":
         return EvidencePageViewModel(
@@ -197,6 +201,67 @@ def build_evidence_page_view_model(
     return EvidencePageViewModel(is_loaded=True, groups=groups)
 
 
+def _build_project_evidence_page_view_model(
+    bundle: ArtifactBundle,
+) -> EvidencePageViewModel:
+    """Build evidence page for project bundles grouped by concept."""
+    graph = get_project_graph(bundle)
+    if graph is None:
+        return EvidencePageViewModel(
+            is_loaded=False,
+            load_error="无法加载项目图数据。",
+        )
+
+    # Collect evidence items from all concept nodes.
+    # For project graphs, we don't have per-concept evidence items directly.
+    # We use the node_index to find which evidence belongs to which concept.
+    groups: list[EvidenceGroup] = []
+    concept_nodes = [
+        n for n in graph.get("nodes", []) if n.get("kind") == "concept"
+    ]
+
+    for concept_node in concept_nodes:
+        concept_name = concept_node.get("label", "")
+        # Find claim nodes for this concept.
+        claim_nodes = [
+            n for n in graph.get("nodes", [])
+            if n.get("kind") == "mapping_claim"
+            and n.get("concept") == concept_name
+        ]
+        if claim_nodes:
+            rows: list[EvidenceRow] = []
+            for claim in claim_nodes:
+                rows.append(
+                    EvidenceRow(
+                        evidence_id=claim.get("node_id", ""),
+                        source_type="mapping_claim",
+                        file_path="",
+                        symbol=claim.get("label", ""),
+                        evidence_strength=claim.get("confidence", ""),
+                        referenced_by_claims="",
+                    )
+                )
+            groups.append(
+                EvidenceGroup(
+                    title="概念: {}".format(concept_name),
+                    rows=rows,
+                )
+            )
+
+    if not groups:
+        return EvidencePageViewModel(
+            is_loaded=True,
+            groups=[
+                EvidenceGroup(
+                    title="项目证据",
+                    rows=[],
+                )
+            ],
+        )
+
+    return EvidencePageViewModel(is_loaded=True, groups=groups)
+
+
 def build_unknowns_page_view_model(
     bundle: ArtifactBundle,
 ) -> UnknownsPageViewModel:
@@ -207,18 +272,21 @@ def build_unknowns_page_view_model(
             load_error="Bundle incomplete. Load a valid artifact bundle.",
         )
 
-    if bundle.bundle_type != "p1b":
+    if bundle.bundle_type not in ("p1b", "project"):
         return UnknownsPageViewModel(
             is_loaded=False,
             load_error=(
-                "当前 bundle 类型为 '{}'。不确定项页面需要 P1b concept trace bundle。".format(
+                "当前 bundle 类型为 '{}'。不确定项页面需要 P1b / project trace bundle。".format(
                     bundle.bundle_type
                 )
             ),
         )
 
     # Get uncertainty from graph
-    graph = get_graph(bundle)
+    if bundle.bundle_type == "project":
+        graph = get_project_graph(bundle)
+    else:
+        graph = get_graph(bundle)
     limitations: list[str] = []
     uncertainty_notes: list[str] = []
     grounding_diags: list[dict[str, Any]] = []  # pyright: ignore[reportExplicitAny]
@@ -283,6 +351,36 @@ def build_overview_metrics(bundle: ArtifactBundle) -> OverviewMetrics:
                 if node.get("kind", "").startswith("rtl_"):
                     rtl_objects += 1
             unknowns = len(graph.get("uncertainty_notes", []))
+
+        return OverviewMetrics(
+            mapping_claims=claims_count,
+            evidence_items=evidence_count,
+            rtl_objects=rtl_objects,
+            unknowns=unknowns,
+            is_loaded=True,
+        )
+
+    if bundle.bundle_type == "project":
+        graph = get_project_graph(bundle)
+        meta = get_run_metadata(bundle) or {}
+
+        claims_count = 0
+        evidence_count = meta.get("evidence_items", 0)
+        rtl_objects = 0
+        unknowns = 0
+        concept_count = 0
+
+        if graph:
+            for node in graph.get("nodes", []):
+                kind = node.get("kind", "")
+                if kind == "mapping_claim":
+                    claims_count += 1
+                elif kind.startswith("rtl_"):
+                    rtl_objects += 1
+                elif kind == "concept":
+                    concept_count += 1
+                    if node.get("confidence") == "unknown":
+                        unknowns += 1
 
         return OverviewMetrics(
             mapping_claims=claims_count,

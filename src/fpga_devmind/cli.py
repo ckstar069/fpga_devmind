@@ -74,6 +74,18 @@ def build_parser() -> argparse.ArgumentParser:
     p1b.add_argument("--concept", required=True)
     p1b.add_argument("--out", type=Path, required=True)
 
+    p1b_project = sub.add_parser(
+        "p1b-trace-project",
+        help="Run project-level multi-concept trace (T024)",
+    )
+    p1b_project.add_argument("--project", type=Path, required=True)
+    p1b_project.add_argument(
+        "--concepts",
+        required=True,
+        help="Comma-separated concept names (e.g. peak_idx,cfo)",
+    )
+    p1b_project.add_argument("--out", type=Path, required=True)
+
     noop = sub.add_parser(
         "agent-noop-run",
         help="Run local no-op ReAct dry run over a P1a/P1b artifact bundle",
@@ -179,6 +191,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Blocking diagnostics: {metadata['blocking_diagnostics']}")
         print(f"Elapsed: {metadata['elapsed_seconds']}s")
         return 1 if metadata["status"] == "blocked" else 0
+    if args.command == "p1b-trace-project":
+        from .p1b_project_cli import run_p1b_trace_project as _run_project
+
+        concepts = [c.strip() for c in args.concepts.split(",") if c.strip()]
+        try:
+            metadata = _run_project(args.project, concepts, args.out)
+        except ValueError as exc:
+            parser.error(str(exc))
+            return 2
+        print(f"Wrote project trace artifacts to {metadata['output_dir']}")
+        print(f"Concepts: {', '.join(metadata['concepts_processed'])}")
+        print(f"Status: {metadata['status']}")
+        if metadata.get("concepts_failed"):
+            print(f"Failed: {', '.join(metadata['concepts_failed'])}")
+        print(f"Mapping claims: {metadata['mapping_claims']}")
+        print(f"Evidence items: {metadata['evidence_items']}")
+        print(f"Elapsed: {metadata['elapsed_seconds']}s")
+        return 1 if metadata["status"] == "partial" else 0
     if args.command == "agent-noop-run":
         from .agent_noop_runtime import run_noop_agent_once
 

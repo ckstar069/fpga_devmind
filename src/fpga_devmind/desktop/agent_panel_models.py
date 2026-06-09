@@ -20,6 +20,7 @@ from fpga_devmind.desktop.artifact_loader import (
     get_graph,
     get_grounding_report,
     get_index,
+    get_project_graph,
     get_run_metadata,
 )
 
@@ -71,11 +72,14 @@ def query_artifact_bundle(
             load_error="; ".join(errors) if errors else "Incomplete bundle",
         )
 
+    if bundle.bundle_type == "project":
+        return _query_project_bundle(bundle, question)
+
     if bundle.bundle_type not in ("p1b", "p1a"):
         return AgentPanelResponse(
             question=question,
             is_loaded=False,
-            load_error="Agent query available for P1a/P1b bundles only",
+            load_error="Agent query available for P1a/P1b/project bundles only",
         )
 
     graph = get_graph(bundle)
@@ -144,6 +148,235 @@ def query_artifact_bundle(
             "External LLM is not enabled in T011."
         ),
         unsupported_reason="question_type_not_recognized",
+        is_loaded=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Project bundle query handler
+# ---------------------------------------------------------------------------
+
+
+def _query_project_bundle(
+    bundle: ArtifactBundle,
+    question: str,
+) -> AgentPanelResponse:
+    """Answer a question about a project-level understanding bundle."""
+    graph = get_project_graph(bundle)
+    meta = get_run_metadata(bundle) or {}
+    normalized = question.strip().lower()
+
+    if graph is None:
+        return AgentPanelResponse(
+            question=question,
+            is_loaded=False,
+            load_error="Project understanding graph not found.",
+        )
+
+    # Project-level keyword routing.
+    # Order matters: more specific before broad.
+    if has_any(
+        normalized,
+        ["summary", "概况", "整体情况", "做了什么", "overview", "about"],
+    ):
+        return _answer_project_summary(normalized, graph, meta)
+
+    if has_any(normalized, ["不确定", "unknown", "哪些概念还不确定"]):
+        return _answer_project_unknown(normalized, graph)
+
+    if has_any(normalized, ["rtl 映射", "映射", "mapped", "哪些概念有"]):
+        return _answer_project_mapped(normalized, graph)
+
+    if has_any(normalized, ["shared", "多个概念", "承载了多个概念", "共享"]):
+        return _answer_project_shared(normalized, graph)
+
+    if has_any(normalized, ["有哪些概念", "概念", "concepts"]):
+        return _answer_project_concepts(normalized, graph)
+
+    if has_any(normalized, ["graph", "图", "画出"]):
+        return _answer_project_graph(normalized, graph)
+
+    # Fallback to generic unsupported.
+    return AgentPanelResponse(
+        question=question,
+        response_kind="unsupported",
+        answer_text=(
+            "Project-level questions supported:\n"
+            "• 这个项目整体实现了什么？\n"
+            "• 有哪些概念？\n"
+            "• 哪些概念有 RTL 映射？\n"
+            "• 哪些概念还不确定？\n"
+            "• 哪些 RTL 文件承载了多个概念？\n"
+            "• 画出项目理解图\n"
+        ),
+        unsupported_reason="project_question_not_recognized",
+        is_loaded=True,
+    )
+
+
+def _answer_project_summary(
+    question: str,
+    graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+    meta: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+) -> AgentPanelResponse:
+    """Answer '这个项目整体实现了什么？'"""
+    project = meta.get("project_root", "")
+    concepts = meta.get("concepts_processed", [])
+    failed = meta.get("concepts_failed", [])
+    total_claims = meta.get("mapping_claims", 0)
+    total_evidence = meta.get("evidence_items", 0)
+
+    lines = ["项目 '{}' 的整体理解如下：".format(project), ""]
+    lines.append("识别出 {} 个概念：{}".format(len(concepts), ", ".join(concepts)))
+    if failed:
+        lines.append("其中 {} 个概念 trace 失败：{}".format(len(failed), ", ".join(failed)))
+    lines.append("")
+    lines.append("聚合统计：{} 个 mapping claims，{} 条证据。".format(total_claims, total_evidence))
+
+    return AgentPanelResponse(
+        question=question,
+        response_kind="summary",
+        answer_text="\n".join(lines),
+        is_loaded=True,
+    )
+
+
+def _answer_project_concepts(
+    question: str,
+    graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+) -> AgentPanelResponse:
+    """Answer '有哪些概念？'"""
+    nodes = graph.get("nodes", [])
+    concept_nodes = [n for n in nodes if n.get("kind") == "concept"]
+
+    lines = ["项目中共识别出 {} 个概念：".format(len(concept_nodes)), ""]
+    for node in concept_nodes:
+        lines.append("• {} — 可信度：{}".format(node.get("label", ""), node.get("confidence", "unknown")))
+
+    return AgentPanelResponse(
+        question=question,
+        response_kind="concepts",
+        answer_text="\n".join(lines),
+        is_loaded=True,
+    )
+
+
+def _answer_project_mapped(
+    question: str,
+    graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+) -> AgentPanelResponse:
+    """Answer '哪些概念有 RTL 映射？'"""
+    nodes = graph.get("nodes", [])
+    concept_nodes = [n for n in nodes if n.get("kind") == "concept"]
+    edges = graph.get("edges", [])
+
+    # Find concepts that have has_claim edges.
+    concepts_with_claims: set[str] = set()
+    for edge in edges:
+        if edge.get("edge_type") == "has_claim":
+            from_id = edge.get("from_node_id", "")
+            for node in concept_nodes:
+                if node.get("node_id") == from_id:
+                    concepts_with_claims.add(node.get("label", ""))
+
+    lines = ["有 RTL 映射的概念（通过 mapping claims 连接）：", ""]
+    for concept in sorted(concepts_with_claims):
+        lines.append("• {}".format(concept))
+
+    return AgentPanelResponse(
+        question=question,
+        response_kind="mapped",
+        answer_text="\n".join(lines),
+        is_loaded=True,
+    )
+
+
+def _answer_project_unknown(
+    question: str,
+    graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+) -> AgentPanelResponse:
+    """Answer '哪些概念还不确定？'"""
+    nodes = graph.get("nodes", [])
+    unknown_concepts = [
+        n for n in nodes
+        if n.get("kind") == "concept" and n.get("confidence") == "unknown"
+    ]
+
+    lines = []
+    if unknown_concepts:
+        lines.append("以下概念当前处于 unknown 状态：")
+        for node in unknown_concepts:
+            lines.append("• {}".format(node.get("label", "")))
+    else:
+        lines.append("所有概念至少有一条 inferred 或 supported 的映射声明。")
+
+    return AgentPanelResponse(
+        question=question,
+        response_kind="unknown",
+        answer_text="\n".join(lines),
+        is_loaded=True,
+    )
+
+
+def _answer_project_shared(
+    question: str,
+    graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+) -> AgentPanelResponse:
+    """Answer '哪些 RTL 文件承载了多个概念？'"""
+    edges = graph.get("edges", [])
+    shared_edges = [e for e in edges if e.get("edge_type") in ("shares_file", "shares_rtl_object")]
+
+    lines = ["概念之间的共享关系（结构推断）：", ""]
+    if shared_edges:
+        for edge in shared_edges:
+            from_label = edge.get("from_node_id", "").replace("PUG_CONCEPT_", "")
+            to_label = edge.get("to_node_id", "").replace("PUG_CONCEPT_", "")
+            etype = edge.get("edge_type", "")
+            notes = edge.get("notes", "")
+            lines.append("• {} 和 {} 共享 {} — {}".format(from_label, to_label, etype, notes))
+    else:
+        lines.append("未发现概念之间的共享文件或 RTL 对象。")
+
+    return AgentPanelResponse(
+        question=question,
+        response_kind="shared",
+        answer_text="\n".join(lines),
+        is_loaded=True,
+    )
+
+
+def _answer_project_graph(
+    question: str,
+    graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+) -> AgentPanelResponse:
+    """Answer '画出项目理解图'"""
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+
+    lines = ["项目理解图概览：", ""]
+    lines.append("节点：{} 个".format(len(nodes)))
+    lines.append("边：{} 条".format(len(edges)))
+    lines.append("")
+    lines.append("节点类型分布：")
+    kind_counts: dict[str, int] = {}
+    for node in nodes:
+        kind = node.get("kind", "unknown")
+        kind_counts[kind] = kind_counts.get(kind, 0) + 1
+    for kind, count in sorted(kind_counts.items()):
+        lines.append("  • {}: {}".format(kind, count))
+    lines.append("")
+    lines.append("边类型分布：")
+    etype_counts: dict[str, int] = {}
+    for edge in edges:
+        etype = edge.get("edge_type", "unknown")
+        etype_counts[etype] = etype_counts.get(etype, 0) + 1
+    for etype, count in sorted(etype_counts.items()):
+        lines.append("  • {}: {}".format(etype, count))
+
+    return AgentPanelResponse(
+        question=question,
+        response_kind="graph",
+        answer_text="\n".join(lines),
         is_loaded=True,
     )
 

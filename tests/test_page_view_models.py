@@ -162,6 +162,78 @@ def _write_agent_runtime_bundle(tmp: Path) -> Path:
     return tmp
 
 
+def _write_project_bundle(tmp: Path) -> Path:
+    """Write a minimal project bundle to *tmp*."""
+    tmp.mkdir(parents=True, exist_ok=True)
+    graph = {
+        "schema_version": "project-understanding-0.1",
+        "project_id": "test_project",
+        "nodes": [
+            {"node_id": "PUG_PROJECT", "label": "test_project", "kind": "project"},
+            {
+                "node_id": "PUG_CONCEPT_peak_idx",
+                "label": "peak_idx",
+                "kind": "concept",
+                "confidence": "supported",
+            },
+            {
+                "node_id": "PUG_CLAIM_peak_idx_MC_001",
+                "label": "MC_001",
+                "kind": "mapping_claim",
+                "confidence": "supported",
+                "concept": "peak_idx",
+            },
+            {
+                "node_id": "PUG_RTL_peak_idx_N1",
+                "label": "peak_detect",
+                "kind": "rtl_module",
+                "file_path": "/rtl/top.v",
+            },
+        ],
+        "edges": [
+            {
+                "edge_id": "E_PROJECT_peak_idx",
+                "from_node_id": "PUG_PROJECT",
+                "to_node_id": "PUG_CONCEPT_peak_idx",
+                "edge_type": "contains",
+            },
+            {
+                "edge_id": "E_peak_idx_claim",
+                "from_node_id": "PUG_CONCEPT_peak_idx",
+                "to_node_id": "PUG_CLAIM_peak_idx_MC_001",
+                "edge_type": "has_claim",
+            },
+        ],
+        "grounding_diagnostics": [],
+        "uncertainty_notes": [],
+    }
+    index = {
+        "schema_version": "project-understanding-0.1",
+        "concept_index": {"peak_idx": {"status": "ok", "claims": 1}},
+    }
+    metadata = {
+        "schema_version": "p1b-project-run-metadata-0.1",
+        "command": "p1b-trace-project",
+        "project_root": "/tmp/test_project",
+        "concepts_processed": ["peak_idx"],
+        "status": "ok",
+        "mapping_claims": 1,
+        "evidence_items": 0,
+    }
+    (tmp / "project_understanding_graph.json").write_text(
+        json.dumps(graph), encoding="utf-8"
+    )
+    (tmp / "project_understanding_index.json").write_text(
+        json.dumps(index), encoding="utf-8"
+    )
+    (tmp / "run_metadata.json").write_text(
+        json.dumps(metadata), encoding="utf-8"
+    )
+    (tmp / "project_understanding.md").write_text("# Project\n", encoding="utf-8")
+    (tmp / "project_understanding.mmd").write_text("graph TD\n", encoding="utf-8")
+    return tmp
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -322,6 +394,61 @@ class TestAgentRuntimePageState(unittest.TestCase):
         state = build_agent_runtime_page_state(empty)
         self.assertFalse(state.is_visible)
         self.assertIn("加载", state.message)
+
+
+class TestProjectEvidencePageViewModel(unittest.TestCase):
+    """Project bundle evidence page tests."""
+
+    def test_project_evidence_groups_by_concept(self) -> None:
+        """Project bundle groups evidence rows by concept."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_proj_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_evidence_page_view_model(bundle)
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(len(vm.groups), 1)
+            self.assertIn("peak_idx", vm.groups[0].title)
+
+    def test_project_evidence_claim_rows(self) -> None:
+        """Project evidence rows contain claim info."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_proj_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_evidence_page_view_model(bundle)
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(len(vm.groups[0].rows), 1)
+            row = vm.groups[0].rows[0]
+            self.assertEqual(row.evidence_id, "PUG_CLAIM_peak_idx_MC_001")
+            self.assertEqual(row.symbol, "MC_001")
+            self.assertEqual(row.evidence_strength, "supported")
+
+
+class TestProjectOverviewMetrics(unittest.TestCase):
+    """Project bundle overview metrics tests."""
+
+    def test_project_metrics(self) -> None:
+        """Project bundle produces correct metric counts."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_proj_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            m = build_overview_metrics(bundle)
+            self.assertTrue(m.is_loaded)
+            self.assertEqual(m.mapping_claims, 1)
+            self.assertEqual(m.rtl_objects, 1)
+            self.assertEqual(m.unknowns, 0)
+
+
+class TestProjectUnknownsPageViewModel(unittest.TestCase):
+    """Project bundle unknowns page tests."""
+
+    def test_project_unknowns_loaded(self) -> None:
+        """Project bundle unknowns page loads successfully."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_proj_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_unknowns_page_view_model(bundle)
+            self.assertTrue(vm.is_loaded)
+            self.assertIn("confirmed", vm.why_not_confirmed)
 
 
 class TestSafety(unittest.TestCase):

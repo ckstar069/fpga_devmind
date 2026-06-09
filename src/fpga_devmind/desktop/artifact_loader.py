@@ -31,6 +31,17 @@ P1B_REQUIRED_ARTIFACTS: tuple[str, ...] = (
 
 P1B_OPTIONAL_ARTIFACTS: tuple[str, ...] = ()  # reserved for future expansion
 
+PROJECT_REQUIRED_ARTIFACTS: tuple[str, ...] = (
+    "project_understanding_graph.json",
+    "project_understanding_index.json",
+    "run_metadata.json",
+    "project_understanding.md",
+)
+
+PROJECT_OPTIONAL_ARTIFACTS: tuple[str, ...] = (
+    "project_understanding.mmd",
+)
+
 P1A_REQUIRED_ARTIFACTS: tuple[str, ...] = (
     "project_graph.json",
     "trace_index.json",
@@ -74,9 +85,9 @@ class ArtifactDiagnostic:
 
 
 def detect_bundle_type(path: Path) -> str:
-    """Detect whether *path* is a P1b, P1a, agent_runtime, or unknown bundle.
+    """Detect whether *path* is a P1b, P1a, agent_runtime, project, or unknown bundle.
 
-    Returns one of ``"agent_runtime"``, ``"p1b"``, ``"p1a"``, ``"unknown"``.
+    Returns one of ``"agent_runtime"``, ``"p1b"``, ``"p1a"``, ``"project"``, ``"unknown"``.
     """
     if not path.is_dir():
         return "unknown"
@@ -86,6 +97,10 @@ def detect_bundle_type(path: Path) -> str:
     # Agent runtime detection: agent_runtime_trace.json is unique.
     if "agent_runtime_trace.json" in files:
         return "agent_runtime"
+
+    # Project-level detection: project_understanding_graph.json is the source of truth.
+    if "project_understanding_graph.json" in files:
+        return "project"
 
     # P1b detection: concept_trace_graph.json is the source of truth.
     if "concept_trace_graph.json" in files:
@@ -146,6 +161,7 @@ def validate_bundle(
                 artifact=None,
                 message=(
                     "Unknown artifact bundle: neither "
+                    "project_understanding_graph.json (project) nor "
                     "concept_trace_graph.json (P1b) nor "
                     "project_graph.json (P1a) found."
                 ),
@@ -156,7 +172,22 @@ def validate_bundle(
 
     files = {p.name for p in path.iterdir() if p.is_file()}
 
-    if bundle_type == "p1b":
+    if bundle_type == "project":
+        required = PROJECT_REQUIRED_ARTIFACTS
+        for name in required:
+            if name not in files:
+                diagnostics.append(
+                    ArtifactDiagnostic(
+                        severity="error",
+                        artifact=name,
+                        message="Required project artifact missing: {}".format(
+                            name
+                        ),
+                        code="MISSING_REQUIRED",
+                    )
+                )
+
+    elif bundle_type == "p1b":
         required = P1B_REQUIRED_ARTIFACTS
         for name in required:
             if name not in files:
@@ -247,7 +278,7 @@ class LoadedArtifact:
 class ArtifactBundle:
     """A loaded artifact bundle with metadata and diagnostics."""
 
-    bundle_type: str  # "p1b" | "p1a" | "agent_runtime" | "unknown"
+    bundle_type: str  # "p1b" | "p1a" | "agent_runtime" | "project" | "unknown"
     directory: Path
     artifacts: dict[str, LoadedArtifact] = field(default_factory=dict)
     diagnostics: list[ArtifactDiagnostic] = field(default_factory=list)
@@ -305,6 +336,9 @@ def load_bundle(path: Path) -> ArtifactBundle:
     # Determine which files to load.
     if bundle_type == "p1b":
         files_to_load = list(P1B_REQUIRED_ARTIFACTS)
+    elif bundle_type == "project":
+        files_to_load = list(PROJECT_REQUIRED_ARTIFACTS)
+        files_to_load.extend(PROJECT_OPTIONAL_ARTIFACTS)
     elif bundle_type == "agent_runtime":
         files_to_load = list(AGENT_RUNTIME_REQUIRED_ARTIFACTS)
         files_to_load.extend(AGENT_RUNTIME_OPTIONAL_ARTIFACTS)
@@ -476,5 +510,29 @@ def get_mermaid(bundle: ArtifactBundle) -> str | None:
     if artifact is None:
         return None
     if isinstance(artifact.data, str):
+        return artifact.data
+    return None
+
+
+def get_project_graph(bundle: ArtifactBundle) -> dict[str, Any] | None:  # pyright: ignore[reportExplicitAny]
+    """Return project_understanding_graph dict from a project bundle, or None."""
+    if bundle.bundle_type != "project":
+        return None
+    artifact = bundle.artifacts.get("project_understanding_graph.json")
+    if artifact is None:
+        return None
+    if isinstance(artifact.data, dict):
+        return artifact.data
+    return None
+
+
+def get_project_index(bundle: ArtifactBundle) -> dict[str, Any] | None:  # pyright: ignore[reportExplicitAny]
+    """Return project_understanding_index dict from a project bundle, or None."""
+    if bundle.bundle_type != "project":
+        return None
+    artifact = bundle.artifacts.get("project_understanding_index.json")
+    if artifact is None:
+        return None
+    if isinstance(artifact.data, dict):
         return artifact.data
     return None

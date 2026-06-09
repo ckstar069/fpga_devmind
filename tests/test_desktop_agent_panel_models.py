@@ -508,6 +508,7 @@ class TestAgentPanelModels(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+
     # ------------------------------------------------------------------
     # No pass/fail semantics
     # ------------------------------------------------------------------
@@ -684,6 +685,157 @@ class TestAgentPanelModels(unittest.TestCase):
             # The fallback-key diagnostic (no diagnostic_id) should appear once.
             self.assertEqual(vm.answer_text.count("fallback_dup"), 1)
             self.assertEqual(vm.answer_text.count("Same fallback key"), 1)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestAgentPanelProjectBundle(unittest.TestCase):
+    """Project bundle agent query tests (T024)."""
+
+    def _make_project_bundle(self) -> Path:
+        """Create a project bundle."""
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_proj_"))
+        graph = {
+            "schema_version": "project-understanding-0.1",
+            "project_id": "test_project",
+            "nodes": [
+                {"node_id": "PUG_PROJECT", "label": "test_project", "kind": "project"},
+                {
+                    "node_id": "PUG_CONCEPT_peak_idx",
+                    "label": "peak_idx",
+                    "kind": "concept",
+                    "confidence": "supported",
+                },
+                {
+                    "node_id": "PUG_CONCEPT_cfo",
+                    "label": "cfo",
+                    "kind": "concept",
+                    "confidence": "unknown",
+                },
+                {
+                    "node_id": "PUG_CLAIM_peak_idx_MC_001",
+                    "label": "MC_001",
+                    "kind": "mapping_claim",
+                    "confidence": "supported",
+                    "concept": "peak_idx",
+                },
+            ],
+            "edges": [
+                {
+                    "edge_id": "E_SHARED_FILE_peak_idx_cfo",
+                    "from_node_id": "PUG_CONCEPT_peak_idx",
+                    "to_node_id": "PUG_CONCEPT_cfo",
+                    "edge_type": "shares_file",
+                    "confidence": "inferred",
+                },
+                {
+                    "edge_id": "E_HAS_CLAIM_peak_idx",
+                    "from_node_id": "PUG_CONCEPT_peak_idx",
+                    "to_node_id": "PUG_CLAIM_peak_idx_MC_001",
+                    "edge_type": "has_claim",
+                    "confidence": "supported",
+                },
+            ],
+            "grounding_diagnostics": [],
+            "uncertainty_notes": [],
+        }
+        metadata = {
+            "schema_version": "p1b-project-run-metadata-0.1",
+            "command": "p1b-trace-project",
+            "project_root": "/tmp/test_project",
+            "concepts_processed": ["peak_idx", "cfo"],
+            "status": "ok",
+        }
+        (tmp / "project_understanding_graph.json").write_text(
+            json.dumps(graph), encoding="utf-8"
+        )
+        (tmp / "project_understanding_index.json").write_text(
+            json.dumps({"concept_index": {}}), encoding="utf-8"
+        )
+        (tmp / "run_metadata.json").write_text(
+            json.dumps(metadata), encoding="utf-8"
+        )
+        (tmp / "project_understanding.md").write_text("# Project\n", encoding="utf-8")
+        (tmp / "project_understanding.mmd").write_text("graph TD\n", encoding="utf-8")
+        return tmp
+
+    def test_project_summary(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "summary")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "summary")
+            self.assertIn("test_project", vm.answer_text)
+            self.assertIn("peak_idx", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_concepts(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "有哪些概念")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "concepts")
+            self.assertIn("peak_idx", vm.answer_text)
+            self.assertIn("cfo", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_mapped(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "哪些概念有 RTL 映射")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "mapped")
+            self.assertIn("peak_idx", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_unknown(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "哪些概念还不确定")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "unknown")
+            self.assertIn("cfo", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_shared(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "哪些文件被多个概念共享")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "shared")
+            self.assertIn("peak_idx", vm.answer_text)
+            self.assertIn("cfo", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_graph(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "图画出")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "graph")
+            self.assertIn("节点", vm.answer_text)
+            self.assertIn("边", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_unsupported(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "What is the meaning of life?")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "unsupported")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

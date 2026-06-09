@@ -11,7 +11,6 @@ import unittest
 from pathlib import Path
 
 from fpga_devmind.desktop.artifact_loader import (
-    ArtifactBundle,
     ArtifactDiagnostic,
     P1B_REQUIRED_ARTIFACTS,
     detect_bundle_type,
@@ -19,6 +18,7 @@ from fpga_devmind.desktop.artifact_loader import (
     get_index,
     get_markdown,
     get_mermaid,
+    get_project_graph,
     get_run_metadata,
     load_bundle,
     validate_bundle,
@@ -305,6 +305,85 @@ class TestBundleLoading(unittest.TestCase):
             self.assertGreater(len(errors), 0)
         except Exception:
             self.fail("load_bundle() must never raise")
+
+
+class TestProjectBundleDetection(unittest.TestCase):
+    """Tests for project bundle detection and loading (T024)."""
+
+    def _make_project_bundle(self, tmp: Path) -> Path:
+        """Write a minimal project bundle to *tmp* and return the path."""
+        tmp.mkdir(parents=True, exist_ok=True)
+        graph = {
+            "schema_version": "project-understanding-0.1",
+            "project_id": "test_project",
+            "nodes": [
+                {"node_id": "PUG_PROJECT", "label": "test_project", "kind": "project"},
+                {"node_id": "PUG_CONCEPT_peak_idx", "label": "peak_idx", "kind": "concept"},
+            ],
+            "edges": [],
+        }
+        index = {
+            "schema_version": "project-understanding-0.1",
+            "concept_index": {"peak_idx": {"status": "ok", "claims": 1}},
+        }
+        metadata = {
+            "schema_version": "p1b-project-run-metadata-0.1",
+            "command": "p1b-trace-project",
+            "project_root": "/tmp/test_project",
+            "concepts_processed": ["peak_idx"],
+            "status": "ok",
+        }
+        (tmp / "project_understanding_graph.json").write_text(
+            json.dumps(graph), encoding="utf-8"
+        )
+        (tmp / "project_understanding_index.json").write_text(
+            json.dumps(index), encoding="utf-8"
+        )
+        (tmp / "run_metadata.json").write_text(
+            json.dumps(metadata), encoding="utf-8"
+        )
+        (tmp / "project_understanding.md").write_text("# Project\n", encoding="utf-8")
+        (tmp / "project_understanding.mmd").write_text("graph TD\n", encoding="utf-8")
+        return tmp
+
+    def test_project_bundle_detected_by_graph(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            (p / "project_understanding_graph.json").write_text("{}")
+            self.assertEqual(detect_bundle_type(p), "project")
+
+    def test_project_bundle_loads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._make_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(p)
+            self.assertEqual(bundle.bundle_type, "project")
+            self.assertTrue(bundle.is_complete)
+            self.assertIn("project_understanding_graph.json", bundle.artifacts)
+            self.assertIn("project_understanding_index.json", bundle.artifacts)
+            self.assertIn("run_metadata.json", bundle.artifacts)
+
+    def test_project_graph_accessible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._make_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(p)
+            graph = get_project_graph(bundle)
+            self.assertIsNotNone(graph)
+            self.assertEqual(graph["project_id"], "test_project")  # type: ignore[index]
+
+    def test_project_takes_precedence_over_p1b(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            (p / "project_understanding_graph.json").write_text("{}")
+            (p / "concept_trace_graph.json").write_text("{}")
+            self.assertEqual(detect_bundle_type(p), "project")
+
+    def test_project_bundle_incomplete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            (p / "project_understanding_graph.json").write_text("{}")
+            bundle = load_bundle(p)
+            self.assertEqual(bundle.bundle_type, "project")
+            self.assertFalse(bundle.is_complete)
 
 
 class TestArtifactDiagnostic(unittest.TestCase):

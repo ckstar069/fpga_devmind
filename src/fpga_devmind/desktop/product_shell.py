@@ -682,7 +682,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 getattr(self._ov_concept_card, "_value").setText("—")
             self._ov_summary.setPlainText(
                 "请在上方加载 artifact bundle 以开始。\n"
-                "支持 P1b、P1a、agent_runtime 三种 bundle 类型。"
+                "支持 P1b、project、P1a、agent_runtime 四种 bundle 类型。"
             )
             for label in self._ov_metric_labels:
                 self._ov_metric_labels[label].setText("0")
@@ -958,7 +958,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if self._bundle is None:
             self._ct_summary.setPlainText(
-                "请先加载 P1b concept trace bundle。\n"
+                "请先加载 P1b / project concept trace bundle。\n"
                 "使用顶部 Load 按钮或项目设置页面选择 artifact 目录。"
             )
             self._ct_graph_scene.set_view_model(
@@ -968,12 +968,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
         vm = build_concept_trace_view_model(self._bundle)
         if not vm.is_loaded:
-            if self._bundle.bundle_type != "p1b":
+            if self._bundle.bundle_type not in ("p1b", "project"):
                 self._ct_summary.setPlainText(
                     "当前 bundle 类型为 '{}'，不包含概念 trace 数据。\n"
-                    "请加载 P1b bundle 查看 L5/L6-to-RTL 映射。".format(
+                    "请加载 P1b 或 project bundle 查看概念映射。".format(
                         self._bundle.bundle_type
                     )
+                )
+            elif self._bundle.bundle_type == "project":
+                self._ct_summary.setPlainText(
+                    "当前为 project bundle，显示项目级概念图。\n"
+                    "多个 concept 的映射声明聚合在此视图中。"
                 )
             else:
                 self._ct_summary.setPlainText(
@@ -1133,9 +1138,6 @@ class MainWindow(QtWidgets.QMainWindow):
             "桥接/映射证据": "连接 L5/L6 和 RTL 两边的桥接证据项。",
         }
 
-        # Collect all evidence rows for lookup.
-        all_evidence_rows: list[Any] = []  # pyright: ignore[reportExplicitAny]
-
         for group in vm.groups:
             group_label = QtWidgets.QLabel(group.title)
             group_label.setStyleSheet(
@@ -1170,11 +1172,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 table.setItem(i, 3, QtWidgets.QTableWidgetItem(row.symbol))
                 table.setItem(i, 4, QtWidgets.QTableWidgetItem(row.evidence_strength))
                 table.setItem(i, 5, QtWidgets.QTableWidgetItem(row.referenced_by_claims))
-                all_evidence_rows.append(row)
 
-            # Connect selection to detail panel.
+            # Connect selection to detail panel — bind THIS group's rows only.
+            group_rows = list(group.rows)
             table.itemSelectionChanged.connect(
-                lambda t=table, rows=all_evidence_rows: self._on_evidence_row_selected(t, rows)
+                lambda _t=table, _rows=group_rows: self._on_evidence_row_selected(_t, _rows)
             )
             self._evidence_groups_layout.addWidget(table)
 
@@ -1202,6 +1204,12 @@ class MainWindow(QtWidgets.QMainWindow):
             lines.append("分类: 其他证据")
         lines.append("符号: {}".format(row.symbol))
         lines.append("文件: {}".format(row.file_path))
+        if row.start_line and row.end_line:
+            lines.append("行号范围: {} — {}".format(row.start_line, row.end_line))
+        elif row.start_line:
+            lines.append("行号: {}".format(row.start_line))
+        else:
+            lines.append("行号/范围: artifact 当前未提供行号/范围信息。")
         lines.append("")
 
         strength = row.evidence_strength
@@ -1286,7 +1294,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._unknowns_stack.addWidget(loaded)
 
         # Page 1: empty
-        self._unknowns_empty = QtWidgets.QLabel("加载 P1b bundle 以查看不确定项")
+        self._unknowns_empty = QtWidgets.QLabel("加载 P1b / project bundle 以查看不确定项")
         self._unknowns_empty.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self._unknowns_empty.setStyleSheet("color: {}; font-size: 14px;".format(_TEXT_DIM))
         self._unknowns_stack.addWidget(self._unknowns_empty)
@@ -1301,7 +1309,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if self._bundle is None:
             self._unknowns_stack.setCurrentIndex(1)
-            self._unknowns_empty.setText("请先加载 P1b concept trace bundle。")
+            self._unknowns_empty.setText("请先加载 P1b / project concept trace bundle。")
             return
 
         vm = build_unknowns_page_view_model(self._bundle)

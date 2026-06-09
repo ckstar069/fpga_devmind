@@ -322,6 +322,94 @@ class TestBuildOverviewAgentRuntime(unittest.TestCase):
             self.assertEqual(len(vm.suggested_questions), 3)
 
 
+def _write_project_bundle(tmp: Path) -> Path:
+    """Write a minimal project bundle to *tmp* and return the path."""
+    tmp.mkdir(parents=True, exist_ok=True)
+    graph = {
+        "schema_version": "project-understanding-0.1",
+        "project_id": "test_project",
+        "nodes": [
+            {"node_id": "PUG_PROJECT", "label": "test_project", "kind": "project"},
+            {
+                "node_id": "PUG_CONCEPT_peak_idx",
+                "label": "peak_idx",
+                "kind": "concept",
+                "confidence": "supported",
+            },
+            {
+                "node_id": "PUG_CLAIM_peak_idx_MC_001",
+                "label": "MC_001",
+                "kind": "mapping_claim",
+                "confidence": "supported",
+                "concept": "peak_idx",
+            },
+            {
+                "node_id": "PUG_RTL_peak_idx_N1",
+                "label": "peak_detect",
+                "kind": "rtl_module",
+                "file_path": "/rtl/top.v",
+            },
+        ],
+        "edges": [],
+        "grounding_diagnostics": [],
+        "uncertainty_notes": [],
+    }
+    metadata = {
+        "schema_version": "p1b-project-run-metadata-0.1",
+        "command": "p1b-trace-project",
+        "project_root": "/tmp/test_project",
+        "concepts_processed": ["peak_idx"],
+        "status": "ok",
+        "mapping_claims": 1,
+        "evidence_items": 0,
+    }
+    (tmp / "project_understanding_graph.json").write_text(
+        json.dumps(graph), encoding="utf-8"
+    )
+    (tmp / "project_understanding_index.json").write_text(
+        json.dumps({"concept_index": {}}), encoding="utf-8"
+    )
+    (tmp / "run_metadata.json").write_text(
+        json.dumps(metadata), encoding="utf-8"
+    )
+    (tmp / "project_understanding.md").write_text("# Project\n", encoding="utf-8")
+    (tmp / "project_understanding.mmd").write_text("graph TD\n", encoding="utf-8")
+    return tmp
+
+
+class TestBuildOverviewProject(unittest.TestCase):
+    """Project bundle → OverviewViewModel."""
+
+    def test_project_bundle_loaded(self) -> None:
+        """Complete project bundle produces is_loaded=True."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ov_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_overview_view_model(bundle)
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.bundle_type, "project")
+
+    def test_project_current_understanding(self) -> None:
+        """Project overview contains project name and concept list."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ov_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_overview_view_model(bundle)
+            self.assertIn("test_project", vm.current_understanding)
+            self.assertIn("peak_idx", vm.current_understanding)
+
+    def test_project_suggested_questions(self) -> None:
+        """Project bundle provides 6 Chinese suggested questions."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ov_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_overview_view_model(bundle)
+            self.assertEqual(len(vm.suggested_questions), 6)
+            for q in vm.suggested_questions:
+                self.assertIsInstance(q, SuggestedQuestion)
+                self.assertTrue(len(q.text) > 0)
+
+
 class TestBuildOverviewEdgeCases(unittest.TestCase):
     """Edge cases for build_overview_view_model."""
 

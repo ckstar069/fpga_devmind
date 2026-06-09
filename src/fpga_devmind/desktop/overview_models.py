@@ -15,6 +15,7 @@ from fpga_devmind.desktop.artifact_loader import (
     ArtifactBundle,
     get_agent_runtime_trace,
     get_graph,
+    get_project_graph,
     get_run_metadata,
 )
 from fpga_devmind.desktop.trace_view_models import ConceptTraceViewModel
@@ -138,6 +139,27 @@ _AGENT_RUNTIME_QUESTIONS: list[SuggestedQuestion] = [
     ),
 ]
 
+_PROJECT_QUESTIONS: list[SuggestedQuestion] = [
+    SuggestedQuestion(
+        text="这个项目整体实现了什么？", topic="summary"
+    ),
+    SuggestedQuestion(
+        text="有哪些概念？", topic="concepts"
+    ),
+    SuggestedQuestion(
+        text="哪些概念有 RTL 映射？", topic="mapped"
+    ),
+    SuggestedQuestion(
+        text="哪些概念还不确定？", topic="unknown"
+    ),
+    SuggestedQuestion(
+        text="哪些 RTL 文件承载了多个概念？", topic="shared"
+    ),
+    SuggestedQuestion(
+        text="画出项目理解图", topic="graph"
+    ),
+]
+
 _NO_BUNDLE_QUESTIONS: list[SuggestedQuestion] = [
     SuggestedQuestion(
         text="请在上方输入 artifact 目录，或使用 Browse... 选择。", topic="help"
@@ -173,6 +195,9 @@ def build_overview_view_model(
     if bundle.bundle_type == "p1b":
         return _build_p1b_overview(bundle)
 
+    if bundle.bundle_type == "project":
+        return _build_project_overview(bundle)
+
     if bundle.bundle_type == "agent_runtime":
         return _build_agent_runtime_overview(bundle)
 
@@ -182,7 +207,7 @@ def build_overview_view_model(
     return OverviewViewModel(
         bundle_type="unknown",
         is_loaded=False,
-        load_error="Unknown bundle type. Expected P1b, P1a, or agent_runtime.",
+        load_error="Unknown bundle type. Expected P1b, project, P1a, or agent_runtime.",
         suggested_questions=_NO_BUNDLE_QUESTIONS,
     )
 
@@ -386,6 +411,94 @@ def _build_p1b_overview(
         mapping_confidence=mapping_conf,
         unknown_limitations=limitations,
         suggested_questions=_P1B_QUESTIONS,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Project overview
+# ---------------------------------------------------------------------------
+
+
+def _build_project_overview(
+    bundle: ArtifactBundle,
+) -> OverviewViewModel:
+    """Build overview for a project-level understanding bundle."""
+    graph = get_project_graph(bundle)
+    meta = get_run_metadata(bundle) or {}
+
+    project = meta.get("project_root", "")
+    concepts = meta.get("concepts_processed", [])
+    failed = meta.get("concepts_failed", [])
+
+    # Aggregate evidence and claims across all concepts.
+    l5_l6_ev = EvidenceStrengthSummary()
+    rtl_ev = EvidenceStrengthSummary()
+    mapping_conf = MappingConfidenceSummary()
+    total_evidence = 0
+    total_claims = 0
+    rtl_objects = 0
+    unknowns = 0
+
+    if graph:
+        for node in graph.get("nodes", []):
+            if node.get("kind", "").startswith("rtl_"):
+                rtl_objects += 1
+            if node.get("kind", "") == "concept":
+                conf = node.get("confidence", "unknown")
+                if conf == "unknown":
+                    unknowns += 1
+        total_claims = sum(
+            1 for n in graph.get("nodes", []) if n.get("kind") == "mapping_claim"
+        )
+
+    # Try to get evidence counts from metadata.
+    total_evidence = meta.get("evidence_items", 0)
+
+    # Build understanding text.
+    lines: list[str] = []
+    lines.append(
+        "项目 '{}' 识别出 {} 个概念：{}。".format(
+            project, len(concepts), ", ".join(concepts)
+        )
+    )
+    if failed:
+        lines.append(
+            "其中 {} 个概念 trace 失败: {}。".format(
+                len(failed), ", ".join(failed)
+            )
+        )
+    lines.append("")
+    lines.append(
+        "聚合统计：{} 个 mapping claims，{} 条证据，{} 个 RTL 对象。".format(
+            total_claims, total_evidence, rtl_objects
+        )
+    )
+    if unknowns:
+        lines.append("{} 个概念存在 unknown 状态。".format(unknowns))
+    lines.append("")
+    lines.append(
+        "项目级理解图展示了概念之间的结构关系（shared file / shared RTL）。"
+    )
+
+    # Limitations from graph diagnostics.
+    limitations: list[str] = []
+    if graph:
+        for diag in graph.get("grounding_diagnostics", []):
+            msg = diag.get("message", "")
+            if msg:
+                limitations.append(msg)
+
+    return OverviewViewModel(
+        project_path=project,
+        concept_name=", ".join(concepts) if concepts else "",
+        bundle_type="project",
+        is_loaded=True,
+        current_understanding="\n".join(lines),
+        l5_l6_evidence_summary=l5_l6_ev,
+        rtl_evidence_summary=rtl_ev,
+        mapping_confidence=mapping_conf,
+        unknown_limitations=limitations,
+        suggested_questions=_PROJECT_QUESTIONS,
     )
 
 

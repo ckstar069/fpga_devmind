@@ -72,6 +72,8 @@ class EvidenceRow:
     symbol: str = ""
     evidence_strength: str = ""
     referenced_by_claims: str = ""
+    start_line: int = 0
+    end_line: int = 0
 
 
 @dataclass
@@ -361,6 +363,8 @@ def _build_evidence_rows(
     for item in graph.get("evidence_items", []):
         eid = item.get("evidence_id", "")
         claim_ids = evidence_claim_refs.get(eid, [])
+        start_line = item.get("start_line", 0)
+        end_line = item.get("end_line", 0)
         rows.append(
             EvidenceRow(
                 evidence_id=eid,
@@ -369,6 +373,8 @@ def _build_evidence_rows(
                 symbol=item.get("symbol") or "",
                 evidence_strength=item.get("evidence_strength", ""),
                 referenced_by_claims=", ".join(claim_ids) if claim_ids else "",
+                start_line=start_line if isinstance(start_line, int) else 0,
+                end_line=end_line if isinstance(end_line, int) else 0,
             )
         )
     return rows
