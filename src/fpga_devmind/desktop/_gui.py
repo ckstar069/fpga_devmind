@@ -1,4 +1,4 @@
-"""PySide6 GUI for the Desktop Agent Shell (T009).
+"""PySide6 GUI for the Desktop Agent Shell (T019).
 
 This module is imported only when PySide6 is available.  If PySide6 is
 not installed, ``desktop_app.py`` prints a dependency message instead.
@@ -10,11 +10,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from PySide6 import QtCore, QtWidgets  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
+from PySide6 import QtWidgets  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
 
 from fpga_devmind.desktop.artifact_loader import load_bundle
 from fpga_devmind.desktop.agent_panel_models import (
-    AgentPanelResponse,
     query_artifact_bundle,
 )
 from fpga_devmind.desktop.agent_plan_models import (
@@ -26,18 +25,18 @@ from fpga_devmind.desktop.trace_view_models import (
     build_concept_trace_view_model,
 )
 from fpga_devmind.desktop.agent_trace_view_models import (
-    AgentRuntimeTraceViewModel,
     build_agent_runtime_trace_view_model,
 )
 from fpga_devmind.desktop.view_models import (
-    BundleSummaryViewModel,
     JsonTreeNode,
-    MarkdownPreviewViewModel,
-    RunSummaryViewModel,
     build_bundle_summary,
     build_json_tree,
     build_markdown_preview,
-    build_run_summary,
+)
+from fpga_devmind.desktop.overview_models import (
+    SuggestedQuestion,
+    build_overview_view_model,
+    format_concept_trace_summary,
 )
 
 
@@ -47,11 +46,11 @@ from fpga_devmind.desktop.view_models import (
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    """T009 minimum viable desktop shell."""
+    """T019 Desktop Agent Shell — FPGA Understanding overview."""
 
     def __init__(self, artifact_dir: Path | None = None) -> None:
         super().__init__()
-        self.setWindowTitle("fpga_devmind — Desktop Agent Shell (T009)")
+        self.setWindowTitle("fpga_devmind — FPGA Understanding Agent Shell")
         self.resize(1200, 800)
 
         self._central = QtWidgets.QWidget()
@@ -83,46 +82,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tabs = QtWidgets.QTabWidget()
         self._layout.addWidget(self._tabs, stretch=1)
 
-        # Run Summary tab
-        self._run_summary_widget = QtWidgets.QWidget()
-        self._run_summary_layout = QtWidgets.QFormLayout(
-            self._run_summary_widget
-        )
-        self._tabs.addTab(self._run_summary_widget, "Run Summary")
+        # === Tab 0: Overview (T019 — replaces Run Summary) ===
+        self._overview_widget = QtWidgets.QWidget()
+        self._overview_layout = QtWidgets.QVBoxLayout(self._overview_widget)
+        self._overview_text = QtWidgets.QTextEdit()
+        self._overview_text.setReadOnly(True)
+        self._overview_layout.addWidget(self._overview_text)
+        self._tabs.addTab(self._overview_widget, "Overview")
 
-        # JSON Tree tab
-        self._json_tree_widget = QtWidgets.QWidget()
-        self._json_tree_layout = QtWidgets.QVBoxLayout(
-            self._json_tree_widget
-        )
-        self._json_selector = QtWidgets.QComboBox()
-        self._json_selector.currentTextChanged.connect(
-            self._on_json_selected
-        )
-        self._json_tree_layout.addWidget(self._json_selector)
-        self._json_tree_view = QtWidgets.QTreeWidget()
-        self._json_tree_view.setHeaderLabels(["Key", "Value", "Type"])
-        self._json_tree_layout.addWidget(self._json_tree_view)
-        self._tabs.addTab(self._json_tree_widget, "JSON Tree")
-
-        # Markdown Preview tab
-        self._md_widget = QtWidgets.QWidget()
-        self._md_layout = QtWidgets.QVBoxLayout(self._md_widget)
-        self._md_text = QtWidgets.QPlainTextEdit()
-        self._md_text.setReadOnly(True)
-        self._md_layout.addWidget(self._md_text)
-        self._tabs.addTab(self._md_widget, "Markdown")
-
-        # Diagnostics tab
-        self._diag_widget = QtWidgets.QWidget()
-        self._diag_layout = QtWidgets.QVBoxLayout(self._diag_widget)
-        self._diag_list = QtWidgets.QListWidget()
-        self._diag_layout.addWidget(self._diag_list)
-        self._tabs.addTab(self._diag_widget, "Diagnostics")
-
-        # Concept Trace tab (T010)
+        # === Tab 1: Concept Understanding (T019 — renamed from Concept Trace) ===
         self._trace_widget = QtWidgets.QWidget()
         self._trace_layout = QtWidgets.QVBoxLayout(self._trace_widget)
+
+        # Natural language summary (T019)
+        self._trace_summary = QtWidgets.QTextEdit()
+        self._trace_summary.setReadOnly(True)
+        self._trace_summary.setMaximumHeight(200)
+        self._trace_layout.addWidget(self._trace_summary)
+
         self._trace_subtabs = QtWidgets.QTabWidget()
 
         # Nodes sub-tab
@@ -206,17 +183,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self._trace_subtabs.addTab(self._trace_diag_widget, "Diagnostics")
 
         self._trace_layout.addWidget(self._trace_subtabs)
-        self._tabs.addTab(self._trace_widget, "Concept Trace")
+        self._tabs.addTab(self._trace_widget, "Concept Understanding")
 
-        # Agent tab (T011)
+        # === Tab 2: Agent (T019 — primary interaction entry) ===
         self._agent_widget = QtWidgets.QWidget()
         self._agent_layout = QtWidgets.QVBoxLayout(self._agent_widget)
+
+        # Suggested questions label (T019)
+        self._agent_suggestions_label = QtWidgets.QLabel()
+        self._agent_suggestions_label.setWordWrap(True)
+        self._agent_suggestions_label.setStyleSheet("color: #666; font-size: 12px;")
+        self._agent_layout.addWidget(self._agent_suggestions_label)
 
         # Input row
         self._agent_input_row = QtWidgets.QHBoxLayout()
         self._agent_question = QtWidgets.QLineEdit()
         self._agent_question.setPlaceholderText(
-            "Ask a question (e.g. summary, claims, evidence, diagnostics, unknown, nodes, edges, or a claim/evidence ID)"
+            "输入问题，例如：概况、映射、证据、诊断、不确定、节点、边，或 claim/evidence ID"
         )
         self._agent_ask_btn = QtWidgets.QPushButton("Ask")
         self._agent_ask_btn.clicked.connect(self._on_agent_ask)
@@ -233,13 +216,43 @@ class MainWindow(QtWidgets.QMainWindow):
         self._agent_plan_preview = QtWidgets.QPlainTextEdit()
         self._agent_plan_preview.setReadOnly(True)
         self._agent_plan_preview.setPlaceholderText(
-            "Load an artifact bundle first."
+            "选择上方问题，或输入自己的问题后点击 Ask。"
         )
         self._agent_layout.addWidget(self._agent_plan_preview)
 
         self._tabs.addTab(self._agent_widget, "Agent")
 
-        # Agent Runtime tab (T017)
+        # === Tab 3: Markdown ===
+        self._md_widget = QtWidgets.QWidget()
+        self._md_layout = QtWidgets.QVBoxLayout(self._md_widget)
+        self._md_text = QtWidgets.QPlainTextEdit()
+        self._md_text.setReadOnly(True)
+        self._md_layout.addWidget(self._md_text)
+        self._tabs.addTab(self._md_widget, "Markdown")
+
+        # === Tab 4: Diagnostics ===
+        self._diag_widget = QtWidgets.QWidget()
+        self._diag_layout = QtWidgets.QVBoxLayout(self._diag_widget)
+        self._diag_list = QtWidgets.QListWidget()
+        self._diag_layout.addWidget(self._diag_list)
+        self._tabs.addTab(self._diag_widget, "Diagnostics")
+
+        # === Tab 5: Developer (T019 — renamed from JSON Tree, demoted) ===
+        self._json_tree_widget = QtWidgets.QWidget()
+        self._json_tree_layout = QtWidgets.QVBoxLayout(
+            self._json_tree_widget
+        )
+        self._json_selector = QtWidgets.QComboBox()
+        self._json_selector.currentTextChanged.connect(
+            self._on_json_selected
+        )
+        self._json_tree_layout.addWidget(self._json_selector)
+        self._json_tree_view = QtWidgets.QTreeWidget()
+        self._json_tree_view.setHeaderLabels(["Key", "Value", "Type"])
+        self._json_tree_layout.addWidget(self._json_tree_view)
+        self._tabs.addTab(self._json_tree_widget, "Developer")
+
+        # === Tab 6: Agent Runtime (T017 — conditional visibility) ===
         self._art_widget = QtWidgets.QWidget()
         self._art_layout = QtWidgets.QVBoxLayout(self._art_widget)
 
@@ -276,7 +289,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._tabs.addTab(self._art_widget, "Agent Runtime")
 
+        # --- Internal state ---
         self._bundle = None
+        self._current_suggested_questions: list[SuggestedQuestion] = []
+
+        # Initial Agent Runtime tab: disabled until agent_runtime bundle loaded
+        art_idx = self._tabs.indexOf(self._art_widget)
+        self._tabs.setTabEnabled(art_idx, False)
+
         if artifact_dir is not None:
             self._on_load()
 
@@ -298,11 +318,13 @@ class MainWindow(QtWidgets.QMainWindow):
         path = Path(path_str)
         self._bundle = load_bundle(path)
 
-        self._update_run_summary()
+        # Update all tabs
+        self._update_overview()
+        self._update_concept_trace()
+        self._update_agent_suggestions()
         self._update_json_selector()
         self._update_markdown()
         self._update_diagnostics()
-        self._update_concept_trace()
         self._update_agent_runtime()
 
         summary = build_bundle_summary(self._bundle)
@@ -318,56 +340,147 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._status.setText(status_text)
 
-    def _update_run_summary(self) -> None:
-        # Clear previous fields.
-        while self._run_summary_layout.rowCount() > 0:
-            self._run_summary_layout.removeRow(0)
+    # --- Overview tab (T019) ---
+
+    def _update_overview(self) -> None:
+        """Refresh the Overview tab with human-oriented summary."""
+        self._overview_text.clear()
 
         if self._bundle is None:
-            self._run_summary_layout.addRow(
-                "Status", QtWidgets.QLabel("No bundle loaded.")
+            self._overview_text.setHtml(
+                "<h2>FPGA Understanding Agent Shell</h2>"
+                "<p>请在上方输入 artifact 目录，或使用 Browse... 选择。</p>"
+                "<p>支持 P1b、P1a、agent_runtime 三种 bundle 类型。</p>"
             )
+            self._current_suggested_questions = []
             return
 
-        vm = build_run_summary(self._bundle)
+        vm = build_overview_view_model(self._bundle)
+        self._current_suggested_questions = list(vm.suggested_questions)
+
         if not vm.is_loaded:
-            self._run_summary_layout.addRow(
-                "Error", QtWidgets.QLabel(vm.load_error or "Unknown error")
+            self._overview_text.setHtml(
+                "<h2>加载失败</h2>"
+                "<p>{}</p>".format(
+                    vm.load_error or "Unknown error"
+                )
             )
             return
 
-        self._run_summary_layout.addRow(
-            "Concept", QtWidgets.QLabel(vm.concept)
+        # Build HTML overview
+        parts: list[str] = []
+        parts.append("<h2>FPGA Understanding — {}</h2>".format(
+            vm.concept_name or vm.bundle_type
+        ))
+        parts.append("<p><b>Bundle:</b> {} | <b>Project:</b> {}</p>".format(
+            vm.bundle_type, vm.project_path or "(unknown)"
+        ))
+        parts.append("<hr>")
+        parts.append("<h3>当前理解</h3>")
+        # Convert newlines to <br>
+        understanding_html = vm.current_understanding.replace(
+            "\n", "<br>"
         )
-        self._run_summary_layout.addRow(
-            "Status", QtWidgets.QLabel(vm.status)
+        parts.append("<p>{}</p>".format(understanding_html))
+
+        # Evidence summaries
+        if vm.l5_l6_evidence_summary.total > 0 or vm.rtl_evidence_summary.total > 0:
+            parts.append("<h3>证据概览</h3>")
+            parts.append("<table border='1' cellpadding='4'>")
+            parts.append(
+                "<tr><th>类型</th><th>强</th><th>中</th>"
+                "<th>弱</th><th>未知</th><th>总计</th></tr>"
+            )
+            for label, ev in [
+                ("L5/L6 证据", vm.l5_l6_evidence_summary),
+                ("RTL 证据", vm.rtl_evidence_summary),
+            ]:
+                parts.append(
+                    "<tr><td>{}</td><td>{}</td><td>{}</td>"
+                    "<td>{}</td><td>{}</td><td>{}</td></tr>".format(
+                        label, ev.strong, ev.medium, ev.weak,
+                        ev.unknown, ev.total,
+                    )
+                )
+            parts.append("</table>")
+
+        # Mapping confidence
+        if vm.mapping_confidence.total > 0:
+            mc = vm.mapping_confidence
+            parts.append("<h3>映射可信度</h3>")
+            parts.append("<p>Supported: {} | Inferred: {} | "
+                         "Unknown: {} | Total: {}</p>".format(
+                mc.supported, mc.inferred, mc.unknown, mc.total,
+            ))
+
+        # Unknown / limitations
+        if vm.unknown_limitations:
+            parts.append("<h3>不确定与限制</h3>")
+            parts.append("<ul>")
+            for lim in vm.unknown_limitations:
+                parts.append("<li>{}</li>".format(lim))
+            parts.append("</ul>")
+
+        self._overview_text.setHtml("\n".join(parts))
+
+    # --- Concept Understanding tab (T019) ---
+
+    def _update_concept_trace(self) -> None:
+        """Refresh all Concept Understanding sub-tables + summary."""
+        self._trace_summary.clear()
+        self._clear_trace_tables()
+
+        if self._bundle is None:
+            self._trace_summary.setPlainText(
+                "请先加载 artifact bundle。\n"
+                "支持 P1b 和 agent_runtime 类型。"
+            )
+            return
+
+        vm = build_concept_trace_view_model(self._bundle)
+        if not vm.is_loaded:
+            if self._bundle.bundle_type != "p1b":
+                self._trace_summary.setPlainText(
+                    "当前 bundle 类型为 '{}'，不包含概念 trace 数据。\n"
+                    "请加载 P1b bundle 查看 L5/L6-to-RTL 映射。".format(
+                        self._bundle.bundle_type
+                    )
+                )
+            else:
+                self._trace_summary.setPlainText(
+                    vm.load_error or "无法加载概念 trace 数据。"
+                )
+            return
+
+        # Natural language summary (T019)
+        summary_text = format_concept_trace_summary(vm)
+        self._trace_summary.setPlainText(summary_text)
+
+        # Populate tables
+        self._populate_nodes_table(vm)
+        self._populate_edges_table(vm)
+        self._populate_claims_table(vm)
+        self._populate_evidence_table(vm)
+        self._populate_diagnostics_table(vm)
+
+    # --- Agent tab (T019) ---
+
+    def _update_agent_suggestions(self) -> None:
+        """Update suggested questions label in Agent tab."""
+        if not self._current_suggested_questions:
+            self._agent_suggestions_label.setText(
+                "💡 加载 artifact bundle 后，建议问题将显示在此处。"
+            )
+            return
+
+        parts: list[str] = []
+        for i, q in enumerate(self._current_suggested_questions, 1):
+            parts.append("{}. {}".format(i, q.text))
+        self._agent_suggestions_label.setText(
+            "💡 建议问题:\n" + "\n".join(parts)
         )
-        self._run_summary_layout.addRow(
-            "Project", QtWidgets.QLabel(vm.project_root)
-        )
-        self._run_summary_layout.addRow(
-            "Output", QtWidgets.QLabel(vm.output_dir)
-        )
-        self._run_summary_layout.addRow(
-            "Elapsed",
-            QtWidgets.QLabel("{:.3f}s".format(vm.elapsed_seconds)),
-        )
-        self._run_summary_layout.addRow(
-            "Mapping Claims",
-            QtWidgets.QLabel(str(vm.mapping_claims)),
-        )
-        self._run_summary_layout.addRow(
-            "Evidence Items",
-            QtWidgets.QLabel(str(vm.evidence_items)),
-        )
-        self._run_summary_layout.addRow(
-            "Blocking Diagnostics",
-            QtWidgets.QLabel(str(vm.blocking_diagnostics)),
-        )
-        self._run_summary_layout.addRow(
-            "Schema Version",
-            QtWidgets.QLabel(vm.schema_version),
-        )
+
+    # --- JSON Tree (now "Developer") ---
 
     def _update_json_selector(self) -> None:
         self._json_selector.clear()
@@ -410,6 +523,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._add_tree_node(item, child)
         return item
 
+    # --- Markdown ---
+
     def _update_markdown(self) -> None:
         self._md_text.clear()
         if self._bundle is None:
@@ -425,10 +540,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if vm.is_loaded:
             self._md_text.setPlainText(vm.content)
 
+    # --- Diagnostics ---
+
     def _update_diagnostics(self) -> None:
         self._diag_list.clear()
         if self._bundle is None:
             self._diag_list.addItem("No bundle loaded.")
+            return
+        if not self._bundle.diagnostics:
+            self._diag_list.addItem("✓ 无诊断信息 — bundle 完整。")
             return
         for d in self._bundle.diagnostics:
             label = "[{}]".format(d.severity.upper())
@@ -437,25 +557,7 @@ class MainWindow(QtWidgets.QMainWindow):
             label += " {}".format(d.message)
             self._diag_list.addItem(label)
 
-    # --- Concept Trace (T010) ---
-
-    def _update_concept_trace(self) -> None:
-        """Refresh all Concept Trace sub-tables."""
-        self._clear_trace_tables()
-        if self._bundle is None:
-            self._set_trace_error("No bundle loaded.")
-            return
-
-        vm = build_concept_trace_view_model(self._bundle)
-        if not vm.is_loaded:
-            self._set_trace_error(vm.load_error or "Unable to load trace view")
-            return
-
-        self._populate_nodes_table(vm)
-        self._populate_edges_table(vm)
-        self._populate_claims_table(vm)
-        self._populate_evidence_table(vm)
-        self._populate_diagnostics_table(vm)
+    # --- Concept Trace table helpers ---
 
     def _clear_trace_tables(self) -> None:
         for table in (
@@ -543,21 +645,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 i, 5, QtWidgets.QTableWidgetItem(row.recommended_action)
             )
 
+    # --- Agent interaction ---
 
     def _on_agent_ask(self) -> None:
         """Handle Ask button click in the Agent tab."""
         question = self._agent_question.text().strip()
         if not question:
             self._agent_answer.setPlainText(
-                "Please enter a question.\n"
-                "Supported: summary, claims, evidence, diagnostics, "
-                "unknown, nodes, edges, or a specific claim/evidence ID."
+                "请输入问题。\n"
+                "支持: 概况、映射、证据、诊断、不确定、节点、边，\n"
+                "或具体的 claim/evidence ID。"
             )
             self._agent_plan_preview.setPlainText("")
             return
         if self._bundle is None:
             self._agent_answer.setPlainText(
-                "No bundle loaded. Please load an artifact bundle first."
+                "请先加载 artifact bundle。"
             )
             self._agent_plan_preview.setPlainText("")
             return
@@ -674,18 +777,26 @@ class MainWindow(QtWidgets.QMainWindow):
         """Refresh the Agent Runtime Trace tab."""
         self._clear_art_tables()
 
+        # Conditional visibility (T019)
+        is_art = (
+            self._bundle is not None
+            and self._bundle.bundle_type == "agent_runtime"
+        )
+        art_idx = self._tabs.indexOf(self._art_widget)
+        self._tabs.setTabEnabled(art_idx, is_art)
+
         if self._bundle is None:
             self._art_summary_layout.addRow(
                 "Status", QtWidgets.QLabel("No bundle loaded.")
             )
             return
 
-        if self._bundle.bundle_type != "agent_runtime":
+        if not is_art:
             self._art_summary_layout.addRow(
                 "Status",
                 QtWidgets.QLabel(
-                    "Load an agent runtime bundle containing "
-                    "agent_runtime_trace.json."
+                    "当前 bundle 类型为 '{}'。Agent Runtime tab 需要 "
+                    "agent_runtime bundle。".format(self._bundle.bundle_type)
                 ),
             )
             return
