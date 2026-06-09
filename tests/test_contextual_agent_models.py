@@ -87,12 +87,31 @@ def _make_project_bundle(tmp: Path) -> Path:
         "mapping_claims": 2,
         "evidence_items": 2,
     }
+    index = {
+        "schema_version": "project-understanding-0.1",
+        "concept_index": {},
+        "evidence_index": {
+            "EV1": {
+                "source_type": "concept_occurrence",
+                "file_path": "/src/peak.py",
+                "symbol": "PeakDetector",
+                "strength": "strong",
+                "concept": "peak_idx",
+            },
+            "EV2": {
+                "source_type": "rtl_source",
+                "file_path": "/rtl/peak.v",
+                "symbol": "peak_detect",
+                "strength": "medium",
+                "concept": "peak_idx",
+            },
+        },
+    }
     (tmp / "project_understanding_graph.json").write_text(
         json.dumps(graph), encoding="utf-8"
     )
     (tmp / "project_understanding_index.json").write_text(
-        json.dumps({"concept_index": {}, "evidence_index": {}}),
-        encoding="utf-8",
+        json.dumps(index), encoding="utf-8"
     )
     (tmp / "run_metadata.json").write_text(
         json.dumps(metadata), encoding="utf-8"
@@ -275,6 +294,45 @@ class TestContextualAgentModels(unittest.TestCase):
             )
             self.assertTrue(vm.is_loaded)
             self.assertIn("证据", vm.answer_text)
+
+
+    def test_concept_answer_includes_top_evidence(self) -> None:
+        """Concept answer includes top evidence file/line summary (T029)."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ctx_") as tmp:
+            bundle_dir = _make_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = query_selected_node(
+                bundle, "C_peak", "concept", "peak_idx", "有哪些证据支持？"
+            )
+            self.assertTrue(vm.is_loaded)
+            self.assertIn("Top evidence", vm.answer_text)
+            self.assertIn("peak.py", vm.answer_text)
+            self.assertIn("PeakDetector", vm.answer_text)
+            self.assertIn("strength", vm.answer_text)
+
+    def test_claim_answer_includes_top_evidence(self) -> None:
+        """Claim answer includes top evidence file/line summary (T029)."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ctx_") as tmp:
+            bundle_dir = _make_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = query_selected_node(
+                bundle, "CL_peak", "mapping_claim", "MC_peak_001", "解释当前节点"
+            )
+            self.assertTrue(vm.is_loaded)
+            self.assertIn("Top evidence", vm.answer_text)
+            self.assertIn("EV1", vm.answer_text)
+
+    def test_rtl_answer_includes_top_evidence(self) -> None:
+        """RTL answer includes top evidence from related claims (T029)."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ctx_") as tmp:
+            bundle_dir = _make_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = query_selected_node(
+                bundle, "RTL_peak", "rtl_module", "peak_detect", "解释当前节点"
+            )
+            self.assertTrue(vm.is_loaded)
+            # RTL node should gather evidence from related claims.
+            self.assertIn("Top evidence", vm.answer_text)
 
 
 class TestSafety(unittest.TestCase):

@@ -56,18 +56,21 @@ def query_selected_node(
             load_error="Project understanding graph not found.",
         )
 
+    index = get_project_index(bundle) or {}
+    evidence_index = index.get("evidence_index", {}) if isinstance(index, dict) else {}
+
     # Dispatch by node kind.
     if selected_node_kind == "project":
         return _answer_project_node(graph, selected_node_label, question)
 
     if selected_node_kind == "concept":
-        return _answer_concept_node(graph, selected_node_label, question)
+        return _answer_concept_node(graph, selected_node_label, question, evidence_index)
 
     if selected_node_kind in ("mapping_claim", "claim"):
-        return _answer_claim_node(graph, selected_node_id, selected_node_label, question)
+        return _answer_claim_node(graph, selected_node_id, selected_node_label, question, evidence_index)
 
     if selected_node_kind in ("rtl_module", "rtl_aggregate") or selected_node_kind.startswith("rtl_"):
-        return _answer_rtl_node(graph, selected_node_id, selected_node_label, question)
+        return _answer_rtl_node(graph, selected_node_id, selected_node_label, question, evidence_index)
 
     # Fallback: generic node info.
     lines = [
@@ -137,6 +140,7 @@ def _answer_concept_node(
     graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
     label: str,
     question: str,
+    evidence_index: dict[str, Any] | None = None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPanelResponse:
     """Answer about a concept node."""
     raw_nodes = graph.get("nodes", [])
@@ -209,6 +213,12 @@ def _answer_concept_node(
     elif confidence == "unknown":
         lines.append("该概念当前缺少足够证据，处于 unknown 状态。")
 
+    # Top evidence summary (T029).
+    ev_lines = _format_top_evidence_for_concept(related_claims, evidence_index)
+    if ev_lines:
+        lines.append("")
+        lines.extend(ev_lines)
+
     lines.append("")
     lines.append(
         "💡 提示：在 Evidence 页面可按 claim 查看该概念的所有证据分组。"
@@ -228,6 +238,7 @@ def _answer_claim_node(
     node_id: str,
     label: str,
     question: str,
+    evidence_index: dict[str, Any] | None = None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPanelResponse:
     """Answer about a mapping_claim node."""
     raw_nodes = graph.get("nodes", [])
@@ -305,6 +316,12 @@ def _answer_claim_node(
         if missing_list:
             lines.append("需要补充：{}".format("; ".join(missing_list)))
 
+    # Top evidence summary (T029).
+    ev_lines = _format_top_evidence_for_claim(claim_node, evidence_index)
+    if ev_lines:
+        lines.append("")
+        lines.extend(ev_lines)
+
     lines.append("")
     lines.append(
         "💡 提示：在 Evidence 页面可按 claim 查看该声明的证据分组。"
@@ -325,6 +342,7 @@ def _answer_rtl_node(
     node_id: str,
     label: str,
     question: str,
+    evidence_index: dict[str, Any] | None = None,  # pyright: ignore[reportExplicitAny]
 ) -> AgentPanelResponse:
     """Answer about an rtl_module or rtl_aggregate node."""
     raw_nodes = graph.get("nodes", [])
@@ -390,6 +408,21 @@ def _answer_rtl_node(
             "可能通过 contains 关系被聚合到父模块中。"
         )
 
+    # Top evidence summary (T029).
+    raw_nodes_rtl = graph.get("nodes", [])
+    raw_edges_rtl = graph.get("edges", [])
+    node_by_id_rtl = {n.get("node_id", ""): n for n in raw_nodes_rtl if n.get("node_id")}
+    related_claim_nodes = []
+    for e in raw_edges_rtl:
+        if e.get("edge_type") == "realizes" and e.get("to_node_id") == node_id:
+            from_node = node_by_id_rtl.get(e.get("from_node_id", ""), {})
+            if from_node.get("kind") == "mapping_claim":
+                related_claim_nodes.append(from_node)
+    ev_lines = _format_top_evidence_for_concept(related_claim_nodes, evidence_index)
+    if ev_lines:
+        lines.append("")
+        lines.extend(ev_lines)
+
     lines.append("")
     lines.append(
         "💡 提示：在 Evidence Detail Graph 中可查看该模块下的所有 signal/always/assign 节点。"
@@ -402,3 +435,96 @@ def _answer_rtl_node(
         answer_text="\n".join(lines),
         is_loaded=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# Evidence summary helpers (T029)
+# ---------------------------------------------------------------------------
+
+
+def _format_top_evidence_for_concept(
+    related_claims: list[Any],  # pyright: ignore[reportExplicitAny]
+    evidence_index: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
+) -> list[str]:
+    """Return formatted lines listing top evidence for a concept."""
+    if not evidence_index:
+        return []
+    # First try evidence_ids on claims.
+    ev_ids: list[str] = []
+    for c in related_claims:
+        ids = c.get("evidence_ids", [])
+        if isinstance(ids, list):
+            ev_ids.extend(ids)
+    # Fallback: search evidence_index by concept names.
+    if not ev_ids:
+        concepts: set[str] = set()
+        for c in related_claims:
+            concept = c.get("concept", "")
+            if concept:
+                concepts.add(concept)
+        for eid, info in evidence_index.items():
+            if isinstance(info, dict) and info.get("concept", "") in concepts:
+                ev_ids.append(eid)
+    if not ev_ids:
+        return []
+    return _format_evidence_list(ev_ids, evidence_index)
+
+
+def _format_top_evidence_for_claim(
+    claim_node: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+    evidence_index: dict[str, Any] | None,  # pyright: ignore[reportExplicitAny]
+) -> list[str]:
+    """Return formatted lines listing top evidence for a claim."""
+    if not evidence_index:
+        return []
+    ev_ids = claim_node.get("evidence_ids", [])
+    if isinstance(ev_ids, list) and ev_ids:
+        return _format_evidence_list(ev_ids, evidence_index)
+    # Fallback: search evidence_index by claim concept.
+    concept = claim_node.get("concept", "")
+    if concept:
+        ev_ids = [
+            eid for eid, info in evidence_index.items()
+            if isinstance(info, dict) and info.get("concept", "") == concept
+        ]
+    if not ev_ids:
+        return []
+    return _format_evidence_list(ev_ids, evidence_index)
+
+
+def _format_evidence_list(
+    ev_ids: list[str],
+    evidence_index: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+) -> list[str]:
+    """Format up to 5 evidence items with file/line/symbol/strength."""
+    import re
+    lines = ["Top evidence:"]
+    shown = 0
+    for eid in ev_ids[:5]:
+        info = evidence_index.get(eid)
+        if not isinstance(info, dict):
+            continue
+        file_path = info.get("file_path", "")
+        basename = file_path.split("/")[-1] if file_path else "unknown"
+        symbol = info.get("symbol", "")
+        strength = info.get("strength", "unknown")
+        # Parse line range from evidence_id if present.
+        start_line = ""
+        m = re.search(r":(\d+)(?:-(\d+))?:", eid)
+        if m:
+            start_line = m.group(1)
+            if m.group(2):
+                start_line += "-" + m.group(2)
+        line_info = "{}".format(start_line) if start_line else ""
+        parts = ["  • {}".format(eid)]
+        if basename or line_info:
+            parts.append("    {} {}".format(basename, line_info).strip())
+        if symbol:
+            parts.append("    symbol: {}".format(symbol))
+        parts.append("    strength: {}".format(strength))
+        lines.extend(parts)
+        shown += 1
+    if not shown:
+        return []
+    lines.append("可在 Evidence 页点击证据查看源码上下文。")
+    return lines

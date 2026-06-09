@@ -256,6 +256,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._evidence_header = QtWidgets.QTextEdit()
         self._evidence_groups_layout = QtWidgets.QVBoxLayout()
         self._evidence_detail = QtWidgets.QTextEdit()
+        self._evidence_source_context = QtWidgets.QTextEdit()
         self._evidence_empty = QtWidgets.QLabel()
 
         # Unknowns page widgets
@@ -1454,9 +1455,25 @@ class MainWindow(QtWidgets.QMainWindow):
         loaded_layout.addWidget(detail_label)
         self._evidence_detail = QtWidgets.QTextEdit()
         self._evidence_detail.setReadOnly(True)
-        self._evidence_detail.setMaximumHeight(160)
+        self._evidence_detail.setMaximumHeight(120)
         self._evidence_detail.setPlaceholderText("选中上方表格中的证据行查看解释")
         loaded_layout.addWidget(self._evidence_detail)
+
+        # Source context panel (T029)
+        ctx_label = QtWidgets.QLabel("源码上下文")
+        ctx_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #333;")
+        loaded_layout.addWidget(ctx_label)
+        self._evidence_source_context = QtWidgets.QTextEdit()
+        self._evidence_source_context.setReadOnly(True)
+        self._evidence_source_context.setMaximumHeight(220)
+        self._evidence_source_context.setPlaceholderText(
+            "选中证据后在此显示对应源码/RTL 上下文片段"
+        )
+        self._evidence_source_context.setStyleSheet(
+            "font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; "
+            "font-size: 12px; background-color: #fafafa;"
+        )
+        loaded_layout.addWidget(self._evidence_source_context)
 
         self._evidence_stack.addWidget(loaded_widget)
 
@@ -1478,6 +1495,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     w.deleteLater()
 
         self._evidence_detail.setPlainText("")
+        self._evidence_source_context.setPlainText("")
 
         if self._bundle is None:
             self._evidence_stack.setCurrentIndex(1)
@@ -1633,6 +1651,32 @@ class MainWindow(QtWidgets.QMainWindow):
             lines.append("当前证据强度较低，建议补充更多证据或人工 review。")
 
         self._evidence_detail.setPlainText("\n".join(lines))
+
+        # Build and display source context (T029).
+        self._evidence_source_context.setPlainText("")
+        if self._bundle is not None and row.evidence_id:
+            from fpga_devmind.desktop.source_context_models import (
+                build_source_context_for_evidence,
+            )
+            ctx = build_source_context_for_evidence(self._bundle, row.evidence_id)
+            if ctx.is_loaded:
+                ctx_lines = ["📄 {}  ({} — {} 行)".format(
+                    ctx.file_path, ctx.context_start_line, ctx.context_end_line
+                )]
+                ctx_lines.append("")
+                for sl in ctx.lines:
+                    prefix = "▶" if sl.is_evidence_line else " "
+                    ctx_lines.append("{} {:4d} | {}".format(prefix, sl.line_no, sl.text))
+                ctx_lines.append("")
+                ctx_lines.append(ctx.why_this_matters)
+                if ctx.limitations:
+                    ctx_lines.append("")
+                    ctx_lines.append("⚠ {}".format(ctx.limitations))
+                self._evidence_source_context.setPlainText("\n".join(ctx_lines))
+            elif ctx.load_error:
+                self._evidence_source_context.setPlainText(
+                    "无法加载源码上下文：{}".format(ctx.load_error)
+                )
 
     # ========================================================================
     # Page 3: Unknowns

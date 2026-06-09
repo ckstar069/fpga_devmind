@@ -290,12 +290,27 @@ def _build_project_evidence_page_view_model(
 
         all_rows = l5_l6_rows + rtl_rows
 
+        # Strength distribution (T029).
+        strengths: dict[str, int] = {}
+        for r in all_rows:
+            s = r.evidence_strength or "unknown"
+            strengths[s] = strengths.get(s, 0) + 1
+        strength_parts = ["{}:{}".format(k, v) for k, v in sorted(strengths.items())]
+
+        # Top source files (T029).
+        files: set[str] = set()
+        for r in all_rows:
+            if r.file_path:
+                files.add(r.file_path.split("/")[-1])
+
         title = "Claim: {} (concept={}, confidence={})".format(
             claim_id, concept, confidence
         )
-        desc = "bridge={} | L5/L6={} | RTL={}".format(
-            bridge, len(l5_l6_rows), len(rtl_rows)
+        desc = "bridge={} | L5/L6={} | RTL={} | strength=[{}]".format(
+            bridge, len(l5_l6_rows), len(rtl_rows), ", ".join(strength_parts)
         )
+        if files:
+            desc += " | files={}".format(", ".join(sorted(files)[:3]))
         groups.append(
             EvidenceGroup(
                 title=title,
