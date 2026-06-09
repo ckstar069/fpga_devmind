@@ -12,6 +12,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from fpga_devmind.desktop.artifact_loader import load_bundle
 from fpga_devmind.desktop.agent_trace_view_models import (
@@ -24,7 +25,7 @@ from fpga_devmind.desktop.agent_trace_view_models import (
 # ---------------------------------------------------------------------------
 
 
-def _make_full_agent_runtime_trace() -> dict:
+def _make_full_agent_runtime_trace() -> dict[str, Any]:
     """Build a realistic agent_runtime_trace.json dict."""
     return {
         "schema_version": "agent-runtime-contract-0.1",
@@ -62,7 +63,7 @@ def _make_full_agent_runtime_trace() -> dict:
                 "steps": [
                     {
                         "proposal_id": "PROP_001",
-                        "allowed_action": "read_artifact",
+                        "allowed_action": "read_only_preview",
                         "rationale": "Read trace graph for summary",
                         "expected_read_artifacts": [
                             "concept_trace_graph.json"
@@ -70,7 +71,7 @@ def _make_full_agent_runtime_trace() -> dict:
                     },
                     {
                         "proposal_id": "PROP_002",
-                        "allowed_action": "read_artifact",
+                        "allowed_action": "deterministic_query",
                         "rationale": "Read grounding report",
                         "expected_read_artifacts": [
                             "grounding_report.json"
@@ -112,7 +113,7 @@ def _make_full_agent_runtime_trace() -> dict:
 
 
 def _make_agent_runtime_bundle(
-    trace: dict | None = None,
+    trace: dict[str, Any] | None = None,
     include_answer_md: bool = True,
 ) -> Path:
     """Create a minimal agent_runtime bundle directory."""

@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from PySide6 import QtCore, QtWidgets  # type: ignore[import-untyped]
+from PySide6 import QtCore, QtWidgets  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
 
 from fpga_devmind.desktop.artifact_loader import load_bundle
 from fpga_devmind.desktop.agent_panel_models import (

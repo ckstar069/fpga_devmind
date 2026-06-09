@@ -109,7 +109,7 @@ tests/test_sample_artifacts.py                       — +1 test (agent_runtime 
 9. non-agent_runtime bundle → is_loaded=False
 10. missing trace JSON → load_error
 11. answer limitations shown in summary
-12. graph write allowed → status "allowed"
+12. graph write allowed → status "allowed" (viewer-only: current T016 no-op always produces blocked; "allowed" display proves forward-compatibility with future schema-compatible traces, does not mean the Agent Shell can execute graph writes)
 13. constraints shown in summary
 
 ### test_sample_artifacts.py (+1 test)
@@ -123,7 +123,7 @@ tests/test_sample_artifacts.py                       — +1 test (agent_runtime 
 - No LLM / API key / external API.
 - No Vivado / synthesis / implementation / bitstream.
 - No fpga_project_* mutation.
-- No graph writes (only proposals, displayed as "blocked" or "allowed").
+- No graph writes (only proposals, displayed as "blocked" or "allowed"). T016 no-op runtime generates only "blocked" proposals; "allowed" display exists for forward-compatibility and does not indicate the Agent Shell can modify graphs or target projects.
 - No PASS / HOLD / finding / audit semantics.
 - Pure viewer: read-only display of existing trace JSON.
 - No Web GUI / Electron.

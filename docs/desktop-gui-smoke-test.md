@@ -136,7 +136,7 @@ PYTHONPATH=src python3 -m fpga_devmind.desktop_app --recent
 - **Summary form**: Schema Version, Task ID, Question, Bundle Type, Concept, Constraints, 各 section counts
 - **Steps table**: 按 section 排列的 trace 时间线（task → observation → reasoning → plan → proposal → result → answer → graph_write）
   - 每行显示 Section, ID, Title, Status, Summary, References
-  - Graph Write Proposal 的 Status 应显示 "blocked" 或 "allowed"，绝无 PASS/HOLD
+  - Graph Write Proposal 的 Status 应显示 "blocked"（T016 no-op 生成的全部 blocked）或 "allowed"（仅表示 viewer 能显示未来 schema-compatible trace，当前 Agent Shell 不执行写图，不修改 graph 或目标项目），绝无 PASS/HOLD
 - **Diagnostics table**: runtime_diagnostics 中的条目（Severity, Message）
 
 空状态验证：
