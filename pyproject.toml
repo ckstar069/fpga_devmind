@@ -5,6 +5,9 @@ description = "FPGA development understanding agent prototype"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+desktop = ["PySide6>=6.7,<7"]
+
 [project.scripts]
 fpga-devmind = "fpga_devmind.cli:main"
 

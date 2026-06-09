@@ -22,12 +22,44 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to a P1a or P1b artifact directory",
     )
+    parser.add_argument(
+        "--recent",
+        action="store_true",
+        default=False,
+        help="Auto-select the most recent artifact bundle from /tmp/fpga_devmind",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # Resolve --recent: auto-select the most recent artifact bundle.
+    if args.recent:
+        from fpga_devmind.desktop.sample_artifacts import (
+            find_recent_artifact_bundles,
+        )
+
+        bundles = find_recent_artifact_bundles()
+        if not bundles:
+            print("No artifact bundles found in /tmp/fpga_devmind.")
+            print()
+            print("Generate one first, for example:")
+            print(
+                "  PYTHONPATH=src python3 -m fpga_devmind.cli "
+                "p1b-trace-concept \\"
+            )
+            print(
+                "    --project /path/to/fpga_project_coarse_sync_glm \\"
+            )
+            print("    --concept peak_idx \\")
+            print("    --out /tmp/fpga_devmind/p1b_peak_idx")
+            return 0
+        args.artifact_dir = bundles[0].path
+        print("Auto-selected: {} ({})".format(
+            bundles[0].path, bundles[0].bundle_type
+        ))
 
     # Attempt PySide6 import with graceful fallback.
     try:
@@ -39,7 +71,10 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print("  PySide6 is not installed.")
         print()
-        print("  To install:")
+        print("  To install the desktop extras:")
+        print('    pip install -e ".[desktop]"')
+        print()
+        print("  Or install PySide6 directly:")
         print("    pip3 install pyside6")
         print()
         print("  The loader / view-model layer is available without GUI:")

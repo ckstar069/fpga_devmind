@@ -229,7 +229,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._agent_plan_preview = QtWidgets.QPlainTextEdit()
         self._agent_plan_preview.setReadOnly(True)
         self._agent_plan_preview.setPlaceholderText(
-            "Plan Preview: read-only preview of tools/artifacts a future Agent mode would need."
+            "Load an artifact bundle first."
         )
         self._agent_layout.addWidget(self._agent_plan_preview)
 
@@ -386,6 +386,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_diagnostics(self) -> None:
         self._diag_list.clear()
         if self._bundle is None:
+            self._diag_list.addItem("No bundle loaded.")
             return
         for d in self._bundle.diagnostics:
             label = "[{}]".format(d.severity.upper())
@@ -400,6 +401,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Refresh all Concept Trace sub-tables."""
         self._clear_trace_tables()
         if self._bundle is None:
+            self._set_trace_error("No bundle loaded.")
             return
 
         vm = build_concept_trace_view_model(self._bundle)

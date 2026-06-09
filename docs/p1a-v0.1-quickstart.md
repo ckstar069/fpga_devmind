@@ -336,10 +336,16 @@ PySide6 桌面 Agent Shell 用于浏览 P1a/P1b artifact bundle。
 ### 依赖
 
 ```bash
+pip install -e ".[desktop]"
+```
+
+或直接安装：
+
+```bash
 pip3 install pyside6
 ```
 
-如果未安装，入口点会打印依赖提示并以 exit code 0 退出。
+如果未安装，入口点会打印依赖提示（包含 `pip install -e ".[desktop]"` 命令）并以 exit code 0 退出。
 
 ### 启动
 
@@ -347,6 +353,9 @@ pip3 install pyside6
 # 直接指定 artifact 目录
 PYTHONPATH=src python3 -m fpga_devmind.desktop_app \
   --artifact-dir /tmp/fpga_devmind/p1b_peak_idx
+
+# 自动选择最近的 bundle
+PYTHONPATH=src python3 -m fpga_devmind.desktop_app --recent
 
 # 或先启动再手动选择目录
 PYTHONPATH=src python3 -m fpga_devmind.desktop_app
@@ -418,6 +427,7 @@ P1b + Desktop Shell V0.1 不做：
 - ✅ T015: Agent Runtime Contract — 9 dataclasses + validate_runtime_trace，schema `agent-runtime-contract-0.1`。详见 `docs/tasks/T015-agent-runtime-contract.md`。
 - ✅ T015a: Strengthen cross-reference validation — ToolPlan.steps task_id check, ToolResult.proposal_id existence, Answer limitations auto-ensure。68 tests。361 total。
 - ✅ T016: Local No-op ReAct Dry Run — 确定性单轮 Agent runtime，串联 T011/T012/T015 输出 contract-backed trace。19 tests。380 total。
+- ✅ T014: Desktop Shell Usability Hardening — PySide6 可选依赖、sample artifact 发现、`--recent` 标志、GUI 空状态改善、手工 smoke 文档。6 tests。387 total。
 
 ### Agent No-op Dry Run
 
@@ -440,13 +450,10 @@ PYTHONPATH=src python3 -m fpga_devmind.cli agent-noop-run \
 
 不调用 LLM，不调用外部 API，不执行工具，不修改目标项目，所有 graph write 都 blocked by default。
 
-### 推荐下一步: T014 Desktop Shell usability hardening 或 T017 Desktop Agent Trace Viewer
-
-用 deterministic/noop provider 模拟 observe → plan → propose → answer 单次 loop，基于 T015 定义的 Agent Runtime Contract。不执行危险工具，不调用外部 API。
+### 推荐下一步: T017 Desktop Agent Trace Viewer
 
 ### 后续阶段
 
-- **T014** (可选): Desktop Shell usability hardening — PySide6 依赖策略、sample artifact 命令、GUI smoke 截图文档。
 - **T017** (未来): Desktop Agent Trace Viewer — 在 GUI 中渲染 `agent_runtime_trace.json`。
 - **真实 LLM provider integration** 是更后续阶段，不是当前下一步。
 - P1b+: 批量多概念 trace、partial SystemVerilog parser、跨概念 structural edge。
