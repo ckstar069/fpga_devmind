@@ -209,6 +209,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._page_keys: list[str] = []
         self._last_plan_preview_text: str = ""
 
+        # Selected graph node context (T027)
+        self._selected_node_id: str = ""
+        self._selected_node_kind: str = ""
+        self._selected_node_label: str = ""
+
         # Top bar widgets (initialized in _build_top_bar)
         self._top_project_label = QtWidgets.QLabel()
         self._top_concept_label = QtWidgets.QLabel()
@@ -228,6 +233,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ct_graph_scene: Any = None  # ConceptGraphScene; pyright: ignore[reportExplicitAny]
         self._ct_graph_info = QtWidgets.QLabel()
         self._ct_graph_detail = QtWidgets.QTextEdit()
+        self._ct_ask_agent_btn = QtWidgets.QPushButton()
         self._ct_graph_mode = QtWidgets.QComboBox()
         self._ct_filter_modules = QtWidgets.QCheckBox()
         self._ct_filter_signals = QtWidgets.QCheckBox()
@@ -267,6 +273,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._agent_plan = QtWidgets.QTextEdit()
         self._agent_suggestions = QtWidgets.QWidget()
         self._agent_suggestions_layout = QtWidgets.QHBoxLayout()
+        self._agent_context_label = QtWidgets.QLabel()
+        self._agent_context_btns = QtWidgets.QWidget()
 
         # Agent runtime page widgets
         self._art_stack = QtWidgets.QStackedWidget()
@@ -829,11 +837,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ct_graph_view.setScene(self._ct_graph_scene)
         graph_row.addWidget(self._ct_graph_view, stretch=2)
 
+        # Detail panel with quick agent button (T027)
+        detail_col = QtWidgets.QVBoxLayout()
         self._ct_graph_detail = QtWidgets.QTextEdit()
         self._ct_graph_detail.setReadOnly(True)
         self._ct_graph_detail.setMaximumWidth(280)
         self._ct_graph_detail.setPlaceholderText("点击图节点查看详情")
-        graph_row.addWidget(self._ct_graph_detail, stretch=1)
+        detail_col.addWidget(self._ct_graph_detail, stretch=1)
+
+        self._ct_ask_agent_btn = QtWidgets.QPushButton("🤖 问 Agent 解释此节点")
+        self._ct_ask_agent_btn.setStyleSheet(
+            "background-color: {}; color: white; border: none; "
+            "border-radius: 4px; padding: 6px 12px; font-size: 12px;".format(
+                _ACCENT
+            )
+        )
+        self._ct_ask_agent_btn.setEnabled(False)
+        self._ct_ask_agent_btn.clicked.connect(self._on_ask_agent_about_node)
+        detail_col.addWidget(self._ct_ask_agent_btn)
+        graph_row.addLayout(detail_col, stretch=1)
         layout.addLayout(graph_row)
 
         self._ct_graph_info = QtWidgets.QLabel("")
@@ -956,6 +978,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_graph_node_clicked(self, node: Any) -> None:
         """Handle click on a graph node — show full detail panel."""
+        # Save selected node context (T027).
+        self._selected_node_id = node.node_id
+        self._selected_node_kind = node.kind
+        self._selected_node_label = node.label
+
         lines = ["【选中对象详情】", ""]
         lines.append("Label: {}".format(node.label))
         lines.append("Kind: {}".format(node.kind))
@@ -991,7 +1018,16 @@ class MainWindow(QtWidgets.QMainWindow):
                         for cid in detail.claim_ids:
                             lines.append("  • {}".format(cid))
 
+        # Add quick-link to Agent contextual query (T027).
+        lines.append("")
+        lines.append("【快捷操作】")
+        lines.append("  → 点击下方「问 Agent 解释此节点」按钮")
+        lines.append("    或切换到 Agent 问答页查看 contextual 问题")
+
         self._ct_graph_detail.setPlainText("\n".join(lines))
+
+        # Enable quick agent button (T027).
+        self._ct_ask_agent_btn.setEnabled(True)
 
         # Info line.
         info = "节点: {} | 类型: {} | 可信度: {}".format(
@@ -1102,6 +1138,14 @@ class MainWindow(QtWidgets.QMainWindow):
                     lines.append("\n包含节点:")
                     for k, v in sorted(child_counts.items()):
                         lines.append("  • {}: {}".format(k, v))
+
+    def _on_ask_agent_about_node(self) -> None:
+        """Switch to Agent QA and ask about the currently selected node (T027)."""
+        if not self._selected_node_id:
+            return
+        self._navigate_to("agent_qa")
+        self._agent_question.setText("解释当前节点")
+        self._on_agent_contextual_ask()
 
     def _update_concept_trace(self) -> None:
         self._ct_summary.clear()
@@ -1540,6 +1584,37 @@ class MainWindow(QtWidgets.QMainWindow):
         agent_note.setWordWrap(True)
         layout.addWidget(agent_note)
 
+        # Selected node context (T027)
+        self._agent_context_label = QtWidgets.QLabel("当前选中：无")
+        self._agent_context_label.setStyleSheet(
+            "font-size: 12px; color: #666; padding: 4px 0;"
+        )
+        layout.addWidget(self._agent_context_label)
+
+        self._agent_context_btns = QtWidgets.QWidget()
+        ctx_layout = QtWidgets.QHBoxLayout(self._agent_context_btns)
+        ctx_layout.setContentsMargins(0, 0, 0, 0)
+        ctx_layout.setSpacing(6)
+        ctx_questions = [
+            "解释当前节点",
+            "它为什么重要？",
+            "有哪些证据支持？",
+            "相关 RTL / 概念是什么？",
+            "还有什么不确定？",
+        ]
+        for q in ctx_questions:
+            btn = QtWidgets.QPushButton(q)
+            btn.setStyleSheet(
+                "font-size: 11px; padding: 4px 8px; background-color: #e0e7ff; "
+                "color: #333; border: none; border-radius: 3px;"
+            )
+            btn.clicked.connect(lambda _c=False, t=q: self._on_agent_contextual_quick_ask(t))
+            ctx_layout.addWidget(btn)
+        ctx_layout.addStretch(1)
+        layout.addWidget(self._agent_context_btns)
+
+        layout.addSpacing(8)
+
         # Suggested questions
         sq_label = QtWidgets.QLabel("💡 建议问题")
         sq_label.setStyleSheet("font-size: 13px; color: {};".format(_TEXT_DIM))
@@ -1610,6 +1685,18 @@ class MainWindow(QtWidgets.QMainWindow):
         return page
 
     def _update_agent_qa(self) -> None:
+        # Update selected node context label (T027).
+        if self._selected_node_id:
+            self._agent_context_label.setText(
+                "当前选中：{}（{}）".format(
+                    self._selected_node_label, self._selected_node_kind
+                )
+            )
+            self._agent_context_btns.setEnabled(True)
+        else:
+            self._agent_context_label.setText("当前选中：无（请在概念图中点击节点）")
+            self._agent_context_btns.setEnabled(False)
+
         # Clear suggestion buttons
         while self._agent_suggestions_layout.count():
             item = self._agent_suggestions_layout.takeAt(0)
@@ -1684,6 +1771,66 @@ class MainWindow(QtWidgets.QMainWindow):
         plan_text = self._format_plan_preview(plan)
         self._agent_plan.setPlainText(plan_text)
         self._last_plan_preview_text = plan_text
+
+    def _on_agent_contextual_quick_ask(self, question: str) -> None:
+        """Handle a contextual quick-ask button click (T027)."""
+        self._agent_question.setText(question)
+        self._on_agent_contextual_ask()
+
+    def _on_agent_contextual_ask(self) -> None:
+        """Ask the contextual agent about the currently selected node (T027)."""
+        if self._bundle is None:
+            self._agent_answer.setPlainText("请先加载 artifact bundle。")
+            self._agent_evidence.setPlainText("")
+            self._agent_limitations.setPlainText("")
+            self._agent_plan.setPlainText("")
+            return
+
+        if not self._selected_node_id:
+            self._agent_answer.setPlainText(
+                "未选中任何节点。请在概念图中点击一个节点后再提问。"
+            )
+            self._agent_evidence.setPlainText("")
+            self._agent_limitations.setPlainText("")
+            self._agent_plan.setPlainText("")
+            return
+
+        from fpga_devmind.desktop.contextual_agent_models import query_selected_node
+
+        question = self._agent_question.text().strip() or "解释当前节点"
+        vm = query_selected_node(
+            self._bundle,
+            self._selected_node_id,
+            self._selected_node_kind,
+            self._selected_node_label,
+            question,
+        )
+
+        if not vm.is_loaded:
+            self._agent_answer.setPlainText(vm.load_error or "Contextual query failed.")
+            self._agent_evidence.setPlainText("")
+            self._agent_limitations.setPlainText("")
+            self._agent_plan.setPlainText("")
+            return
+
+        self._agent_answer.setPlainText(vm.answer_text)
+
+        ev_text = ""
+        if vm.referenced_claim_ids:
+            ev_text += "Claims: {}\n".format(", ".join(vm.referenced_claim_ids))
+        if vm.referenced_evidence_ids:
+            ev_text += "Evidence: {}\n".format(", ".join(vm.referenced_evidence_ids))
+        if vm.referenced_diagnostic_ids:
+            ev_text += "Diagnostics: {}".format(", ".join(vm.referenced_diagnostic_ids))
+        self._agent_evidence.setPlainText(ev_text or "无引用证据")
+
+        lim_text = ""
+        if vm.uncertainty_notes:
+            lim_text = "\n".join("- " + note for note in vm.uncertainty_notes)
+        self._agent_limitations.setPlainText(lim_text or "无已知限制")
+
+        # Contextual queries don't generate plans; reuse last or clear.
+        self._agent_plan.setPlainText("(Contextual query — no plan preview)")
 
     def _format_plan_preview(self, plan: AgentPlanPreview) -> str:
         if not plan.is_loaded:
