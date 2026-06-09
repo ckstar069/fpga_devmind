@@ -478,7 +478,7 @@ class TestProjectGraphOverviewAggregation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
-            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.OVERVIEW)
+            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW)
             self.assertTrue(vm.is_loaded)
             kinds = {n.kind for n in vm.nodes}
             self.assertNotIn("rtl_signal", kinds)
@@ -492,7 +492,7 @@ class TestProjectGraphOverviewAggregation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
-            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.OVERVIEW)
+            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW)
             self.assertTrue(vm.is_loaded)
             kinds = {n.kind for n in vm.nodes}
             self.assertIn("project", kinds)
@@ -505,7 +505,7 @@ class TestProjectGraphOverviewAggregation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
-            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.OVERVIEW)
+            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW)
             # The M1 module should still be visible.
             module_node = next((n for n in vm.nodes if n.node_id == "M1"), None)
             self.assertIsNotNone(module_node)
@@ -515,7 +515,7 @@ class TestProjectGraphOverviewAggregation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
-            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.OVERVIEW)
+            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW)
             # CL_1 has edges to S1 and A1; both are hidden and should aggregate.
             agg_edges = [e for e in vm.edges if e.from_id == "CL_1" and e.evidence_count >= 2]
             self.assertTrue(len(agg_edges) > 0 or True)  # At least aggregated
@@ -538,7 +538,7 @@ class TestProjectGraphOverviewAggregation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
-            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.OVERVIEW)
+            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW)
             shared = [e for e in vm.edges if e.edge_type == "shares_file"]
             for e in shared:
                 self.assertEqual(e.confidence, "inferred")
@@ -548,7 +548,7 @@ class TestProjectGraphOverviewAggregation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
-            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.OVERVIEW)
+            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW)
             visible_ids = {n.node_id for n in vm.nodes}
             for e in vm.edges:
                 self.assertIn(e.from_id, visible_ids, "dangling from_id: {}".format(e.from_id))
@@ -559,7 +559,7 @@ class TestProjectGraphOverviewAggregation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
-            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.OVERVIEW)
+            vm = build_concept_graph_view_model(bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW)
             self.assertTrue(vm.raw_node_count > 0)
             self.assertTrue(vm.hidden_node_count > 0)
             self.assertTrue(vm.aggregated_edge_count >= 0)
@@ -574,7 +574,7 @@ class TestFocusMode(unittest.TestCase):
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
             vm = build_concept_graph_view_model(
-                bundle, mode=ProjectGraphDisplayMode.OVERVIEW
+                bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW
             )
             vm.focus_enabled = True
             vm.selected_node_id = ""
@@ -586,7 +586,7 @@ class TestFocusMode(unittest.TestCase):
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
             vm = build_concept_graph_view_model(
-                bundle, mode=ProjectGraphDisplayMode.OVERVIEW
+                bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW
             )
             vm.focus_enabled = True
             vm.focus_depth = 1
@@ -601,7 +601,7 @@ class TestFocusMode(unittest.TestCase):
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
             vm = build_concept_graph_view_model(
-                bundle, mode=ProjectGraphDisplayMode.OVERVIEW
+                bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW
             )
             vm.focus_enabled = True
             vm.focus_depth = 2
@@ -617,7 +617,7 @@ class TestFocusMode(unittest.TestCase):
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
             vm = build_concept_graph_view_model(
-                bundle, mode=ProjectGraphDisplayMode.OVERVIEW
+                bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW
             )
             vm.focus_enabled = False
             vm.selected_node_id = "C_peak"
@@ -629,7 +629,7 @@ class TestFocusMode(unittest.TestCase):
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
             vm = build_concept_graph_view_model(
-                bundle, mode=ProjectGraphDisplayMode.OVERVIEW
+                bundle, mode=ProjectGraphDisplayMode.RTL_OVERVIEW
             )
             vm.focus_enabled = True
             vm.focus_depth = 1

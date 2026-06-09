@@ -479,6 +479,11 @@ def _build_project_overview(
     lines.append(
         "项目级理解图展示了概念之间的结构关系（shared file / shared RTL）。"
     )
+    lines.append("")
+    lines.append("下一步：")
+    lines.append("  • 点击左侧「概念追踪」查看 Summary 图")
+    lines.append("  • 在图中点击 Concept / Claim 节点查看右侧理解卡")
+    lines.append("  • 使用「📄 证据」按钮查看证据详情")
 
     # Limitations from graph diagnostics.
     limitations: list[str] = []

@@ -809,43 +809,54 @@ class MainWindow(QtWidgets.QMainWindow):
         # Graph mode selector + filter bar
         graph_ctrl = QtWidgets.QHBoxLayout()
         self._ct_graph_mode = QtWidgets.QComboBox()
-        self._ct_graph_mode.addItem("Overview", "overview")
+        self._ct_graph_mode.addItem("Summary", "summary")
+        self._ct_graph_mode.addItem("RTL Overview", "rtl_overview")
         self._ct_graph_mode.addItem("Evidence Detail", "evidence_detail")
+        self._ct_graph_mode.setCurrentIndex(0)
         self._ct_graph_mode.currentIndexChanged.connect(self._on_graph_mode_changed)
-        graph_ctrl.addWidget(QtWidgets.QLabel("视图模式:"))
+        mode_label = QtWidgets.QLabel("视图模式:")
+        mode_label.setStyleSheet("color: #111827; font-size: 12px;")
+        graph_ctrl.addWidget(mode_label)
         graph_ctrl.addWidget(self._ct_graph_mode)
         graph_ctrl.addSpacing(16)
 
+        _CB_STYLE = "color: #111827; font-size: 12px;"
         self._ct_filter_modules = QtWidgets.QCheckBox("模块")
         self._ct_filter_modules.setChecked(True)
+        self._ct_filter_modules.setStyleSheet(_CB_STYLE)
         self._ct_filter_modules.stateChanged.connect(self._on_graph_filter_changed)
         graph_ctrl.addWidget(self._ct_filter_modules)
         self._ct_filter_signals = QtWidgets.QCheckBox("信号")
         self._ct_filter_signals.setChecked(True)
+        self._ct_filter_signals.setStyleSheet(_CB_STYLE)
         self._ct_filter_signals.stateChanged.connect(self._on_graph_filter_changed)
         graph_ctrl.addWidget(self._ct_filter_signals)
         self._ct_filter_always = QtWidgets.QCheckBox("always/assign")
         self._ct_filter_always.setChecked(True)
+        self._ct_filter_always.setStyleSheet(_CB_STYLE)
         self._ct_filter_always.stateChanged.connect(self._on_graph_filter_changed)
         graph_ctrl.addWidget(self._ct_filter_always)
         self._ct_filter_weak = QtWidgets.QCheckBox("weak 证据")
         self._ct_filter_weak.setChecked(True)
+        self._ct_filter_weak.setStyleSheet(_CB_STYLE)
         self._ct_filter_weak.stateChanged.connect(self._on_graph_filter_changed)
         graph_ctrl.addWidget(self._ct_filter_weak)
         graph_ctrl.addSpacing(16)
 
         self._ct_focus_toggle = QtWidgets.QCheckBox("聚焦选中节点")
         self._ct_focus_toggle.setChecked(False)
+        self._ct_focus_toggle.setStyleSheet(_CB_STYLE)
         self._ct_focus_toggle.setToolTip("仅显示选中节点及其邻居（默认2跳）")
         self._ct_focus_toggle.stateChanged.connect(self._on_focus_toggle_changed)
         graph_ctrl.addWidget(self._ct_focus_toggle)
         graph_ctrl.addStretch(1)
         layout.addLayout(graph_ctrl)
 
-        # Graph + detail panel
-        graph_row = QtWidgets.QHBoxLayout()
+        # Graph + detail panel — use splitter for flexible sizing (T031)
+        graph_row = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
         self._ct_graph_view = QtWidgets.QGraphicsView()
         self._ct_graph_view.setMinimumHeight(280)
+        self._ct_graph_view.setMinimumWidth(300)
         self._ct_graph_view.setRenderHints(
             QtGui.QPainter.RenderHint.Antialiasing
             | QtGui.QPainter.RenderHint.SmoothPixmapTransform
@@ -853,14 +864,28 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ct_graph_scene = ConceptGraphScene()
         self._ct_graph_scene.node_clicked.connect(self._on_graph_node_clicked)
         self._ct_graph_view.setScene(self._ct_graph_scene)
-        graph_row.addWidget(self._ct_graph_view, stretch=2)
+        graph_row.addWidget(self._ct_graph_view)
 
-        # Detail panel with quick agent button (T027)
-        detail_col = QtWidgets.QVBoxLayout()
+        # Detail panel with quick agent button (T027/T031)
+        detail_widget = QtWidgets.QWidget()
+        detail_col = QtWidgets.QVBoxLayout(detail_widget)
+        detail_col.setContentsMargins(4, 0, 0, 0)
+
+        detail_header = QtWidgets.QLabel("理解卡")
+        detail_header.setStyleSheet("font-size: 13px; font-weight: bold; color: #111827; padding: 2px 0;")
+        detail_col.addWidget(detail_header)
+
         self._ct_graph_detail = QtWidgets.QTextEdit()
         self._ct_graph_detail.setReadOnly(True)
-        self._ct_graph_detail.setMaximumWidth(380)
-        self._ct_graph_detail.setPlaceholderText("点击图节点查看详情")
+        self._ct_graph_detail.setMinimumWidth(280)
+        self._ct_graph_detail.setMaximumWidth(480)
+        self._ct_graph_detail.setStyleSheet(
+            "QTextEdit { font-size: 12px; color: #111827; background: #ffffff; "
+            "border: 1px solid #d1d5db; border-radius: 4px; padding: 6px; }"
+        )
+        self._ct_graph_detail.setPlaceholderText(
+            "点击左侧图中的 Project / Concept / Claim / RTL 节点查看理解卡。"
+        )
         detail_col.addWidget(self._ct_graph_detail, stretch=1)
 
         # Quick action buttons (T028)
@@ -896,8 +921,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ct_ask_agent_btn.setEnabled(False)
         self._ct_ask_agent_btn.clicked.connect(self._on_ask_agent_about_node)
         detail_col.addWidget(self._ct_ask_agent_btn)
-        graph_row.addLayout(detail_col, stretch=1)
-        layout.addLayout(graph_row)
+        graph_row.addWidget(detail_widget)
+        graph_row.setStretchFactor(0, 2)
+        graph_row.setStretchFactor(1, 1)
+        layout.addWidget(graph_row)
 
         self._ct_graph_info = QtWidgets.QLabel("")
         self._ct_graph_info.setStyleSheet(
@@ -982,7 +1009,7 @@ class MainWindow(QtWidgets.QMainWindow):
             build_concept_graph_view_model,
         )
         vm = build_concept_graph_view_model(
-            self._bundle, mode=mode or ProjectGraphDisplayMode.OVERVIEW
+            self._bundle, mode=mode or ProjectGraphDisplayMode.SUMMARY
         )
         if not vm.is_loaded:
             return
@@ -1004,7 +1031,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ) if vm.focus_enabled else (
                 "Overview: {} 节点 (隐藏 {} 个底层证据节点)".format(
                     len(vm.nodes), vm.hidden_node_count
-                ) if vm.mode == ProjectGraphDisplayMode.OVERVIEW else (
+                ) if vm.mode == ProjectGraphDisplayMode.SUMMARY else (
                     "Evidence Detail: {} 节点 (原始全量)".format(len(vm.nodes))
                 )
             )
@@ -1020,7 +1047,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         mode = self._ct_graph_mode.currentData()
         vm = build_concept_graph_view_model(
-            self._bundle, mode=mode or ProjectGraphDisplayMode.OVERVIEW
+            self._bundle, mode=mode or ProjectGraphDisplayMode.SUMMARY
         )
         if not vm.is_loaded:
             return
@@ -1044,7 +1071,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         mode = self._ct_graph_mode.currentData()
         vm = build_concept_graph_view_model(
-            self._bundle, mode=mode or ProjectGraphDisplayMode.OVERVIEW
+            self._bundle, mode=mode or ProjectGraphDisplayMode.SUMMARY
         )
         if not vm.is_loaded:
             return
@@ -1066,7 +1093,7 @@ class MainWindow(QtWidgets.QMainWindow):
         ) if vm.focus_enabled else (
             "Overview: {} 节点 (隐藏 {} 个底层证据节点)".format(
                 len(vm.nodes), vm.hidden_node_count
-            ) if vm.mode == ProjectGraphDisplayMode.OVERVIEW else (
+            ) if vm.mode == ProjectGraphDisplayMode.SUMMARY else (
                 "Evidence Detail: {} 节点 (原始全量)".format(len(vm.nodes))
             )
         )
@@ -1268,7 +1295,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_concept_trace(self) -> None:
         self._ct_summary.clear()
         self._ct_graph_info.clear()
-        self._ct_graph_detail.setPlainText("点击图节点查看详情")
+        self._ct_graph_detail.setPlainText(
+            "点击左侧图中的 Project / Concept / Claim / RTL 节点查看理解卡。"
+        )
         for table in [
             self._ct_nodes_table,
             self._ct_edges_table,
@@ -1310,7 +1339,7 @@ class MainWindow(QtWidgets.QMainWindow):
             from fpga_devmind.desktop.concept_graph_view import ProjectGraphDisplayMode
             gvm = build_concept_graph_view_model(
                 self._bundle,
-                mode=mode or ProjectGraphDisplayMode.OVERVIEW,
+                mode=mode or ProjectGraphDisplayMode.SUMMARY,
             )
             if gvm.is_loaded:
                 gvm.filter_state = GraphFilterState(
@@ -1328,7 +1357,7 @@ class MainWindow(QtWidgets.QMainWindow):
         mode = self._ct_graph_mode.currentData() if hasattr(self, "_ct_graph_mode") else "overview"
         from fpga_devmind.desktop.concept_graph_view import ProjectGraphDisplayMode
         gvm = build_concept_graph_view_model(
-            self._bundle, mode=mode or ProjectGraphDisplayMode.OVERVIEW
+            self._bundle, mode=mode or ProjectGraphDisplayMode.SUMMARY
         )
         if gvm.is_loaded:
             gvm.filter_state = GraphFilterState(
@@ -1349,7 +1378,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ) if gvm.focus_enabled else (
                 "Overview: {} 节点 (隐藏 {} 个底层证据节点)".format(
                     len(gvm.nodes), gvm.hidden_node_count
-                ) if gvm.mode == ProjectGraphDisplayMode.OVERVIEW else (
+                ) if gvm.mode == ProjectGraphDisplayMode.SUMMARY else (
                     "Evidence Detail: {} 节点 (原始全量)".format(len(gvm.nodes))
                 )
             )

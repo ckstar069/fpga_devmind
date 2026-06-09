@@ -118,9 +118,10 @@ class GraphFilterState:
 
 
 class ProjectGraphDisplayMode:
-    """Display modes for project-level concept graphs (T025)."""
+    """Display modes for project-level concept graphs (T025/T031)."""
 
-    OVERVIEW = "overview"
+    SUMMARY = "summary"
+    RTL_OVERVIEW = "rtl_overview"
     EVIDENCE_DETAIL = "evidence_detail"
 
 
@@ -133,7 +134,7 @@ class ConceptGraphViewModel:
     is_loaded: bool = False
     load_error: str | None = None
     filter_state: GraphFilterState = field(default_factory=GraphFilterState)
-    mode: str = ProjectGraphDisplayMode.OVERVIEW
+    mode: str = ProjectGraphDisplayMode.SUMMARY
     raw_node_count: int = 0
     hidden_node_count: int = 0
     aggregated_edge_count: int = 0
@@ -219,7 +220,7 @@ class ConceptGraphViewModel:
 
 def build_concept_graph_view_model(
     bundle: ArtifactBundle,
-    mode: str = ProjectGraphDisplayMode.OVERVIEW,
+    mode: str = ProjectGraphDisplayMode.SUMMARY,
 ) -> ConceptGraphViewModel:
     """Build a concept graph view model from a P1b or project bundle.
 
@@ -419,13 +420,15 @@ def build_concept_graph_view_model(
 
 def _build_project_graph_vm(
     bundle: ArtifactBundle,
-    mode: str = ProjectGraphDisplayMode.OVERVIEW,
+    mode: str = ProjectGraphDisplayMode.SUMMARY,
 ) -> ConceptGraphViewModel:
     """Build a graph view model from a project-level understanding bundle.
 
     *mode*:
-      - OVERVIEW: aggregate rtl_signal/always/assign/comment under their
-        parent rtl_module/file nodes; hide weak/comment-only evidence.
+      - SUMMARY (default): only project → concepts → claims.
+        No claim → RTL realizes edges.  Clean high-level view.
+      - RTL_OVERVIEW: aggregate rtl_signal/always/assign/comment under their
+        parent rtl_module/file nodes; show realizes edges.
       - EVIDENCE_DETAIL: show every raw node/edge.
     """
     graph = get_project_graph(bundle)
@@ -500,7 +503,35 @@ def _build_project_graph_vm(
         return vm
 
     # ---------------------------------------------------------------
-    # OVERVIEW mode: aggregate fine-grained RTL nodes
+    # SUMMARY mode: project → concepts → claims only (T031)
+    # ---------------------------------------------------------------
+    if mode == ProjectGraphDisplayMode.SUMMARY:
+        summary_kinds = {"project", "concept", "mapping_claim"}
+        summary_nodes = [n for n in all_nodes if n.kind in summary_kinds]
+        summary_node_ids = {n.node_id for n in summary_nodes}
+        # Keep contains, has_claim, shares_file/shared_rtl_object edges.
+        # Exclude realizes edges entirely.
+        skip_edge_types = {"realizes"}
+        summary_edges: list[GraphEdge] = []
+        for e in all_edges:
+            if e.edge_type in skip_edge_types:
+                continue
+            if e.from_id in summary_node_ids and e.to_id in summary_node_ids:
+                summary_edges.append(e)
+        # Use 3-column layout for summary (no RTL column).
+        _layout_summary_nodes(summary_nodes)
+        return ConceptGraphViewModel(
+            nodes=summary_nodes,
+            edges=summary_edges,
+            is_loaded=True,
+            mode=mode,
+            raw_node_count=len(all_nodes),
+            hidden_node_count=len(all_nodes) - len(summary_nodes),
+            aggregated_edge_count=len(summary_edges),
+        )
+
+    # ---------------------------------------------------------------
+    # RTL_OVERVIEW mode: aggregate fine-grained RTL nodes
     # ---------------------------------------------------------------
     hidden_kinds = {
         "rtl_signal",
@@ -655,6 +686,40 @@ def _build_project_graph_vm(
     if dangling:
         vm.load_error = "忽略 {} 条 dangling edge".format(len(dangling))
     return vm
+
+
+def _layout_summary_nodes(nodes: list[GraphNode]) -> None:
+    """Assign (x, y) positions for the Summary 3-column layout.
+
+    Columns: project(0) → concept(1) → mapping_claim(2).
+    No RTL column — keeps the graph clean and readable.
+    """
+    project: list[GraphNode] = []
+    concepts: list[GraphNode] = []
+    claims: list[GraphNode] = []
+
+    for node in nodes:
+        kind = node.kind
+        if kind == "project":
+            project.append(node)
+        elif kind == "concept":
+            concepts.append(node)
+        elif kind in ("mapping_claim", "claim"):
+            claims.append(node)
+
+    col_width = 240
+    row_height = 60
+    margin = 40
+
+    def _place_column(column: list[GraphNode], col_idx: int) -> None:
+        x = margin + col_idx * col_width
+        for i, node in enumerate(column):
+            node.x = x
+            node.y = margin + i * row_height
+
+    _place_column(project, 0)
+    _place_column(concepts, 1)
+    _place_column(claims, 2)
 
 
 def _layout_project_nodes(nodes: list[GraphNode]) -> None:
