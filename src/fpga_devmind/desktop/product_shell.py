@@ -12,13 +12,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from fpga_devmind.desktop.artifact_loader import load_bundle
 from fpga_devmind.desktop.agent_panel_models import query_artifact_bundle
 from fpga_devmind.desktop.agent_plan_models import (
     AgentPlanPreview,
     build_agent_plan_preview,
+)
+from fpga_devmind.desktop.concept_graph_view import (
+    ConceptGraphScene,
+    build_concept_graph_view_model,
 )
 from fpga_devmind.desktop.trace_view_models import (
     build_concept_trace_view_model,
@@ -213,6 +217,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ov_suggestions_layout = QtWidgets.QVBoxLayout()
 
         # Concept trace page widgets
+        self._ct_graph_view = QtWidgets.QGraphicsView()
+        self._ct_graph_scene: Any = None  # ConceptGraphScene; pyright: ignore[reportExplicitAny]
+        self._ct_graph_info = QtWidgets.QLabel()
         self._ct_summary = QtWidgets.QTextEdit()
         self._ct_nodes_table = QtWidgets.QTableWidget()
         self._ct_edges_table = QtWidgets.QTableWidget()
@@ -222,6 +229,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Evidence page widgets
         self._evidence_stack = QtWidgets.QStackedWidget()
+        self._evidence_header = QtWidgets.QTextEdit()
         self._evidence_groups_layout = QtWidgets.QVBoxLayout()
         self._evidence_empty = QtWidgets.QLabel()
 
@@ -751,6 +759,29 @@ class MainWindow(QtWidgets.QMainWindow):
         page = self._make_page_widget("概念追踪")
         layout = getattr(page, "_content_layout")
 
+        # Concept Graph (graph first — T022)
+        graph_label = QtWidgets.QLabel("概念图")
+        graph_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #333;")
+        layout.addWidget(graph_label)
+
+        self._ct_graph_view = QtWidgets.QGraphicsView()
+        self._ct_graph_view.setMinimumHeight(280)
+        self._ct_graph_view.setRenderHints(
+            QtGui.QPainter.RenderHint.Antialiasing
+            | QtGui.QPainter.RenderHint.SmoothPixmapTransform
+        )
+        self._ct_graph_scene = ConceptGraphScene()
+        self._ct_graph_scene.node_clicked.connect(self._on_graph_node_clicked)
+        self._ct_graph_view.setScene(self._ct_graph_scene)
+        layout.addWidget(self._ct_graph_view)
+
+        self._ct_graph_info = QtWidgets.QLabel("")
+        self._ct_graph_info.setStyleSheet(
+            "color: {}; font-size: 12px; padding: 4px 0px;".format(_TEXT_DIM)
+        )
+        self._ct_graph_info.setWordWrap(True)
+        layout.addWidget(self._ct_graph_info)
+
         # Three-section summary
         summary_label = QtWidgets.QLabel("理解摘要")
         summary_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #333;")
@@ -817,8 +848,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
         return page
 
+    def _on_graph_node_clicked(self, node: Any) -> None:
+        """Handle click on a graph node."""
+        info = "节点: {} | 类型: {} | 可信度: {}".format(
+            node.label, node.kind, node.confidence or "—"
+        )
+        if node.evidence_count:
+            info += " | 证据: {} 条".format(node.evidence_count)
+        self._ct_graph_info.setText(info)
+
     def _update_concept_trace(self) -> None:
         self._ct_summary.clear()
+        self._ct_graph_info.clear()
         for table in [
             self._ct_nodes_table,
             self._ct_edges_table,
@@ -832,6 +873,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._ct_summary.setPlainText(
                 "请先加载 P1b concept trace bundle。\n"
                 "使用顶部 Load 按钮或项目设置页面选择 artifact 目录。"
+            )
+            self._ct_graph_scene.set_view_model(
+                build_concept_graph_view_model(load_bundle(Path("/nonexistent")))
             )
             return
 
@@ -848,9 +892,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._ct_summary.setPlainText(
                     vm.load_error or "无法加载概念 trace 数据。"
                 )
+            self._ct_graph_scene.set_view_model(
+                build_concept_graph_view_model(self._bundle)
+            )
             return
 
         self._ct_summary.setPlainText(format_concept_trace_summary(vm))
+        self._ct_graph_scene.set_view_model(
+            build_concept_graph_view_model(self._bundle)
+        )
 
         # Populate tables
         self._ct_nodes_table.setRowCount(len(vm.nodes))
@@ -919,7 +969,27 @@ class MainWindow(QtWidgets.QMainWindow):
         loaded_widget = QtWidgets.QWidget()
         loaded_layout = QtWidgets.QVBoxLayout(loaded_widget)
         loaded_layout.setContentsMargins(0, 0, 0, 0)
-        self._evidence_groups_layout = loaded_layout
+
+        # Evidence strength explanation header
+        self._evidence_header = QtWidgets.QTextEdit()
+        self._evidence_header.setReadOnly(True)
+        self._evidence_header.setMaximumHeight(120)
+        self._evidence_header.setPlainText(
+            "证据强度说明：\n"
+            "  • strong — 高置信度匹配，可直接支撑 mapping claim\n"
+            "  • medium — 中等置信度，需要额外验证或上下文确认\n"
+            "  • weak — 低置信度，仅供参考，不建议单独作为映射依据\n"
+            "  • unknown — 未评估或无法判断强度\n"
+            "\n证据越多、越强，mapping claim 的可信度就越高。"
+        )
+        loaded_layout.addWidget(self._evidence_header)
+
+        # Dynamic groups container (separate from header)
+        groups_widget = QtWidgets.QWidget()
+        self._evidence_groups_layout = QtWidgets.QVBoxLayout(groups_widget)
+        self._evidence_groups_layout.setContentsMargins(0, 0, 0, 0)
+        loaded_layout.addWidget(groups_widget, stretch=1)
+
         self._evidence_stack.addWidget(loaded_widget)
 
         # Page 1: empty/error

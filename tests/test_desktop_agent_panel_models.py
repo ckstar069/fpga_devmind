@@ -239,8 +239,8 @@ class TestAgentPanelModels(unittest.TestCase):
             self.assertTrue(vm.is_loaded)
             self.assertEqual(vm.response_kind, "summary")
             self.assertIn("peak_idx", vm.answer_text)
-            self.assertIn("Mapping claims: 2", vm.answer_text)
-            self.assertIn("Nodes: 2", vm.answer_text)
+            self.assertIn("映射声明", vm.answer_text)
+            self.assertIn("节点", vm.answer_text)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -444,7 +444,7 @@ class TestAgentPanelModels(unittest.TestCase):
             vm = query_artifact_bundle(bundle, "MC_nonexistent_999")
             self.assertTrue(vm.is_loaded)
             self.assertEqual(vm.response_kind, "claim_detail")
-            self.assertIn("not found", vm.answer_text)
+            self.assertIn("未找到声明", vm.answer_text)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -475,7 +475,7 @@ class TestAgentPanelModels(unittest.TestCase):
             vm = query_artifact_bundle(bundle, "E:nonexistent")
             self.assertTrue(vm.is_loaded)
             self.assertEqual(vm.response_kind, "evidence_detail")
-            self.assertIn("not found", vm.answer_text)
+            self.assertIn("未找到证据", vm.answer_text)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -669,9 +669,9 @@ class TestAgentPanelModels(unittest.TestCase):
             self.assertTrue(vm.is_loaded)
             self.assertEqual(vm.response_kind, "claim_detail")
             # GD_0001 duplicated in graph + grounding should count as 1.
-            self.assertIn("Diagnostics: 2", vm.answer_text)
+            self.assertIn("关联诊断：2 条", vm.answer_text)
             # Should NOT say 3 (1 unique + 2 duplicates).
-            self.assertNotIn("Diagnostics: 3", vm.answer_text)
+            self.assertNotIn("关联诊断：3 条", vm.answer_text)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
