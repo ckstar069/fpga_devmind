@@ -51,6 +51,9 @@ export interface ConceptInfo {
   claims: number;
   evidence: number;
   rtl_objects: number;
+  l5_count?: number;
+  l6_count?: number;
+  test_count?: number;
 }
 
 export interface ClaimInfo {
@@ -65,6 +68,7 @@ export interface ProjectIndex {
   concept_index: Record<string, ConceptInfo>;
   claim_index: Record<string, ClaimInfo>;
   evidence_index: Record<string, EvidenceEntry>;
+  evidence_chain?: Record<string, EvidenceChain>;
 }
 
 export interface RunMetadata {
@@ -206,4 +210,50 @@ export interface ConceptTableRow {
   confidence: string;
   evidence_count: number;
   limitations: string;
+  l5_count: number;
+  l6_count: number;
+  rtl_ev_count: number;
+  test_count: number;
+  uncertainty: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  T035: Evidence Chain, Concept Discovery, Project List            */
+/* ------------------------------------------------------------------ */
+
+/** Stage-categorized evidence chain for a concept */
+export interface EvidenceChain {
+  l5_l6_evidence: EvidenceChainItem[];
+  claims: { claim_id: string; bridge_kind: string; confidence: string }[];
+  rtl_evidence: EvidenceChainItem[];
+  test_evidence: EvidenceChainItem[];
+  missing: string[];
+}
+
+export interface EvidenceChainItem {
+  evidence_id: string;
+  file_path: string;
+  symbol: string;
+  strength: string;
+}
+
+/** Auto-discovered concept candidate */
+export interface ConceptCandidate {
+  name: string;
+  source_sections: string[];
+  occurrence_count: number;
+  confidence: string;
+  reason: string;
+  representative_files: string[];
+  likely_stage: string;
+}
+
+/** FPGA project info from list_fpga_projects */
+export interface ProjectInfo {
+  project_id: string;
+  path: string;
+  has_L5: boolean;
+  has_L6: boolean;
+  has_RTL: boolean;
+  has_tests: boolean;
 }

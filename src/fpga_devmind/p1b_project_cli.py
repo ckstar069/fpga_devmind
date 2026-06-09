@@ -62,6 +62,27 @@ def run_p1b_trace_project(
     if not concepts:
         raise ValueError("At least one concept must be specified (--concepts).")
 
+    # --- Auto-discovery (T035) ---
+    discovery_metadata: dict[str, Any] = {}
+    if len(concepts) == 1 and concepts[0] == "auto":
+        from .p1b_discovery import discover_concepts
+
+        discovery_result = discover_concepts(project_root)
+        discovered = [c.name for c in discovery_result.candidates]
+        max_concepts = 12  # default
+        concepts = discovered[:max_concepts]
+        discovery_metadata = {
+            "discovery_used": True,
+            "discovered_count": len(discovered),
+            "discovered_concepts": discovered,
+            "selected_concepts": concepts,
+            "skipped_count": max(0, len(discovered) - max_concepts),
+        }
+        if not concepts:
+            raise ValueError("Auto-discovery found no concept candidates.")
+    else:
+        discovery_metadata = {"discovery_used": False}
+
     safe_out = ensure_safe_output_dir(out_dir, label="project trace output")
     safe_out.mkdir(parents=True, exist_ok=True)
     t_start = time.monotonic()
@@ -170,6 +191,7 @@ def run_p1b_trace_project(
             "run_metadata.json",
         ],
     }
+    metadata.update(discovery_metadata)
     _write_json(safe_out / "run_metadata.json", metadata)
 
     return metadata
@@ -402,6 +424,25 @@ def _build_project_index(
             "rtl_objects": rtl_count,
         }
 
+        # Stage-categorized evidence counts (T035)
+        l5_count = 0
+        l6_count = 0
+        test_count = 0
+        for ei in graph.get("evidence_items", []):
+            fp = ei.get("file_path", "")
+            if "L5_fixedpoint" in fp:
+                l5_count += 1
+            elif "L6_resource_opt" in fp:
+                l6_count += 1
+            elif "test" in fp.lower() or fp.startswith(str(project_root / "tests")):
+                test_count += 1
+
+        concept_index[concept].update({
+            "l5_count": l5_count,
+            "l6_count": l6_count,
+            "test_count": test_count,
+        })
+
         # Claim index.
         for claim in graph.get("mapping_claims", []):
             cid = claim.get("claim_id", "")
@@ -441,6 +482,54 @@ def _build_project_index(
                     name = node.get("label", "")
                     rtl_object_index.setdefault(name, []).append(concept)
 
+    # Build evidence chains per concept (T035)
+    evidence_chain: dict[str, dict[str, Any]] = {}
+    for result in results:
+        concept = result.concept
+        graph = result.graph
+        if graph is None:
+            continue
+
+        chain: dict[str, Any] = {
+            "l5_l6_evidence": [],
+            "claims": [],
+            "rtl_evidence": [],
+            "test_evidence": [],
+            "missing": [],
+        }
+
+        for ei in graph.get("evidence_items", []):
+            entry = {
+                "evidence_id": ei.get("evidence_id", ""),
+                "file_path": ei.get("file_path", ""),
+                "symbol": ei.get("symbol", ""),
+                "strength": ei.get("evidence_strength", ""),
+            }
+            fp = ei.get("file_path", "")
+            if "L5_fixedpoint" in fp or "L6_resource_opt" in fp:
+                chain["l5_l6_evidence"].append(entry)
+            elif "test" in fp.lower():
+                chain["test_evidence"].append(entry)
+            else:
+                chain["rtl_evidence"].append(entry)
+
+        for claim in graph.get("mapping_claims", []):
+            chain["claims"].append({
+                "claim_id": claim.get("claim_id", ""),
+                "bridge_kind": claim.get("bridge_kind", ""),
+                "confidence": claim.get("confidence", ""),
+            })
+
+        # Missing evidence indicators
+        if not chain["l5_l6_evidence"]:
+            chain["missing"].append("L5/L6 evidence")
+        if not chain["rtl_evidence"]:
+            chain["missing"].append("RTL evidence")
+        if not chain["test_evidence"]:
+            chain["missing"].append("test evidence")
+
+        evidence_chain[concept] = chain
+
     return {
         "schema_version": PROJECT_SCHEMA_VERSION,
         "project_id": project_root.name or "project",
@@ -450,6 +539,7 @@ def _build_project_index(
         "node_index": node_index,
         "file_index": file_index,
         "rtl_object_index": rtl_object_index,
+        "evidence_chain": evidence_chain,
     }
 
 

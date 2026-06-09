@@ -141,7 +141,7 @@ function makeEdge(
   source: string,
   target: string,
   edgeType: string,
-  confidence?: string,
+  _confidence?: string,
   hideLabel = false,
 ): Edge {
   const isShared =
@@ -311,7 +311,7 @@ export function buildFocusGraph(
   if (!selectedNodeId) return buildSummaryGraph(bundle, null, false);
 
   const { nodes: rawNodes, edges: rawEdges } = bundle.graph;
-  const { aggregates, claimToAgg } = aggregateRtl(rawNodes, rawEdges);
+  const { claimToAgg } = aggregateRtl(rawNodes, rawEdges);
 
   // Build adjacency using summary graph
   const summary = buildSummaryGraph(bundle, selectedNodeId, true);
@@ -406,6 +406,22 @@ export function buildConceptTable(bundle: ProjectBundle): ConceptTableRow[] {
       limitations = "—";
     }
 
+    // T035: Stage-categorized evidence counts
+    const l5 = evEntries.filter(([, v]) => v.file_path?.includes("L5_fixedpoint")).length;
+    const l6 = evEntries.filter(([, v]) => v.file_path?.includes("L6_resource_opt")).length;
+    const rtl = evEntries.filter(([, v]) => v.source_type === "rtl_source").length;
+    const test = evEntries.filter(([, v]) => v.file_path?.includes("test") || v.source_type?.startsWith("test_")).length;
+
+    // Build uncertainty text
+    let uncertainty = "";
+    if (conf === "unknown") uncertainty = "无映射";
+    else if (conf === "inferred") {
+      const namingOnly = claims.find((cl: any) => cl.concept === c.label && cl.bridge_kind === "naming_only");
+      uncertainty = namingOnly ? "仅命名匹配" : "推断性";
+    }
+    if (rtl === 0) uncertainty += (uncertainty ? "、" : "") + "无RTL证据";
+    if (l5 + l6 === 0) uncertainty += (uncertainty ? "、" : "") + "无L5/L6证据";
+
     return {
       concept: c.label,
       concept_id: c.node_id,
@@ -416,6 +432,11 @@ export function buildConceptTable(bundle: ProjectBundle): ConceptTableRow[] {
       confidence: conf,
       evidence_count: evCount,
       limitations,
+      l5_count: l5,
+      l6_count: l6,
+      rtl_ev_count: rtl,
+      test_count: test,
+      uncertainty,
     };
   });
 }

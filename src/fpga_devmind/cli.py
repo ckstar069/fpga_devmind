@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+from dataclasses import asdict
 from pathlib import Path
 
 from .agent import DEFAULT_AGENT_OUT, run_p1a_semantic_agent_dry_run
@@ -82,9 +84,24 @@ def build_parser() -> argparse.ArgumentParser:
     p1b_project.add_argument(
         "--concepts",
         required=True,
-        help="Comma-separated concept names (e.g. peak_idx,cfo)",
+        help="Comma-separated concept names, or 'auto' for auto-discovery (T035)",
     )
     p1b_project.add_argument("--out", type=Path, required=True)
+
+    p1b_discover = sub.add_parser(
+        "p1b-discover-concepts",
+        help="Auto-discover candidate concepts from project sources (T035)",
+    )
+    p1b_discover.add_argument("--project", type=Path, required=True)
+    p1b_discover.add_argument("--out", type=Path, required=True)
+    p1b_discover.add_argument("--top", type=int, default=12, help="Return top N candidates")
+
+    p1b_benchmark = sub.add_parser(
+        "p1b-benchmark-manifest",
+        help="Generate benchmark manifest for all fpga_project_* directories (T035)",
+    )
+    p1b_benchmark.add_argument("--projects-parent", type=Path, required=True)
+    p1b_benchmark.add_argument("--out", type=Path, required=True)
 
     noop = sub.add_parser(
         "agent-noop-run",
@@ -209,6 +226,51 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Evidence items: {metadata['evidence_items']}")
         print(f"Elapsed: {metadata['elapsed_seconds']}s")
         return 1 if metadata["status"] == "partial" else 0
+    if args.command == "p1b-discover-concepts":
+        from .p1b_discovery import discover_concepts
+        from .safety import ensure_safe_output_dir
+
+        safe_out = ensure_safe_output_dir(args.out, label="discovery output")
+        safe_out.mkdir(parents=True, exist_ok=True)
+
+        result = discover_concepts(args.project)
+
+        # Write candidates JSON
+        candidates_json = safe_out / "concept_candidates.json"
+        candidates_json.write_text(
+            json.dumps([asdict(c) for c in result.candidates[:args.top]], indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        # Print summary
+        print("Project: {}".format(result.project_id))
+        print("Candidates found: {}".format(len(result.candidates)))
+        print("Top {} candidates:".format(args.top))
+        for c in result.candidates[:args.top]:
+            print("  {} ({}): {} occurrences, {} [{}]".format(
+                c.name, c.confidence, c.occurrence_count,
+                ", ".join(c.source_sections), c.reason,
+            ))
+        print("Output: {}".format(candidates_json))
+        return 0
+
+    if args.command == "p1b-benchmark-manifest":
+        from .benchmark_manifest import generate_benchmark_manifest
+        from .safety import ensure_safe_output_dir
+
+        safe_out = ensure_safe_output_dir(args.out, label="benchmark output")
+        safe_out.mkdir(parents=True, exist_ok=True)
+
+        manifest = generate_benchmark_manifest(args.projects_parent, safe_out)
+
+        print("Benchmark manifest generated: {} projects".format(len(manifest)))
+        for entry in manifest:
+            print("  {}: L5={} L6={} RTL={} Tests={} | {} candidates".format(
+                entry["project_id"],
+                entry["has_L5"], entry["has_L6"], entry["has_RTL"], entry["has_tests"],
+                len(entry.get("recommended_concepts", [])),
+            ))
+        return 0
     if args.command == "agent-noop-run":
         from .agent_noop_runtime import run_noop_agent_once
 

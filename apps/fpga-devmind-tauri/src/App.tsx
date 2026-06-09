@@ -10,7 +10,7 @@ import UnderstandingCardPage from "./pages/UnderstandingCard";
 import Evidence from "./pages/Evidence";
 import AgentQA from "./pages/AgentQA";
 import RawData from "./pages/RawData";
-import Settings from "./pages/Settings";
+import SettingsPage from "./pages/Settings";
 
 type Page = "overview" | "graph" | "card" | "evidence" | "agent" | "raw" | "settings";
 
@@ -142,11 +142,9 @@ function App() {
         return <RawData bundle={bundle} />;
       case "settings":
         return (
-          <Settings
-            currentPath={summary.path}
+          <SettingsPage
+            currentBundle={summary.path}
             onLoad={loadBundle}
-            loading={loading}
-            error={error}
           />
         );
     }

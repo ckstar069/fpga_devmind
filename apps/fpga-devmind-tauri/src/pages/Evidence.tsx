@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { ProjectBundle, EvidenceGroup } from "../types";
+import type { ProjectBundle, EvidenceGroup, EvidenceChain } from "../types";
 import { groupEvidenceByClaim } from "../utils/transforms";
 
 interface SourceContextResult {
@@ -19,6 +19,7 @@ interface Props {
 
 function Evidence({ bundle }: Props) {
   const groups = useMemo(() => groupEvidenceByClaim(bundle), [bundle]);
+  const [viewMode, setViewMode] = useState<"byClaim" | "byChain">("byClaim");
   const [selectedEvId, setSelectedEvId] = useState<string | null>(null);
   const [sourceContext, setSourceContext] = useState<SourceContextResult | null>(null);
   const [loadingCtx, setLoadingCtx] = useState(false);
@@ -79,20 +80,46 @@ function Evidence({ bundle }: Props) {
     <div>
       <div className="page-title">Evidence</div>
       <div className="page-subtitle">
-        按 Claim 分组，共 {groups.length} 组，{groups.reduce((sum, g) => sum + g.items.length, 0)} 条证据
+        共 {groups.length} 组，{groups.reduce((sum, g) => sum + g.items.length, 0)} 条证据
+      </div>
+
+      {/* View mode toggle */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <button
+          className={`btn ${viewMode === "byClaim" ? "btn-primary" : "btn-secondary"}`}
+          style={{ fontSize: 12 }}
+          onClick={() => setViewMode("byClaim")}
+        >
+          By Claim
+        </button>
+        <button
+          className={`btn ${viewMode === "byChain" ? "btn-primary" : "btn-secondary"}`}
+          style={{ fontSize: 12 }}
+          onClick={() => setViewMode("byChain")}
+        >
+          By Chain (T035)
+        </button>
       </div>
 
       <div style={{ display: "flex", gap: 16 }}>
-        {/* Left: evidence groups */}
+        {/* Left: evidence groups or chain view */}
         <div style={{ flex: 1 }}>
-          {groups.map((g) => (
-            <EvidenceGroupComp
-              key={g.claim_id}
-              group={g}
+          {viewMode === "byClaim" ? (
+            groups.map((g) => (
+              <EvidenceGroupComp
+                key={g.claim_id}
+                group={g}
+                selectedEvId={selectedEvId}
+                onSelect={handleSelectEvidence}
+              />
+            ))
+          ) : (
+            <ConceptChainView
+              bundle={bundle}
               selectedEvId={selectedEvId}
               onSelect={handleSelectEvidence}
             />
-          ))}
+          )}
         </div>
 
         {/* Right: detail */}
@@ -125,7 +152,7 @@ function Evidence({ bundle }: Props) {
                 {/* Weak/naming evidence warning */}
                 {(selectedEv.source_type === "naming_match" || selectedEv.strength === "weak") && (
                   <div style={{ fontSize: 12, color: "var(--red)", marginTop: 4, fontStyle: "italic" }}>
-                    ⚠ 弱/命名证据：不能单独作为强映射证据
+                    Weak/naming evidence: cannot serve as strong mapping evidence alone
                   </div>
                 )}
               </div>
@@ -200,6 +227,10 @@ function Evidence({ bundle }: Props) {
   );
 }
 
+/* ================================================================== */
+/*  Evidence Group (by Claim)                                         */
+/* ================================================================== */
+
 function EvidenceGroupComp({
   group,
   selectedEvId,
@@ -254,7 +285,7 @@ function EvidenceGroupComp({
           )}
           {/* Weak evidence marker */}
           {(ev.source_type === "naming_match" || ev.strength === "weak") && (
-            <span style={{ fontSize: 10, color: "var(--red)", marginLeft: 6 }}>⚠弱</span>
+            <span style={{ fontSize: 10, color: "var(--red)", marginLeft: 6 }}>weak</span>
           )}
           <div style={{ fontSize: 10, color: "var(--text2)", marginTop: 2 }}>
             {ev.why_matters}
@@ -264,6 +295,240 @@ function EvidenceGroupComp({
       {group.items.length > 20 && (
         <div style={{ fontSize: 11, color: "var(--text2)", padding: "4px 12px", marginLeft: 12 }}>
           ...还有 {group.items.length - 20} 项未显示
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  Concept Chain View (T035)                                         */
+/* ================================================================== */
+
+function ConceptChainView({
+  bundle,
+  selectedEvId,
+  onSelect,
+}: {
+  bundle: ProjectBundle;
+  selectedEvId: string | null;
+  onSelect: (id: string, filePath?: string) => void;
+}) {
+  const [filterConcept, setFilterConcept] = useState<string>("");
+  const [filterStrength, setFilterStrength] = useState<string>("");
+
+  // Build chain data from evidence_index, grouped by concept
+  const chains = useMemo(() => {
+    const concepts = bundle.graph.nodes.filter(n => n.kind === "concept");
+    const evByConcept = new Map<string, { id: string; source_type: string; file_path?: string; symbol?: string; strength?: string }[]>();
+
+    for (const [id, ev] of Object.entries(bundle.index.evidence_index)) {
+      const concept = ev.concept ?? "";
+      if (!evByConcept.has(concept)) evByConcept.set(concept, []);
+      evByConcept.get(concept)!.push({
+        id,
+        source_type: ev.source_type,
+        file_path: ev.file_path,
+        symbol: ev.symbol,
+        strength: ev.strength,
+      });
+    }
+
+    // Also check if bundle has evidence_chain from index
+    const chainData = bundle.index.evidence_chain;
+
+    return concepts.map(c => {
+      const evItems = evByConcept.get(c.label) ?? [];
+
+      // Categorize by stage
+      const l5l6: typeof evItems = [];
+      const rtl: typeof evItems = [];
+      const test: typeof evItems = [];
+      const other: typeof evItems = [];
+
+      for (const item of evItems) {
+        const fp = item.file_path ?? "";
+        if (fp.includes("L5_fixedpoint") || fp.includes("L6_resource_opt")) {
+          l5l6.push(item);
+        } else if (item.source_type === "rtl_source" || fp.endsWith(".v") || fp.endsWith(".sv")) {
+          rtl.push(item);
+        } else if (fp.includes("test") || item.source_type.startsWith("test_")) {
+          test.push(item);
+        } else {
+          other.push(item);
+        }
+      }
+
+      // Get claim info
+      const claim = bundle.graph.nodes.find(n => n.kind === "mapping_claim" && n.concept === c.label);
+      const claimConf = claim?.confidence ?? "unknown";
+
+      // Build missing list
+      const missing: string[] = [];
+      if (l5l6.length === 0) missing.push("L5/L6 evidence");
+      if (rtl.length === 0) missing.push("RTL evidence");
+      if (test.length === 0) missing.push("Test evidence");
+
+      // Use evidence_chain data if available
+      let chain: EvidenceChain | undefined;
+      if (chainData && chainData[c.label]) {
+        try {
+          chain = chainData[c.label] as EvidenceChain;
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      return {
+        concept: c.label,
+        conceptId: c.node_id,
+        confidence: c.confidence ?? "unknown",
+        claimConf,
+        bridgeKind: claim?.bridge_kind,
+        l5l6,
+        rtl,
+        test,
+        other,
+        missing,
+        chain,
+      };
+    });
+  }, [bundle]);
+
+  const filtered = chains.filter(ch => {
+    if (filterConcept && !ch.concept.includes(filterConcept)) return false;
+    if (filterStrength === "missing_rtl" && ch.rtl.length > 0) return false;
+    if (filterStrength === "missing_l5l6" && ch.l5l6.length > 0) return false;
+    return true;
+  });
+
+  return (
+    <div>
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <input
+          className="form-input"
+          value={filterConcept}
+          onChange={(e) => setFilterConcept(e.target.value)}
+          placeholder="Filter concept..."
+          style={{ fontSize: 12, width: 180 }}
+        />
+        <select
+          className="form-input"
+          value={filterStrength}
+          onChange={(e) => setFilterStrength(e.target.value)}
+          style={{ fontSize: 12, width: 160 }}
+        >
+          <option value="">-- All --</option>
+          <option value="missing_rtl">Missing RTL</option>
+          <option value="missing_l5l6">Missing L5/L6</option>
+        </select>
+      </div>
+
+      {filtered.map((ch) => (
+        <div key={ch.conceptId} className="evidence-group">
+          <div className="evidence-group-header">
+            <span>
+              <strong>{ch.concept}</strong>
+              <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text2)" }}>
+                {ch.claimConf} / {ch.bridgeKind ?? "?"}
+              </span>
+            </span>
+            <span>
+              <span className={`badge badge-${
+                ch.confidence === "supported" ? "supported"
+                : ch.confidence === "inferred" ? "inferred"
+                : "unknown"
+              }`}>
+                {ch.confidence}
+              </span>
+            </span>
+          </div>
+
+          {/* Chain stages */}
+          <div style={{ padding: "8px 12px" }}>
+            <ChainStage
+              label="L5/L6"
+              items={ch.l5l6}
+              selectedEvId={selectedEvId}
+              onSelect={onSelect}
+            />
+            <ChainStage
+              label="RTL"
+              items={ch.rtl}
+              selectedEvId={selectedEvId}
+              onSelect={onSelect}
+            />
+            <ChainStage
+              label="Test"
+              items={ch.test}
+              selectedEvId={selectedEvId}
+              onSelect={onSelect}
+            />
+            {ch.other.length > 0 && (
+              <ChainStage
+                label="Other"
+                items={ch.other}
+                selectedEvId={selectedEvId}
+                onSelect={onSelect}
+              />
+            )}
+            {ch.missing.length > 0 && (
+              <div style={{ fontSize: 11, color: "var(--yellow)", marginTop: 4 }}>
+                Missing: {ch.missing.join(", ")}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChainStage({
+  label,
+  items,
+  selectedEvId,
+  onSelect,
+}: {
+  label: string;
+  items: { id: string; source_type: string; file_path?: string; symbol?: string; strength?: string }[];
+  selectedEvId: string | null;
+  onSelect: (id: string, filePath?: string) => void;
+}) {
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ fontSize: 11, color: "var(--text2)", fontWeight: 600, marginBottom: 2 }}>
+        {label} ({items.length})
+      </div>
+      {items.slice(0, 10).map((item) => (
+        <div
+          key={item.id}
+          className={`evidence-row ${selectedEvId === item.id ? "selected" : ""}`}
+          onClick={() => onSelect(item.id, item.file_path)}
+          style={{ padding: "3px 8px", fontSize: 12 }}
+        >
+          <span style={{ color: "var(--text2)", fontSize: 10 }}>[{item.source_type}]</span>{" "}
+          {item.symbol ?? item.id.slice(0, 30)}
+          {item.strength && (
+            <span className={`badge badge-${
+              item.strength === "strong" ? "supported"
+              : item.strength === "medium" ? "inferred"
+              : "unknown"
+            }`} style={{ marginLeft: 6, fontSize: 10 }}>
+              {item.strength}
+            </span>
+          )}
+        </div>
+      ))}
+      {items.length > 10 && (
+        <div style={{ fontSize: 10, color: "var(--text2)", paddingLeft: 8 }}>
+          ...+{items.length - 10} more
+        </div>
+      )}
+      {items.length === 0 && (
+        <div style={{ fontSize: 11, color: "var(--text2)", paddingLeft: 8, fontStyle: "italic" }}>
+          None
         </div>
       )}
     </div>

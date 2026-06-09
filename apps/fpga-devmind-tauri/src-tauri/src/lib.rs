@@ -114,6 +114,74 @@ fn run_project_trace(
     }
 }
 
+#[tauri::command]
+fn list_fpga_projects(parent_dir: Option<String>) -> Result<Vec<serde_json::Value>, String> {
+    let parent = match parent_dir {
+        Some(p) => std::path::PathBuf::from(p),
+        None => std::path::PathBuf::from("/Users/ckstar/Repo/znxt_ofdm"),
+    };
+    if !parent.is_dir() {
+        return Err(format!("Parent directory does not exist: {}", parent.display()));
+    }
+    let mut projects = Vec::new();
+    let entries = std::fs::read_dir(&parent).map_err(|e| e.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("fpga_project_") {
+            continue;
+        }
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let path = entry.path();
+        projects.push(serde_json::json!({
+            "project_id": name,
+            "path": path.to_string_lossy(),
+            "has_L5": path.join("src/python_model/L5_fixedpoint").is_dir(),
+            "has_L6": path.join("src/python_model/L6_resource_opt").is_dir(),
+            "has_RTL": path.join("src/verilog_model/rtl").is_dir(),
+            "has_tests": path.join("tests").is_dir(),
+        }));
+    }
+    projects.sort_by(|a, b| a["project_id"].as_str().cmp(&b["project_id"].as_str()));
+    Ok(projects)
+}
+
+#[tauri::command]
+fn run_concept_discovery(project: String, out: String) -> Result<String, String> {
+    let out_path = std::path::Path::new(&out);
+    if !out_path.starts_with("/tmp") && !out_path.starts_with("/private/tmp") {
+        return Err("Output directory must be under /tmp".to_string());
+    }
+    let python = which_python()?;
+    let exe_dir = std::env::current_dir().map_err(|e| format!("Cannot get CWD: {}", e))?;
+    let project_root = exe_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or("Cannot determine project root")?;
+    let pythonpath = project_root
+        .join("src")
+        .to_string_lossy()
+        .to_string();
+    let output = std::process::Command::new(&python)
+        .args([
+            "-m", "fpga_devmind.cli",
+            "p1b-discover-concepts",
+            "--project", &project,
+            "--out", &out,
+        ])
+        .env("PYTHONPATH", &pythonpath)
+        .output()
+        .map_err(|e| format!("Failed to run discovery: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() {
+        return Err(format!("Discovery failed:\n{}\n{}", stdout, stderr));
+    }
+    Ok(stdout)
+}
+
 /// Find python executable
 fn which_python() -> Result<String, String> {
     // Try .venv/bin/python first (project-local venv)
@@ -151,6 +219,8 @@ pub fn run() {
             read_evidence_source_context,
             get_default_bundle_path,
             run_project_trace,
+            list_fpga_projects,
+            run_concept_discovery,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

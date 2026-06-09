@@ -1,38 +1,77 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { ProjectInfo } from "../types";
 
 interface Props {
-  currentPath: string;
+  currentBundle: string | null;
   onLoad: (path: string) => void;
-  loading: boolean;
-  error: string | null;
 }
 
-function Settings({ currentPath, onLoad, loading, error }: Props) {
-  const [path, setPath] = useState(currentPath || "");
-  const [traceProject, setTraceProject] = useState("");
-  const [traceConcepts, setTraceConcepts] = useState("");
-  const [traceOut, setTraceOut] = useState("");
-  const [traceRunning, setTraceRunning] = useState(false);
-  const [traceOutput, setTraceOutput] = useState<string | null>(null);
+function SettingsPage({ currentBundle, onLoad }: Props) {
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [selectedProject, setSelectedProject] = useState("");
+  const [conceptMode, setConceptMode] = useState<"auto" | "manual">("auto");
+  const [manualConcepts, setManualConcepts] = useState("");
+  const [maxConcepts, setMaxConcepts] = useState(12);
+  const [outputDir, setOutputDir] = useState("/tmp/fpga_devmind/t035_out");
+  const [runStatus, setRunStatus] = useState("");
+  const [bundlePath, setBundlePath] = useState(currentBundle ?? "");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleRunTrace = async () => {
-    if (!traceProject.trim() || !traceConcepts.trim()) return;
-    setTraceRunning(true);
-    setTraceOutput(null);
+  // Load project list on mount
+  useEffect(() => {
+    invoke<ProjectInfo[]>("list_fpga_projects")
+      .then(setProjects)
+      .catch(() => {});
+  }, []);
+
+  // Sync bundlePath when currentBundle changes externally
+  useEffect(() => {
+    if (currentBundle) setBundlePath(currentBundle);
+  }, [currentBundle]);
+
+  const handleRun = async () => {
+    if (!selectedProject && conceptMode === "auto") {
+      setError("请选择项目");
+      return;
+    }
+    setLoading(true);
+    setError("");
+
+    const projectName = selectedProject.split("/").pop() ?? "project";
+    const out = outputDir || `/tmp/fpga_devmind/t035_${projectName}`;
+
     try {
-      const out = traceOut.trim() || "/tmp/fpga_devmind/t033_project_smoke";
-      const result = await invoke<string>("run_project_trace", {
-        project: traceProject.trim(),
-        concepts: traceConcepts.trim(),
-        out,
-      });
-      setTraceOutput(result);
-      setPath(out);
+      if (conceptMode === "auto") {
+        setRunStatus("tracing concepts (auto-discovery)...");
+        await invoke<string>("run_project_trace", {
+          project: selectedProject,
+          concepts: "auto",
+          out,
+        });
+      } else {
+        if (!manualConcepts.trim()) {
+          setError("请输入概念名称");
+          setLoading(false);
+          return;
+        }
+        setRunStatus("tracing concepts...");
+        await invoke<string>("run_project_trace", {
+          project: selectedProject,
+          concepts: manualConcepts,
+          out,
+        });
+      }
+
+      setRunStatus("loading bundle...");
+      await onLoad(out);
+      setRunStatus("done");
     } catch (e) {
-      setTraceOutput(`错误: ${String(e)}`);
+      setError(String(e));
+      setRunStatus("error");
     } finally {
-      setTraceRunning(false);
+      setLoading(false);
     }
   };
 
@@ -40,119 +79,159 @@ function Settings({ currentPath, onLoad, loading, error }: Props) {
     <div>
       <div className="page-title">Settings</div>
 
-      {/* Load existing bundle */}
-      <div className="card">
-        <div className="card-title">加载 Project Bundle</div>
-        <div className="settings-form">
-          <div className="form-group">
-            <label className="form-label">Bundle 目录路径</label>
-            <input
-              className="form-input"
-              type="text"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder="/tmp/fpga_devmind/t033_project_smoke"
-            />
-          </div>
+      {/* Current bundle */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title">Current Bundle</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            className="form-input"
+            value={bundlePath}
+            onChange={(e) => setBundlePath(e.target.value)}
+            placeholder="/tmp/fpga_devmind/..."
+          />
           <button
             className="btn btn-primary"
-            disabled={loading || !path.trim()}
-            onClick={() => onLoad(path.trim())}
+            onClick={() => onLoad(bundlePath)}
+            disabled={!bundlePath}
           >
-            {loading ? "加载中..." : "Load Bundle"}
+            Load
           </button>
-          {error && (
-            <div style={{
-              marginTop: 12, padding: "8px 12px",
-              background: "rgba(239, 68, 68, 0.15)", borderRadius: 6,
-              color: "var(--red)", fontSize: 13,
-            }}>
-              {error}
-            </div>
-          )}
-          {currentPath && (
-            <div style={{ marginTop: 12, fontSize: 13, color: "var(--text2)" }}>
-              当前加载：<strong>{currentPath}</strong>
-            </div>
-          )}
         </div>
+        {currentBundle && (
+          <div style={{ fontSize: 12, color: "var(--green)", marginTop: 4 }}>
+            Loaded: {currentBundle}
+          </div>
+        )}
       </div>
 
-      {/* Generate new bundle via Python CLI */}
-      <div className="card">
-        <div className="card-title">生成新 Bundle</div>
-        <div style={{ fontSize: 12, color: "var(--text2)", marginBottom: 12 }}>
-          调用 Python CLI 生成新的 project bundle。需要 fpga_devmind 项目已安装。
+      {/* Project selector */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title">Run Project Understanding</div>
+
+        <div className="form-group">
+          <label className="form-label">Project</label>
+          <select
+            className="form-input"
+            value={selectedProject}
+            onChange={(e) => setSelectedProject(e.target.value)}
+          >
+            <option value="">-- Select Project --</option>
+            {projects.map((p) => (
+              <option key={p.project_id} value={p.path}>
+                {p.project_id}
+                {!p.has_RTL ? " (no RTL)" : ""}
+                {!p.has_tests ? " (no tests)" : ""}
+              </option>
+            ))}
+          </select>
         </div>
-        <div className="settings-form">
-          <div className="form-group">
-            <label className="form-label">项目路径 (--project)</label>
-            <input
-              className="form-input"
-              type="text"
-              value={traceProject}
-              onChange={(e) => setTraceProject(e.target.value)}
-              placeholder="/Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm"
-            />
+
+        <div className="form-group">
+          <label className="form-label">Concept Mode</label>
+          <div style={{ display: "flex", gap: 12 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, cursor: "pointer" }}>
+              <input
+                type="radio"
+                checked={conceptMode === "auto"}
+                onChange={() => setConceptMode("auto")}
+              />
+              Auto-discover
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, cursor: "pointer" }}>
+              <input
+                type="radio"
+                checked={conceptMode === "manual"}
+                onChange={() => setConceptMode("manual")}
+              />
+              Manual
+            </label>
           </div>
+        </div>
+
+        {conceptMode === "manual" && (
           <div className="form-group">
-            <label className="form-label">概念 (--concepts，逗号分隔)</label>
+            <label className="form-label">Concepts (comma-separated)</label>
             <input
               className="form-input"
-              type="text"
-              value={traceConcepts}
-              onChange={(e) => setTraceConcepts(e.target.value)}
+              value={manualConcepts}
+              onChange={(e) => setManualConcepts(e.target.value)}
               placeholder="peak_idx,cfo,smooth_detect"
             />
           </div>
+        )}
+
+        {conceptMode === "auto" && (
           <div className="form-group">
-            <label className="form-label">输出路径 (--out)</label>
+            <label className="form-label">Max Concepts</label>
             <input
               className="form-input"
-              type="text"
-              value={traceOut}
-              onChange={(e) => setTraceOut(e.target.value)}
-              placeholder="/tmp/fpga_devmind/t033_project_smoke"
+              type="number"
+              value={maxConcepts}
+              onChange={(e) => setMaxConcepts(Number(e.target.value))}
+              min={1}
+              max={30}
+              style={{ width: 80 }}
             />
           </div>
-          <button
-            className="btn btn-secondary"
-            disabled={traceRunning || !traceProject.trim() || !traceConcepts.trim()}
-            onClick={handleRunTrace}
-          >
-            {traceRunning ? "生成中..." : "运行 p1b-trace-project"}
-          </button>
-          {traceOutput && (
-            <div className="source-context" style={{ marginTop: 12 }}>
-              {traceOutput}
-            </div>
-          )}
+        )}
+
+        <div className="form-group">
+          <label className="form-label">Output Directory</label>
+          <input
+            className="form-input"
+            value={outputDir}
+            onChange={(e) => setOutputDir(e.target.value)}
+            placeholder="/tmp/fpga_devmind/..."
+          />
         </div>
+
+        <button
+          className="btn btn-primary"
+          onClick={handleRun}
+          disabled={loading || !selectedProject}
+          style={{ marginTop: 8 }}
+        >
+          {loading ? runStatus : "Run Understanding"}
+        </button>
+
+        {runStatus && !loading && (
+          <div style={{
+            fontSize: 13,
+            marginTop: 8,
+            color: runStatus === "done" ? "var(--green)" : runStatus === "error" ? "var(--red)" : "var(--text2)",
+          }}>
+            {runStatus === "done" ? "Done" : runStatus}
+          </div>
+        )}
+        {error && (
+          <div style={{ fontSize: 12, color: "var(--red)", marginTop: 8, whiteSpace: "pre-wrap" }}>
+            {error}
+          </div>
+        )}
       </div>
 
-      {/* Default paths */}
+      {/* Quick paths */}
       <div className="card">
-        <div className="card-title">开发模式默认路径</div>
-        <div style={{ fontSize: 12, color: "var(--text2)", lineHeight: 1.8 }}>
-          <div>
-            <button className="table-link" onClick={() => { setPath("/tmp/fpga_devmind/t033_project_smoke"); }}>
-              /tmp/fpga_devmind/t033_project_smoke
+        <div className="card-title">Quick Load</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[
+            "/tmp/fpga_devmind/t035_coarse_auto",
+            "/tmp/fpga_devmind/t035_fft_auto",
+            "/tmp/fpga_devmind/t034_project_smoke",
+          ].map((p) => (
+            <button
+              key={p}
+              className="btn btn-secondary"
+              style={{ fontSize: 11 }}
+              onClick={() => { setBundlePath(p); onLoad(p); }}
+            >
+              {p.split("/").pop()}
             </button>
-          </div>
-          <div>
-            <button className="table-link" onClick={() => { setPath("/tmp/fpga_devmind/t031_gui_smoke"); }}>
-              /tmp/fpga_devmind/t031_gui_smoke
-            </button>
-          </div>
-          <div>
-            <button className="table-link" onClick={() => { setPath("/tmp/fpga_devmind/t025_project_smoke"); }}>
-              /tmp/fpga_devmind/t025_project_smoke
-            </button>
-          </div>
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-export default Settings;
+export default SettingsPage;

@@ -76,6 +76,12 @@ pub struct ConceptInfo {
     pub claims: u64,
     pub evidence: u64,
     pub rtl_objects: u64,
+    #[serde(default)]
+    pub l5_count: u64,
+    #[serde(default)]
+    pub l6_count: u64,
+    #[serde(default)]
+    pub test_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +99,8 @@ pub struct ProjectIndex {
     pub concept_index: HashMap<String, ConceptInfo>,
     pub claim_index: HashMap<String, ClaimInfo>,
     pub evidence_index: HashMap<String, EvidenceEntry>,
+    #[serde(default)]
+    pub evidence_chain: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

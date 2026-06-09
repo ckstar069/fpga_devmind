@@ -5,19 +5,17 @@ import { aggregateRtl } from "./transforms";
 /*  Deterministic Agent Q&A (no LLM)                                  */
 /* ================================================================== */
 
-const SUGGESTED_QUESTIONS = [
+export const SUGGESTED_QUESTIONS = [
   "这个项目整体实现了什么？",
-  "peak_idx 是怎么从 L5/L6 映射到 RTL 的？",
-  "cfo 对应哪些 RTL？",
-  "smooth_detect 为什么是 inferred？",
+  "自动识别出了哪些概念？",
+  "哪些概念达到了 supported 置信度？",
+  "哪些概念缺失 RTL 证据？",
   "哪些 RTL 文件承载了多个概念？",
   "哪些证据最关键？",
-  "哪些地方还不能确认？",
+  "项目的不确定性有哪些？",
   "画出项目理解图",
   "解释当前选中节点",
 ];
-
-export { SUGGESTED_QUESTIONS };
 
 /** Helper to build a standard AgentAnswer with evidence-chain fields */
 function makeAnswer(partial: {
@@ -65,20 +63,53 @@ export function answerQuestion(
   const concepts = nodes.filter((n) => n.kind === "concept");
 
   // Pattern matching on question
+
+  // "这个项目整体实现了什么？" / overall summary
   if (q.includes("整体") && (q.includes("实现") || q.includes("什么"))) {
     return answerProjectSummary(bundle, q);
   }
 
-  if (q.includes("peak_idx") && (q.includes("映射") || q.includes("L5") || q.includes("RTL"))) {
-    return answerConceptMapping(bundle, "peak_idx", q);
+  // "哪些概念达到了 supported？" / "哪些概念是 supported/inferred?"
+  if (q.includes("supported") || q.includes("supported 置信度")) {
+    return answerSupportedConcepts(bundle, q);
   }
 
-  if (q.includes("cfo") && (q.includes("RTL") || q.includes("对应") || q.includes("哪些"))) {
-    return answerConceptRtl(bundle, "cfo", q);
+  // "哪些概念缺失 RTL 证据？" / "缺失" / "missing"
+  if (q.includes("缺失") || q.includes("missing") || (q.includes("没有") && (q.includes("RTL") || q.includes("证据")))) {
+    return answerMissingEvidence(bundle, q);
   }
 
-  if (q.includes("smooth_detect") && (q.includes("inferred") || q.includes("为什么") || q.includes("推断"))) {
-    return answerWhyInferred(bundle, "smooth_detect", q);
+  // "自动识别出了哪些概念？" / "识别出" / "哪些概念"
+  if (q.includes("自动识别") || q.includes("识别出") || q.includes("哪些概念")) {
+    return answerDiscoveredConcepts(bundle, q);
+  }
+
+  // Legacy: specific concept mapping questions
+  if (q.includes("映射") || q.includes("L5") || q.includes("RTL")) {
+    // Try to match any concept name from the bundle
+    for (const c of concepts) {
+      if (q.includes(c.label)) {
+        return answerConceptMapping(bundle, c.label, q);
+      }
+    }
+  }
+
+  // "cfo 对应哪些 RTL?" style
+  if (q.includes("RTL") || q.includes("对应") || q.includes("哪些")) {
+    for (const c of concepts) {
+      if (q.includes(c.label)) {
+        return answerConceptRtl(bundle, c.label, q);
+      }
+    }
+  }
+
+  // "smooth_detect 为什么是 inferred?" style
+  if (q.includes("inferred") || q.includes("为什么") || q.includes("推断")) {
+    for (const c of concepts) {
+      if (q.includes(c.label)) {
+        return answerWhyInferred(bundle, c.label, q);
+      }
+    }
   }
 
   if (q.includes("多个概念") && (q.includes("RTL") || q.includes("文件") || q.includes("承载"))) {
@@ -89,7 +120,7 @@ export function answerQuestion(
     return answerKeyEvidence(bundle, q);
   }
 
-  if (q.includes("不能确认") || q.includes("不确定") || q.includes("还不能")) {
+  if (q.includes("不能确认") || q.includes("不确定") || q.includes("还不能") || q.includes("不确定性")) {
     return answerUncertainty(bundle, q);
   }
 
@@ -101,7 +132,7 @@ export function answerQuestion(
     return answerExplainSelected(bundle, q, selectedNodeId);
   }
 
-  // Check for concept name in question
+  // Generic concept name matching: if any concept name appears in the question
   for (const c of concepts) {
     if (q.includes(c.label)) {
       return answerConceptMapping(bundle, c.label, q);
@@ -132,8 +163,8 @@ function answerProjectSummary(bundle: ProjectBundle, q: string): AgentAnswer {
     return `• ${c.label}：${ci?.evidence ?? 0} 条证据，${ci?.rtl_objects ?? 0} 个 RTL 对象，置信度 ${c.confidence ?? "unknown"}`;
   }).join("\n");
 
-  const answer = `项目 "${bundle.graph.project_id}" 是一个 FPGA coarse sync（粗同步）模块，` +
-    `主要实现 OFDM 系统中接收端的粗同步功能。\n\n` +
+  const answer = `项目 "${bundle.graph.project_id}" 是一个 FPGA 通信模块，` +
+    `主要实现 OFDM 系统中接收端的同步/处理功能。\n\n` +
     `目前识别出 ${concepts.length} 个核心概念：\n${conceptDesc}\n\n` +
     `Mapping Claims：${claims.length} 个（${supported.length} supported，${inferred.length} inferred）\n` +
     `证据总数：${bundle.metadata.evidence_items} 条\n` +
@@ -152,15 +183,144 @@ function answerProjectSummary(bundle: ProjectBundle, q: string): AgentAnswer {
     referenced_claims: refClaims,
     referenced_evidence: [],
     follow_up_questions: [
-      "peak_idx 是怎么从 L5/L6 映射到 RTL 的？",
-      "哪些 RTL 文件承载了多个概念？",
-      "哪些地方还不能确认？",
+      "自动识别出了哪些概念？",
+      "哪些概念达到了 supported 置信度？",
+      "哪些概念缺失 RTL 证据？",
     ],
-    conclusion: `项目 "${bundle.graph.project_id}" 实现了 OFDM coarse sync，识别出 ${concepts.length} 个概念，${claims.length} 个映射声明（${supported.length} supported，${inferred.length} inferred），${bundle.metadata.evidence_items} 条证据。`,
+    conclusion: `项目 "${bundle.graph.project_id}" 识别出 ${concepts.length} 个概念，${claims.length} 个映射声明（${supported.length} supported，${inferred.length} inferred），${bundle.metadata.evidence_items} 条证据。`,
     strength: supported.length > inferred.length ? "supported" : "mixed",
     limitations_summary: inferred.length > 0
       ? `有 ${inferred.length} 个推断性映射需进一步验证。仅基于静态分析，未经仿真或形式验证确认。`
       : "仅基于静态分析，未经仿真或形式验证确认。",
+  });
+}
+
+function answerSupportedConcepts(bundle: ProjectBundle, q: string): AgentAnswer {
+  const { nodes } = bundle.graph;
+  const concepts = nodes.filter((n) => n.kind === "concept");
+  const claims = nodes.filter((n) => n.kind === "mapping_claim");
+
+  const supported = concepts.filter((c) => {
+    const claim = claims.find((cl) => cl.concept === c.label);
+    return claim?.confidence === "supported";
+  });
+  const inferred = concepts.filter((c) => {
+    const claim = claims.find((cl) => cl.concept === c.label);
+    return claim?.confidence === "inferred";
+  });
+  const unknown = concepts.filter((c) => {
+    const claim = claims.find((cl) => cl.concept === c.label);
+    return !claim || claim.confidence === "unknown" || !claim.confidence;
+  });
+
+  const answer = `概念置信度分布：\n\n` +
+    `Supported (${supported.length})：\n` +
+    (supported.length > 0
+      ? supported.map((c) => `  • ${c.label}`).join("\n")
+      : "  无") +
+    `\n\nInferred (${inferred.length})：\n` +
+    (inferred.length > 0
+      ? inferred.map((c) => `  • ${c.label}`).join("\n")
+      : "  无") +
+    `\n\nUnknown (${unknown.length})：\n` +
+    (unknown.length > 0
+      ? unknown.map((c) => `  • ${c.label}`).join("\n")
+      : "  无");
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [...supported, ...inferred, ...unknown].map((c) => c.node_id),
+    referenced_claims: claims.map((c) => c.node_id),
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些概念缺失 RTL 证据？",
+      "项目的不确定性有哪些？",
+      "哪些证据最关键？",
+    ],
+    conclusion: `${supported.length} supported, ${inferred.length} inferred, ${unknown.length} unknown。`,
+    strength: inferred.length + unknown.length > 0 ? "mixed" : "supported",
+    limitations_summary: inferred.length + unknown.length > 0
+      ? `${inferred.length + unknown.length} 个概念需进一步验证。`
+      : "所有概念均已确认。",
+  });
+}
+
+function answerMissingEvidence(bundle: ProjectBundle, q: string): AgentAnswer {
+  const { nodes } = bundle.graph;
+  const concepts = nodes.filter((n) => n.kind === "concept");
+
+  const missingRtl: string[] = [];
+  const missingL5L6: string[] = [];
+
+  for (const c of concepts) {
+    const evEntries = Object.entries(bundle.index.evidence_index)
+      .filter(([, v]) => v.concept === c.label);
+    const hasRtl = evEntries.some(([, v]) => v.source_type === "rtl_source");
+    const hasL5L6 = evEntries.some(([, v]) =>
+      v.file_path?.includes("L5_fixedpoint") || v.file_path?.includes("L6_resource_opt")
+    );
+    if (!hasRtl) missingRtl.push(c.label);
+    if (!hasL5L6) missingL5L6.push(c.label);
+  }
+
+  const answer = `缺失证据分析：\n\n` +
+    `缺失 RTL 证据的概念 (${missingRtl.length})：\n` +
+    (missingRtl.length > 0
+      ? missingRtl.map((name) => `  • ${name}`).join("\n")
+      : "  所有概念都有 RTL 证据") +
+    `\n\n缺失 L5/L6 证据的概念 (${missingL5L6.length})：\n` +
+    (missingL5L6.length > 0
+      ? missingL5L6.map((name) => `  • ${name}`).join("\n")
+      : "  所有概念都有 L5/L6 证据");
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: concepts.map((c) => c.node_id),
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些证据最关键？",
+      "哪些概念达到了 supported 置信度？",
+      "这个项目整体实现了什么？",
+    ],
+    conclusion: `${missingRtl.length} 个概念缺失 RTL 证据，${missingL5L6.length} 个概念缺失 L5/L6 证据。`,
+    strength: missingRtl.length + missingL5L6.length > 0 ? "inferred" : "supported",
+    limitations_summary: "基于当前证据索引的静态分析。",
+  });
+}
+
+function answerDiscoveredConcepts(bundle: ProjectBundle, q: string): AgentAnswer {
+  const { nodes } = bundle.graph;
+  const concepts = nodes.filter((n) => n.kind === "concept");
+  const processed = bundle.metadata.concepts_processed ?? [];
+
+  const answer = `自动识别出 ${concepts.length} 个概念：\n\n` +
+    concepts.map((c) => {
+      const ci = bundle.index.concept_index[c.label];
+      const evCount = ci?.evidence ?? 0;
+      const rtlCount = ci?.rtl_objects ?? 0;
+      const conf = c.confidence ?? "unknown";
+      const marker = conf === "supported" ? "[supported]" : conf === "inferred" ? "[inferred]" : "[unknown]";
+      return `• ${c.label} ${marker} — ${evCount} 条证据，${rtlCount} 个 RTL 对象`;
+    }).join("\n") +
+    `\n\n概念处理顺序：${processed.length > 0 ? processed.join(" → ") : "未记录"}`;
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: concepts.map((c) => c.node_id),
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些概念达到了 supported 置信度？",
+      "哪些概念缺失 RTL 证据？",
+      "项目的不确定性有哪些？",
+    ],
+    conclusion: `识别出 ${concepts.length} 个概念，${concepts.filter(c => c.confidence === "supported").length} 个 supported。`,
+    strength: "supported",
+    limitations_summary: "概念发现基于静态代码分析，可能遗漏隐含概念。",
   });
 }
 
@@ -219,9 +379,9 @@ function answerConceptMapping(bundle: ProjectBundle, conceptName: string, q: str
     referenced_claims: claim ? [claim.node_id] : [],
     referenced_evidence: refEvidence,
     follow_up_questions: [
-      `cfo 对应哪些 RTL？`,
+      "哪些概念达到了 supported 置信度？",
       "哪些证据最关键？",
-      "哪些地方还不能确认？",
+      "哪些概念缺失 RTL 证据？",
     ],
     conclusion: `概念 "${conceptName}" 通过 ${claim?.bridge_kind ?? "?"} 映射到 RTL（${aggLabels.join("、") || "无"}），置信度 ${claim?.confidence ?? "unknown"}。`,
     strength: claim?.confidence === "supported" ? "supported" : claim?.confidence === "inferred" ? "inferred" : "unknown",
@@ -254,9 +414,9 @@ function answerConceptRtl(bundle: ProjectBundle, conceptName: string, q: string)
     referenced_claims: claim ? [claim.node_id] : [],
     referenced_evidence: [],
     follow_up_questions: [
-      `${conceptName} 是怎么从 L5/L6 映射到 RTL 的？`,
       "哪些 RTL 文件承载了多个概念？",
       "哪些证据最关键？",
+      "哪些概念缺失 RTL 证据？",
     ],
     conclusion: `概念 "${conceptName}" 对应 ${relatedAggs.length} 个 RTL 文件/模块${relatedAggs.length > 0 ? "：" + relatedAggs.map((a) => a!.label).join("、") : ""}。`,
     strength: claim?.confidence === "supported" ? "supported" : "inferred",
@@ -308,8 +468,8 @@ function answerWhyInferred(bundle: ProjectBundle, conceptName: string, q: string
     referenced_evidence: evEntries.slice(0, 5).map(([id]) => id),
     follow_up_questions: [
       "哪些证据最关键？",
-      "peak_idx 是怎么从 L5/L6 映射到 RTL 的？",
-      "哪些地方还不能确认？",
+      "哪些概念达到了 supported 置信度？",
+      "哪些概念缺失 RTL 证据？",
     ],
     conclusion: `"${conceptName}" 置信度为 ${conf}，因为 bridge_kind=${bridge}，${strongEv.length} 条 strong 证据 / ${evEntries.length} 条总证据。`,
     strength: conf,
@@ -341,7 +501,7 @@ function answerSharedRtl(bundle: ProjectBundle, q: string): AgentAnswer {
     follow_up_questions: [
       "哪些证据最关键？",
       "这个项目整体实现了什么？",
-      "哪些地方还不能确认？",
+      "哪些概念缺失 RTL 证据？",
     ],
     conclusion: shared.length > 0
       ? `发现 ${shared.length} 个承载多个概念的 RTL 文件。`
@@ -384,8 +544,8 @@ function answerKeyEvidence(bundle: ProjectBundle, q: string): AgentAnswer {
     referenced_claims: [],
     referenced_evidence: strongEvIds,
     follow_up_questions: [
-      "peak_idx 是怎么从 L5/L6 映射到 RTL 的？",
-      "哪些地方还不能确认？",
+      "哪些概念达到了 supported 置信度？",
+      "哪些概念缺失 RTL 证据？",
       "哪些 RTL 文件承载了多个概念？",
     ],
     conclusion: `${strong.length} 条 strong 证据（共 ${entries.length} 条）。Strong 证据是映射确认的核心依据。`,
@@ -426,7 +586,7 @@ function answerUncertainty(bundle: ProjectBundle, q: string): AgentAnswer {
     referenced_claims: [...inferredClaims, ...namingOnlyClaims].map((n) => n.node_id),
     referenced_evidence: weakEv.slice(0, 5).map(([id]) => id),
     follow_up_questions: [
-      "smooth_detect 为什么是 inferred？",
+      "哪些概念达到了 supported 置信度？",
       "哪些证据最关键？",
       "这个项目整体实现了什么？",
     ],
@@ -446,7 +606,7 @@ function answerDrawGraph(_bundle: ProjectBundle, q: string): AgentAnswer {
     follow_up_questions: [
       "这个项目整体实现了什么？",
       "解释当前选中节点",
-      "peak_idx 是怎么从 L5/L6 映射到 RTL 的？",
+      "自动识别出了哪些概念？",
     ],
     conclusion: "请前往 Project Graph 页面查看可视化图。",
     strength: "none",
