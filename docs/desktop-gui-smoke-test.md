@@ -65,6 +65,7 @@ PYTHONPATH=src python3 -m fpga_devmind.desktop_app \
 - 不确定项：limitations、uncertainty notes、grounding diagnostics、为什么不是 confirmed
 - Agent 问答：建议问题、回答、引用证据、限制、计划预览
 - Agent Runtime：条件显示（P1b 下显示引导说明）
+- 计划与工具：同步显示最近一次 Agent 问答生成的只读计划预览（当前不执行工具、不执行 graph write）
 - 开发者区：Raw Data / Markdown / Diagnostics
 - 确定性本地查询（9 类问题，中英双语关键词）
 - 一键 sample 生成（`desktop-sample-run` CLI 子命令）

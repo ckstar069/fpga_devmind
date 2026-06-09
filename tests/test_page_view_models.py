@@ -21,10 +21,12 @@ from fpga_devmind.desktop.page_view_models import (
     UnknownsPageViewModel,
     OverviewMetrics,
     AgentRuntimePageState,
+    PlanToolsPageState,
     build_evidence_page_view_model,
     build_unknowns_page_view_model,
     build_overview_metrics,
     build_agent_runtime_page_state,
+    build_plan_tools_page_state,
 )
 
 
@@ -343,6 +345,38 @@ class TestSafety(unittest.TestCase):
                 source,
                 "Forbidden import/keyword '{}' found".format(word),
             )
+
+
+class TestPlanToolsPageState(unittest.TestCase):
+    """Plan & Tools page state tests."""
+
+    def test_empty_plan(self) -> None:
+        """Empty plan preview text shows guidance message."""
+        state = build_plan_tools_page_state("")
+        self.assertFalse(state.has_plan)
+        self.assertIn("Agent 问答页", state.display_text)
+
+    def test_plan_present(self) -> None:
+        """Non-empty plan preview text is passed through."""
+        plan_text = "Intent: summary\n\n[S1] Read concept_trace_graph.json"
+        state = build_plan_tools_page_state(plan_text)
+        self.assertTrue(state.has_plan)
+        self.assertEqual(state.display_text, plan_text)
+
+    def test_plan_format(self) -> None:
+        """Plan preview text contains expected sections."""
+        plan_text = (
+            "Intent: evidence\n"
+            "\n"
+            "[S1] Read concept_trace_graph.json\n"
+            "[S2] Read concept_trace_index.json\n"
+            "\n"
+            "Safety Notes:\n"
+            "  - No LLM semantic reasoning"
+        )
+        state = build_plan_tools_page_state(plan_text)
+        self.assertTrue(state.has_plan)
+        self.assertIn("Safety Notes", state.display_text)
 
 
 if __name__ == "__main__":

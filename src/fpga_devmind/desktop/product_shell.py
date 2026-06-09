@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from PySide6 import QtCore, QtWidgets  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
+from PySide6 import QtCore, QtWidgets
 
 from fpga_devmind.desktop.artifact_loader import load_bundle
 from fpga_devmind.desktop.agent_panel_models import query_artifact_bundle
@@ -21,7 +21,6 @@ from fpga_devmind.desktop.agent_plan_models import (
     build_agent_plan_preview,
 )
 from fpga_devmind.desktop.trace_view_models import (
-    ConceptTraceViewModel,
     build_concept_trace_view_model,
 )
 from fpga_devmind.desktop.agent_trace_view_models import (
@@ -39,14 +38,11 @@ from fpga_devmind.desktop.overview_models import (
     format_concept_trace_summary,
 )
 from fpga_devmind.desktop.page_view_models import (
-    EvidencePageViewModel,
-    UnknownsPageViewModel,
-    OverviewMetrics,
-    AgentRuntimePageState,
     build_evidence_page_view_model,
     build_unknowns_page_view_model,
     build_overview_metrics,
     build_agent_runtime_page_state,
+    build_plan_tools_page_state,
 )
 
 
@@ -180,7 +176,7 @@ class NavButton(QtWidgets.QPushButton):
         super().__init__(text)
         self.page_key = page_key
         self.setCheckable(True)
-        self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)  # type: ignore[attr-defined]
+        self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
 
 
 # ---------------------------------------------------------------------------
@@ -196,10 +192,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("FPGA DevMind")
         self.resize(1400, 900)
 
-        self._bundle = None
+        self._bundle: Any = None  # pyright: ignore[reportExplicitAny]
         self._current_suggested_questions: list[SuggestedQuestion] = []
         self._nav_buttons: dict[str, NavButton] = {}
         self._page_keys: list[str] = []
+        self._last_plan_preview_text: str = ""
 
         # Top bar widgets (initialized in _build_top_bar)
         self._top_project_label = QtWidgets.QLabel()
@@ -230,9 +227,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Unknowns page widgets
         self._unknowns_stack = QtWidgets.QStackedWidget()
+        self._un_limitations_label = QtWidgets.QLabel()
         self._un_limitations = QtWidgets.QListWidget()
+        self._un_notes_label = QtWidgets.QLabel()
         self._un_notes = QtWidgets.QListWidget()
+        self._un_diagnostics_label = QtWidgets.QLabel()
         self._un_diagnostics = QtWidgets.QTableWidget()
+        self._un_why_label = QtWidgets.QLabel()
         self._un_why = QtWidgets.QTextEdit()
         self._unknowns_empty = QtWidgets.QLabel()
 
@@ -247,6 +248,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Agent runtime page widgets
         self._art_stack = QtWidgets.QStackedWidget()
+        self._art_summary = QtWidgets.QFormLayout()
         self._art_steps = QtWidgets.QTableWidget()
         self._art_diag = QtWidgets.QTableWidget()
         self._art_diag_label = QtWidgets.QLabel()
@@ -553,7 +555,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for label in ["Mapping Claims", "Evidence Items", "RTL Objects", "Unknowns"]:
             card = self._make_metric_card(label, "0")
             metrics_row.addWidget(card, stretch=1)
-            self._ov_metric_labels[label] = card._value_label  # type: ignore[attr-defined]
+            self._ov_metric_labels[label] = getattr(card, "_value_label")
         layout.addLayout(metrics_row)
 
         # Understanding summary
@@ -661,8 +663,10 @@ class MainWindow(QtWidgets.QMainWindow):
         metrics = build_overview_metrics(self._bundle)
 
         if not vm.is_loaded:
-            self._ov_project_card._value.setText(vm.bundle_type or "—")  # type: ignore[attr-defined]
-            self._ov_concept_card._value.setText("加载失败")  # type: ignore[attr-defined]
+            if self._ov_project_card is not None:
+                getattr(self._ov_project_card, "_value").setText(vm.bundle_type or "—")
+            if self._ov_concept_card is not None:
+                getattr(self._ov_concept_card, "_value").setText("加载失败")
             self._ov_summary.setPlainText(vm.load_error or "加载失败")
             for label in self._ov_metric_labels:
                 self._ov_metric_labels[label].setText("0")
@@ -693,8 +697,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _clear_suggestions(self) -> None:
         while self._ov_suggestions_layout.count():
             item = self._ov_suggestions_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item is not None:
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
         empty = QtWidgets.QLabel("加载 bundle 后显示建议问题")
         empty.setStyleSheet("color: {}; font-size: 13px;".format(_TEXT_DIM))
         self._ov_suggestions_layout.addWidget(empty)
@@ -702,15 +708,17 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_suggestions(self) -> None:
         while self._ov_suggestions_layout.count():
             item = self._ov_suggestions_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item is not None:
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
         for q in self._current_suggested_questions:
             btn = QtWidgets.QPushButton(q.text)
             btn.setStyleSheet(
                 "text-align: left; background: transparent; border: none; "
                 "color: {}; font-size: 13px; padding: 4px 0;".format(_ACCENT)
             )
-            btn.setCursor(QtCore.Qt.PointingHandCursor)  # type: ignore[attr-defined]
+            btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda _c=False, t=q.text: self._go_to_agent_with_question(t))
             self._ov_suggestions_layout.addWidget(btn)
 
@@ -900,7 +908,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Page 1: empty/error
         self._evidence_empty = QtWidgets.QLabel("加载 bundle 以查看证据")
-        self._evidence_empty.setAlignment(QtCore.Qt.AlignCenter)  # type: ignore[attr-defined]
+        self._evidence_empty.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self._evidence_empty.setStyleSheet("color: {}; font-size: 14px;".format(_TEXT_DIM))
         self._evidence_stack.addWidget(self._evidence_empty)
 
@@ -910,8 +918,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # Clear previous group widgets
         while self._evidence_groups_layout.count():
             item = self._evidence_groups_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item is not None:
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
 
         if self._bundle is None:
             self._evidence_stack.setCurrentIndex(1)
@@ -999,7 +1009,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Page 1: empty
         self._unknowns_empty = QtWidgets.QLabel("加载 P1b bundle 以查看不确定项")
-        self._unknowns_empty.setAlignment(QtCore.Qt.AlignCenter)  # type: ignore[attr-defined]
+        self._unknowns_empty.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self._unknowns_empty.setStyleSheet("color: {}; font-size: 14px;".format(_TEXT_DIM))
         self._unknowns_stack.addWidget(self._unknowns_empty)
 
@@ -1128,8 +1138,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # Clear suggestion buttons
         while self._agent_suggestions_layout.count():
             item = self._agent_suggestions_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item is not None:
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
 
         if not self._current_suggested_questions:
             empty = QtWidgets.QLabel("加载 bundle 后显示建议问题")
@@ -1145,7 +1157,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     _BORDER
                 )
             )
-            btn.setCursor(QtCore.Qt.PointingHandCursor)  # type: ignore[attr-defined]
+            btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda _c=False, t=q.text: self._ask_question(t))
             self._agent_suggestions_layout.addWidget(btn)
         self._agent_suggestions_layout.addStretch(1)
@@ -1194,7 +1206,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._agent_limitations.setPlainText(lim_text or "无已知限制")
 
         plan = build_agent_plan_preview(self._bundle, question, vm)
-        self._agent_plan.setPlainText(self._format_plan_preview(plan))
+        plan_text = self._format_plan_preview(plan)
+        self._agent_plan.setPlainText(plan_text)
+        self._last_plan_preview_text = plan_text
 
     def _format_plan_preview(self, plan: AgentPlanPreview) -> str:
         if not plan.is_loaded:
@@ -1337,9 +1351,8 @@ class MainWindow(QtWidgets.QMainWindow):
         return page
 
     def _update_plan_tools(self) -> None:
-        # Plan tools page shows the same content as agent plan preview
-        # It's updated when agent question is asked
-        pass
+        state = build_plan_tools_page_state(self._last_plan_preview_text)
+        self._plan_display.setPlainText(state.display_text)
 
     # ========================================================================
     # Page 7: Raw Data
@@ -1588,6 +1601,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_unknowns()
         self._update_agent_qa()
         self._update_agent_runtime()
+        self._update_plan_tools()
         self._update_raw_data()
         self._update_markdown()
         self._update_diagnostics()

@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 from fpga_devmind.desktop.product_shell import (  # pyright: ignore[reportMissingImports]
-    MainWindow,
     run_gui as _run_gui,
 )
 

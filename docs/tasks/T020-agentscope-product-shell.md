@@ -68,7 +68,9 @@ T019 improved the first screen (Overview-first), but review concluded: direction
 
 ### 9. 计划与工具 Page
 
-- Plan preview display
+- 同步显示最近一次 Agent 问答生成的只读计划预览
+- 当用户尚未提问时显示引导说明
+- 当前不执行工具、不执行 graph write
 
 ### 10. 开发者区
 

@@ -96,6 +96,32 @@ class AgentRuntimePageState:
 
 
 # ---------------------------------------------------------------------------
+# Plan / Tools page state
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PlanToolsPageState:
+    """State for the Plan & Tools page."""
+
+    has_plan: bool = False
+    display_text: str = ""
+
+
+def build_plan_tools_page_state(plan_preview_text: str) -> PlanToolsPageState:
+    """Build plan tools page state from the last plan preview text."""
+    if not plan_preview_text:
+        return PlanToolsPageState(
+            has_plan=False,
+            display_text=(
+                "请先在 Agent 问答页选择建议问题或输入问题，"
+                "系统会在这里显示只读工具计划。"
+            ),
+        )
+    return PlanToolsPageState(has_plan=True, display_text=plan_preview_text)
+
+
+# ---------------------------------------------------------------------------
 # Builders
 # ---------------------------------------------------------------------------
 
