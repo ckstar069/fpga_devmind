@@ -502,6 +502,11 @@ class Answer:
         _require_non_empty(self.task_id, "task_id")
         _require_non_empty(self.answer_text, "answer_text")
         _require_in(self.confidence, VALID_CONFIDENCES, "confidence")
+        # Auto-ensure default limitation for deterministic/noop contract stage.
+        if "no_llm_semantic_reasoning" not in self.limitations:
+            self.limitations = list(self.limitations) + [
+                "no_llm_semantic_reasoning"
+            ]
 
     def to_dict(self) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
         return {
@@ -708,6 +713,33 @@ def validate_runtime_trace(
     _check_task_id(
         trace.graph_write_proposals, "graph_write_id", task_id, diags
     )
+
+    # ToolPlan.steps task_id consistency.
+    for plan in trace.plans:
+        for step in plan.steps:
+            if step.task_id != task_id:
+                diags.append({
+                    "severity": "error",
+                    "message": "ToolCallProposal {} has task_id '{}' != '{}'".format(
+                        step.proposal_id, step.task_id, task_id
+                    ),
+                })
+
+    # Collect all proposal IDs from plans.
+    proposal_ids: set[str] = set()
+    for plan in trace.plans:
+        for step in plan.steps:
+            proposal_ids.add(step.proposal_id)
+
+    # ToolResult.proposal_id must reference an existing proposal.
+    for tr in trace.tool_results:
+        if tr.proposal_id not in proposal_ids:
+            diags.append({
+                "severity": "error",
+                "message": "ToolResult {} references non-existent proposal_id '{}'".format(
+                    tr.result_id, tr.proposal_id
+                ),
+            })
 
     # Answer references existing result IDs.
     for a in trace.answers:

@@ -416,6 +416,7 @@ P1b + Desktop Shell V0.1 不做：
 - ✅ T012a: Import cycle / helper cleanup。
 - ✅ T013: Desktop Agent Shell V0.2 Readiness Review — 结论: READY WITH LIMITATIONS。详见 `docs/reviews/0008-desktop-agent-shell-v0.2-readiness-review.md`。
 - ✅ T015: Agent Runtime Contract — 9 dataclasses + validate_runtime_trace，schema `agent-runtime-contract-0.1`。详见 `docs/tasks/T015-agent-runtime-contract.md`。
+- ✅ T015a: Strengthen cross-reference validation — ToolPlan.steps task_id check, ToolResult.proposal_id existence, Answer limitations auto-ensure。68 tests。361 total。
 
 ### 推荐下一步: T016 Local No-op ReAct Dry Run
 

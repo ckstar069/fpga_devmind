@@ -64,9 +64,12 @@ All dataclasses provide:
 - `ToolResult.status`: must be `not_executed`, `simulated`, `completed`, or `blocked`
 - `ReasoningSummary.mode`: must be `deterministic`, `noop`, or `llm_future`
 - `Answer.answer_text`: must be non-empty
+- `Answer.limitations`: auto-ensures `no_llm_semantic_reasoning`
 - `GraphWriteProposal.is_write_allowed`: must be `False`
 - `GraphWriteProposal.blocking_reasons`: must contain `graph_write_disabled_in_current_stage`
 - `validate_runtime_trace()`: cross-references task_id consistency, result_id existence, answer_id existence
+- `validate_runtime_trace()`: checks ToolPlan.steps task_id matches trace.task.task_id (T015a)
+- `validate_runtime_trace()`: checks ToolResult.proposal_id references an existing ToolCallProposal in plan steps (T015a)
 
 ### Safety Constants
 
@@ -118,7 +121,7 @@ No LLM, no external API, no tool execution. The loop runs exactly once (single-t
 
 ```text
 src/fpga_devmind/agent_runtime_contract.py   — 9 dataclasses + validate_runtime_trace()
-tests/test_agent_runtime_contract.py         — 60 tests
+tests/test_agent_runtime_contract.py         — 68 tests
 ```
 
 ## Verification

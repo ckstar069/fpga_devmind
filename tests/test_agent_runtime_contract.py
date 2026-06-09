@@ -667,6 +667,124 @@ class TestValidateRuntimeTrace(unittest.TestCase):
         diags = validate_runtime_trace(trace)
         self.assertEqual(diags, [])
 
+    # -- T015a: ToolResult.proposal_id existence --
+
+    def test_tool_result_references_nonexistent_proposal(self):
+        """ToolResult with a proposal_id not found in any plan step."""
+        trace = _make_valid_trace()
+        trace.tool_results.append(
+            ToolResult(
+                result_id="RES_002",
+                proposal_id="PROP_GHOST",
+                task_id="T001",
+                status="not_executed",
+            )
+        )
+        diags = validate_runtime_trace(trace)
+        messages = [d["message"] for d in diags]
+        self.assertTrue(
+            any("RES_002" in m and "PROP_GHOST" in m for m in messages),
+            "Expected diagnostic about non-existent proposal_id PROP_GHOST",
+        )
+
+    def test_valid_trace_no_proposal_id_diagnostics(self):
+        """Valid trace should produce zero proposal-id diagnostics."""
+        trace = _make_valid_trace()
+        diags = validate_runtime_trace(trace)
+        proposal_diags = [
+            d for d in diags if "proposal_id" in d["message"]
+        ]
+        self.assertEqual(proposal_diags, [])
+
+    # -- T015a: ToolPlan.steps task_id consistency --
+
+    def test_step_in_plan_has_wrong_task_id(self):
+        """A ToolCallProposal inside a plan step with wrong task_id."""
+        trace = _make_valid_trace()
+        bad_step = ToolCallProposal(
+            proposal_id="PROP_BAD",
+            task_id="WRONG",
+            tool_name="read_artifact",
+            allowed_action="read_only_preview",
+        )
+        trace.plans.append(
+            ToolPlan(plan_id="PLAN_002", task_id="T001", steps=[bad_step])
+        )
+        diags = validate_runtime_trace(trace)
+        messages = [d["message"] for d in diags]
+        self.assertTrue(
+            any("PROP_BAD" in m and "WRONG" in m for m in messages),
+            "Expected diagnostic about step task_id mismatch",
+        )
+
+    def test_step_in_plan_correct_task_id_no_diagnostic(self):
+        """Step with correct task_id produces no step-mismatch diagnostic."""
+        trace = _make_valid_trace()
+        good_step = ToolCallProposal(
+            proposal_id="PROP_002",
+            task_id="T001",
+            tool_name="query",
+            allowed_action="deterministic_query",
+        )
+        trace.plans.append(
+            ToolPlan(plan_id="PLAN_002", task_id="T001", steps=[good_step])
+        )
+        diags = validate_runtime_trace(trace)
+        step_diags = [
+            d for d in diags if "ToolCallProposal" in d["message"]
+        ]
+        self.assertEqual(step_diags, [])
+
+
+# ---------------------------------------------------------------------------
+# T015a: Answer limitations auto-ensure
+# ---------------------------------------------------------------------------
+
+
+class TestAnswerLimitationsAutoEnsure(unittest.TestCase):
+    """T015a: Answer auto-ensures no_llm_semantic_reasoning limitation."""
+
+    def test_auto_ensures_default_limitation(self):
+        a = Answer(
+            answer_id="A1",
+            task_id="T001",
+            answer_text="some text",
+            confidence="supported",
+        )
+        self.assertIn("no_llm_semantic_reasoning", a.limitations)
+
+    def test_custom_limitations_preserved(self):
+        a = Answer(
+            answer_id="A1",
+            task_id="T001",
+            answer_text="some text",
+            confidence="supported",
+            limitations=["custom_limit"],
+        )
+        self.assertIn("custom_limit", a.limitations)
+        self.assertIn("no_llm_semantic_reasoning", a.limitations)
+
+    def test_round_trip_preserves_limitation(self):
+        a = Answer(
+            answer_id="A1",
+            task_id="T001",
+            answer_text="some text",
+            confidence="supported",
+        )
+        restored = Answer.from_dict(a.to_dict())
+        self.assertIn("no_llm_semantic_reasoning", restored.limitations)
+
+    def test_explicit_limitation_not_duplicated(self):
+        a = Answer(
+            answer_id="A1",
+            task_id="T001",
+            answer_text="some text",
+            confidence="supported",
+            limitations=["no_llm_semantic_reasoning"],
+        )
+        count = a.limitations.count("no_llm_semantic_reasoning")
+        self.assertEqual(count, 1, "Should not duplicate the limitation")
+
 
 # ---------------------------------------------------------------------------
 # Forbidden imports / boundaries
