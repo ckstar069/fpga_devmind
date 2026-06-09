@@ -57,6 +57,7 @@ def run_noop_agent_once(
 12. Create `GraphWriteProposal` — blocked by default
 13. Assemble `AgentRuntimeTrace`
 14. `validate_runtime_trace()` — cross-reference integrity
+14a. If diagnostics non-empty, propagate into `trace.runtime_diagnostics` and set status="blocked"
 15. Write `agent_runtime_trace.json`
 16. Write `answer.md`
 17. Return `NoopAgentRunResult`
@@ -122,3 +123,7 @@ src/fpga_devmind/cli.py                   — agent-noop-run subcommand
 - T014 (optional): Desktop Shell usability hardening
 - T017 (future): Desktop Agent Trace Viewer — render `agent_runtime_trace.json` in GUI
 - T018 (future): Real LLM provider integration (after T016 proves the contract)
+
+## T016a: Propagate runtime validation diagnostics
+
+`validate_runtime_trace()` diagnostics are now propagated into `trace.runtime_diagnostics` and cause `status="blocked"` when non-empty. The `agent_runtime_trace.json` written to disk includes these diagnostics. This ensures that any cross-reference integrity violations detected by the contract validator are visible in the output trace and cause the run to be reported as blocked.

@@ -309,6 +309,13 @@ def run_noop_agent_once(
     # 14. Validate
     diagnostics = validate_runtime_trace(trace)
 
+    # 14a. Propagate validation diagnostics into trace
+    if diagnostics:
+        trace.runtime_diagnostics = [
+            {"severity": d.get("severity", "error"), "message": d.get("message", "")}
+            for d in diagnostics
+        ]
+
     # 15. Write agent_runtime_trace.json
     out_dir.mkdir(parents=True, exist_ok=True)
     trace_path = out_dir / "agent_runtime_trace.json"
@@ -327,6 +334,8 @@ def run_noop_agent_once(
 
     # 17. Determine status
     status = "ok"
+    if diagnostics:
+        status = "blocked"
     if response.response_kind == "unsupported":
         status = "blocked"
 

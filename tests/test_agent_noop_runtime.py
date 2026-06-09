@@ -16,6 +16,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fpga_devmind.agent_noop_runtime import run_noop_agent_once
 from fpga_devmind.agent_runtime_contract import (
@@ -257,6 +258,30 @@ class TestNoopAgentEdgeCases(unittest.TestCase):
                 question="summary",
                 out_dir=Path("/tmp/fpga_project_test/output"),
             )
+
+    def test_validation_diagnostics_propagate_to_blocked(self) -> None:
+        """When validate_runtime_trace returns errors, status=blocked
+        and runtime_diagnostics is populated in the trace and JSON."""
+        bundle_dir = _make_synthetic_p1b_bundle()
+        out_dir = _make_safe_out()
+        fake_diag = [{"severity": "error", "message": "cross-ref broken"}]
+        with patch(
+            "fpga_devmind.agent_noop_runtime.validate_runtime_trace",
+            return_value=fake_diag,
+        ):
+            result = run_noop_agent_once(
+                artifact_dir=bundle_dir,
+                question="summary",
+                out_dir=out_dir,
+            )
+        self.assertEqual(result.status, "blocked")
+        self.assertTrue(len(result.diagnostics) > 0)
+        self.assertTrue(len(result.trace.runtime_diagnostics) > 0)
+        # Verify the written JSON also contains runtime_diagnostics
+        trace_data = json.loads(
+            Path(result.artifact_path).read_text(encoding="utf-8")
+        )
+        self.assertTrue(len(trace_data.get("runtime_diagnostics", [])) > 0)
 
 
 # ---------------------------------------------------------------------------
