@@ -1,0 +1,131 @@
+mod artifact_loader;
+
+use artifact_loader::{self as loader};
+use std::sync::Mutex;
+use tauri::State;
+
+/* ------------------------------------------------------------------ */
+/*  Shared state                                                      */
+/* ------------------------------------------------------------------ */
+
+struct AppState {
+    bundle: Mutex<Option<loader::ProjectBundle>>,
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tauri commands                                                    */
+/* ------------------------------------------------------------------ */
+
+#[tauri::command]
+fn load_project_bundle(path: String, state: State<'_, AppState>) -> Result<loader::ProjectBundle, String> {
+    let dir = std::path::Path::new(&path);
+    let bundle = loader::load_bundle(dir)?;
+    let mut lock = state.bundle.lock().map_err(|e| e.to_string())?;
+    let result = bundle.clone();
+    *lock = Some(bundle);
+    Ok(result)
+}
+
+#[tauri::command]
+fn get_bundle_summary(state: State<'_, AppState>) -> Result<loader::ProjectBundleSummary, String> {
+    let lock = state.bundle.lock().map_err(|e| e.to_string())?;
+    match lock.as_ref() {
+        Some(bundle) => Ok(loader::bundle_summary(bundle)),
+        None => Err("No bundle loaded".into()),
+    }
+}
+
+#[tauri::command]
+fn read_source_context(
+    file_path: String,
+    context_lines: Option<usize>,
+    _state: State<'_, AppState>,
+) -> Result<String, String> {
+    let lines = context_lines.unwrap_or(15);
+    loader::read_source_context(&file_path, lines)
+}
+
+#[tauri::command]
+fn get_default_bundle_path() -> Option<String> {
+    loader::find_default_bundle().map(|p| p.to_string_lossy().to_string())
+}
+
+/// Run Python CLI to generate a project bundle.
+/// Calls: python -m fpga_devmind.cli p1b-trace-project --project <project> --concepts <concepts> --out <out>
+#[tauri::command]
+fn run_project_trace(
+    project: String,
+    concepts: String,
+    out: String,
+) -> Result<String, String> {
+    // Find the fpga_devmind project root (parent of apps/fpga-devmind-tauri)
+    let exe_dir = std::env::current_dir().map_err(|e| format!("Cannot get CWD: {}", e))?;
+    let project_root = exe_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or("Cannot determine project root")?;
+
+    let python = which_python()?;
+
+    let output = std::process::Command::new(&python)
+        .args([
+            "-m", "fpga_devmind.cli",
+            "p1b-trace-project",
+            "--project", &project,
+            "--concepts", &concepts,
+            "--out", &out,
+        ])
+        .env("PYTHONPATH", project_root.join("src").to_string_lossy().to_string())
+        .output()
+        .map_err(|e| format!("Failed to run Python: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if output.status.success() {
+        Ok(format!("✅ 成功\n{}\n{}", stdout, if stderr.is_empty() { String::new() } else { format!("stderr:\n{}", stderr) }))
+    } else {
+        Err(format!("❌ 失败 (exit {:?})\n{}\n{}", output.status.code(), stdout, stderr))
+    }
+}
+
+/// Find python executable
+fn which_python() -> Result<String, String> {
+    // Try .venv/bin/python first (project-local venv)
+    let candidates = [
+        ".venv/bin/python",
+        "venv/bin/python",
+        "python3",
+        "python",
+    ];
+    for candidate in &candidates {
+        // Check if path exists relative to likely project root
+        if std::path::Path::new(candidate).exists() {
+            return Ok(candidate.to_string());
+        }
+    }
+    // Fallback: just use python3 and hope it's on PATH
+    Ok("python3".to_string())
+}
+
+/* ------------------------------------------------------------------ */
+/*  App setup                                                         */
+/* ------------------------------------------------------------------ */
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .manage(AppState {
+            bundle: Mutex::new(None),
+        })
+        .invoke_handler(tauri::generate_handler![
+            load_project_bundle,
+            get_bundle_summary,
+            read_source_context,
+            get_default_bundle_path,
+            run_project_trace,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
