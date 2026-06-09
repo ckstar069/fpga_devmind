@@ -69,6 +69,7 @@ Implemented:
 - Desktop app prototype (T009): PySide6-based minimum viable shell with artifact directory picker, Run Summary view, JSON Tree Browser, Markdown Preview, and Diagnostics tab. Graceful fallback when PySide6 is missing. Artifact loader (`desktop/artifact_loader.py`) and view models (`desktop/view_models.py`) are pure Python and testable without GUI. 229 tests (194 P1a/P1b + 35 desktop) pass.
 - Local Agent Interaction Panel (T011): Deterministic rule-based query panel inside the Desktop Shell Agent tab. No external LLM, no API key, no Web server. Supports bilingual keyword routing for summary, claims, evidence, diagnostics, unknown, nodes, edges, and specific claim/evidence ID lookups. Returns `AgentPanelResponse` with referenced IDs, uncertainty notes, and unsupported fallback. Pure Python view model (`desktop/agent_panel_models.py`) with 35 dedicated tests. 274 tests total pass.
 - Agent Tool Plan Preview (T012): Read-only tool/action plan preview in the Agent tab. For every user question, shows what artifacts a future Agent mode would read and why. No execution, no LLM, no API. Inherits referenced IDs from T011 response. 9 intent types covered with fixed safety notes. Pure Python view model (`desktop/agent_plan_models.py`) with 19 dedicated tests. 293 tests total pass.
+- Agent Runtime Contract (T015): Structured artifact definitions for a future ReAct-like Agent loop. 9 dataclasses (UserTask, Observation, ReasoningSummary, ToolPlan, ToolCallProposal, ToolResult, Answer, GraphWriteProposal, AgentRuntimeTrace) with validation, JSON round-trip, and cross-reference integrity checking. Schema version `agent-runtime-contract-0.1`. No execution, no LLM, no API. Pure Python contract module (`agent_runtime_contract.py`) with 60 dedicated tests. 353 tests total pass.
 
 Not implemented yet:
 
@@ -87,7 +88,7 @@ Not implemented yet:
 - P1c verification coverage.
 - Desktop GUI / Agent Shell prototype（桌面端软件，非 Web）。T009–T012a 已完成从 artifact viewer 到本地确定性 Agent shell 原型的演进。详见 `docs/reviews/0007-p1b-desktop-v0.1-readiness-review.md`（V0.1）和 `docs/reviews/0008-desktop-agent-shell-v0.2-readiness-review.md`（V0.2）。
 - Interactive memory.
-- Agent Runtime Contract（T015 提案）：ReAct-like loop 的结构化 artifact 定义。详见 `docs/reviews/0008-desktop-agent-shell-v0.2-readiness-review.md` 第 6 节。
+- Agent Runtime Contract（T015 ✅）：ReAct-like loop 的结构化 artifact 定义已完成。详见 `docs/tasks/T015-agent-runtime-contract.md`。
 
 ### P1b Current Limitations
 
