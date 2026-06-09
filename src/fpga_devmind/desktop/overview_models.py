@@ -213,7 +213,12 @@ def _build_p1b_overview(
     for item in evidence_items:
         source = item.get("source_type", "")
         strength = item.get("evidence_strength", "unknown")
-        target = l5_l6_ev if source.startswith("p1b_concept") else rtl_ev
+        if source in ("concept_occurrence", "p1b_concept", "l5_l6"):
+            target = l5_l6_ev
+        elif source in ("rtl_source", "p1b_rtl", "rtl"):
+            target = rtl_ev
+        else:
+            target = rtl_ev
         _increment_strength(target, strength)
 
     # Mapping confidence
@@ -242,25 +247,104 @@ def _build_p1b_overview(
     claim_parts = _format_confidence_summary(mapping_conf)
     ev_total = l5_l6_ev.total + rtl_ev.total
 
+    # Extract L5/L6 symbols and files
+    l5_files: set[str] = set()
+    l5_symbols: set[str] = set()
+    rtl_files: set[str] = set()
+    rtl_modules: set[str] = set()
+    rtl_signals: set[str] = set()
+    for item in evidence_items:
+        src = item.get("source_type", "")
+        sym = item.get("symbol", "")
+        fp = item.get("file_path", "")
+        if src in ("concept_occurrence", "p1b_concept", "l5_l6"):
+            if sym:
+                l5_symbols.add(sym)
+            if fp:
+                l5_files.add(fp.split("/")[-1])
+        elif src in ("rtl_source", "p1b_rtl", "rtl"):
+            if fp:
+                rtl_files.add(fp.split("/")[-1])
+            if sym:
+                # Classify RTL symbols by node kind if available
+                rtl_signals.add(sym)
+
+    # Extract mapping claim details
+    claim_details: list[str] = []
+    for claim in claims[:3]:
+        cid = claim.get("claim_id", "")
+        conf = claim.get("confidence", "unknown")
+        bridge = claim.get("bridge_kind", "unknown")
+        l5_ids = claim.get("l5_l6_evidence_ids", [])
+        rtl_ids = claim.get("rtl_evidence_ids", [])
+        l5_n = len(l5_ids) if isinstance(l5_ids, list) else 0
+        rtl_n = len(rtl_ids) if isinstance(rtl_ids, list) else 0
+        claim_details.append(
+            "{} — 可信度 {}，桥接类型 {}（L5/L6 证据 {} 条，RTL 证据 {} 条）".format(
+                cid, conf, bridge, l5_n, rtl_n
+            )
+        )
+
     understanding_lines: list[str] = []
     understanding_lines.append(
-        "概念 '{}' 在 L5/L6 Python 代码和 RTL Verilog 之间建立了映射关系。".format(
+        "概念 '{}' 在 L5/L6 Python 代码和 RTL Verilog 之间建立了映射追踪。".format(
             concept
         )
     )
     understanding_lines.append("")
+
+    # L5/L6 side
+    if l5_symbols:
+        syms = ", ".join(sorted(l5_symbols)[:8])
+        if len(l5_symbols) > 8:
+            syms += " 等 {} 个符号".format(len(l5_symbols))
+        understanding_lines.append(
+            "L5/L6 侧：在 {} 个源码文件中发现 {} 个相关符号，包括 {}。".format(
+                len(l5_files), len(l5_symbols), syms
+            )
+        )
+    else:
+        understanding_lines.append("L5/L6 侧：未提取到相关符号。")
+
+    # RTL side
+    if rtl_files:
+        files = ", ".join(sorted(rtl_files)[:5])
+        if len(rtl_files) > 5:
+            files += " 等"
+        understanding_lines.append(
+            "RTL 侧：在 {} 个 Verilog 文件中发现 {} 个相关模块/信号/always/assign。".format(
+                len(rtl_files),
+                sum(1 for n in nodes if n.get("kind", "").startswith("rtl_")),
+            )
+        )
+    else:
+        understanding_lines.append("RTL 侧：未提取到相关模块/信号。")
+
+    understanding_lines.append("")
+
+    # Mapping claims
+    if claim_details:
+        understanding_lines.append("映射声明：")
+        for cd in claim_details:
+            understanding_lines.append("  " + cd)
+    else:
+        understanding_lines.append("映射声明：暂无。")
+
+    understanding_lines.append("")
     understanding_lines.append(
-        "共发现 {} 个节点（{}），{} 条映射声明（{}），{} 条证据"
-        "（其中 L5/L6 证据 {} 条，RTL 证据 {} 条）。".format(
-            len(nodes),
-            kind_parts,
-            mapping_conf.total,
-            claim_parts,
-            ev_total,
-            l5_l6_ev.total,
-            rtl_ev.total,
+        "证据统计：共 {} 条（L5/L6 {} 条，RTL {} 条）。".format(
+            ev_total, l5_l6_ev.total, rtl_ev.total
         )
     )
+
+    # Why not confirmed
+    understanding_lines.append("")
+    why_not = (
+        "当前 mapping claims 未标记为 confirmed。原因："
+        "证据强度不足（命名匹配 alone 只能得到 inferred）；"
+        "需要人工 review 后才能提升到 supported 或 confirmed。"
+    )
+    understanding_lines.append(why_not)
 
     # Unknown / limitations
     limitations: list[str] = []
@@ -289,7 +373,7 @@ def _build_p1b_overview(
         )
     elif status == "ok":
         understanding_lines.append("")
-        understanding_lines.append("状态: 正常，无阻断性诊断。")
+        understanding_lines.append("状态：正常，无阻断性诊断。")
 
     return OverviewViewModel(
         project_path=project,
@@ -419,7 +503,9 @@ def format_concept_trace_summary(
     l5_strengths: dict[str, int] = {}
 
     for row in vm.evidence:
-        if row.source_type.startswith("p1b_concept") or row.source_type in (
+        if row.source_type in (
+            "concept_occurrence",
+            "p1b_concept",
             "concept",
             "l5_l6",
         ):
@@ -477,7 +563,11 @@ def format_concept_trace_summary(
     rtl_kinds: dict[str, int] = {}
 
     for row in vm.evidence:
-        if row.source_type.startswith("p1b_rtl") or row.source_type == "rtl":
+        if row.source_type in (
+            "rtl_source",
+            "p1b_rtl",
+            "rtl",
+        ):
             if row.file_path:
                 rtl_files.add(row.file_path)
             sym = row.symbol or ""

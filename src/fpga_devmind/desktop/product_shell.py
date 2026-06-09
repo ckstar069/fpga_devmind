@@ -465,6 +465,12 @@ class MainWindow(QtWidgets.QMainWindow):
             status_text += " | {} errors".format(summary.error_count)
         self._top_status_label.setText("| {}".format(status_text))
 
+        # Update dir input to show current path
+        path_str = str(self._bundle.directory)
+        if len(path_str) > 45:
+            path_str = "..." + path_str[-42:]
+        self._dir_input.setText(path_str)
+
     # --- Pages --------------------------------------------------------------
 
     def _build_all_pages(self) -> None:
@@ -552,8 +558,14 @@ class MainWindow(QtWidgets.QMainWindow):
         metrics_row = QtWidgets.QHBoxLayout()
         metrics_row.setSpacing(12)
         self._ov_metric_labels: dict[str, QtWidgets.QLabel] = {}
-        for label in ["Mapping Claims", "Evidence Items", "RTL Objects", "Unknowns"]:
-            card = self._make_metric_card(label, "0")
+        metric_info = [
+            ("Mapping Claims", "L5/L6 与 RTL 的映射声明"),
+            ("Evidence Items", "支持理解的源码/RTL 证据"),
+            ("RTL Objects", "相关 RTL module/signal/always/assign"),
+            ("Unknowns", "不确定或缺失证据项"),
+        ]
+        for label, desc in metric_info:
+            card = self._make_metric_card(label, "0", desc)
             metrics_row.addWidget(card, stretch=1)
             self._ov_metric_labels[label] = getattr(card, "_value_label")
         layout.addLayout(metrics_row)
@@ -624,7 +636,7 @@ class MainWindow(QtWidgets.QMainWindow):
         setattr(card, "_value", v)
         return card
 
-    def _make_metric_card(self, label: str, value: str) -> QtWidgets.QWidget:
+    def _make_metric_card(self, label: str, value: str, description: str = "") -> QtWidgets.QWidget:
         card = QtWidgets.QWidget()
         card.setStyleSheet(
             "background-color: white; border: 1px solid {}; border-radius: 8px; padding: 12px;".format(
@@ -637,8 +649,12 @@ class MainWindow(QtWidgets.QMainWindow):
         v.setStyleSheet("font-size: 24px; font-weight: bold; color: {};".format(_ACCENT))
         layout.addWidget(v)
         l = QtWidgets.QLabel(label)
-        l.setStyleSheet("font-size: 11px; color: {}; margin-top: 4px;".format(_TEXT_DIM))
+        l.setStyleSheet("font-size: 12px; font-weight: bold; color: #333; margin-top: 4px;")
         layout.addWidget(l)
+        if description:
+            d = QtWidgets.QLabel(description)
+            d.setStyleSheet("font-size: 10px; color: {}; margin-top: 2px;".format(_TEXT_DIM))
+            layout.addWidget(d)
         setattr(card, "_value_label", v)
         return card
 
@@ -936,12 +952,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._evidence_stack.setCurrentIndex(0)
 
+        group_descriptions = {
+            "L5/L6 代码证据": "从 L5/L6 Python 代码中提取的符号、类、函数、方法等证据项。",
+            "RTL 证据": "从 RTL Verilog/SystemVerilog 中提取的模块、信号、always、assign 等证据项。",
+            "桥接/映射证据": "连接 L5/L6 和 RTL 两边的桥接证据项。",
+        }
+
         for group in vm.groups:
             group_label = QtWidgets.QLabel(group.title)
             group_label.setStyleSheet(
                 "font-size: 14px; font-weight: bold; color: #333; margin-top: 8px;"
             )
             self._evidence_groups_layout.addWidget(group_label)
+
+            desc = group_descriptions.get(group.title, "")
+            if desc:
+                desc_label = QtWidgets.QLabel(desc)
+                desc_label.setStyleSheet(
+                    "font-size: 11px; color: {}; margin-bottom: 4px;".format(_TEXT_DIM)
+                )
+                self._evidence_groups_layout.addWidget(desc_label)
+
+            if not group.rows:
+                empty_label = QtWidgets.QLabel("当前没有该类证据。")
+                empty_label.setStyleSheet("color: {}; font-size: 12px;".format(_TEXT_DIM))
+                self._evidence_groups_layout.addWidget(empty_label)
+                continue
 
             table = QtWidgets.QTableWidget()
             table.setColumnCount(6)
@@ -1064,6 +1100,19 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_agent_qa_page(self) -> QtWidgets.QWidget:
         page = self._make_page_widget("Agent 问答")
         layout = getattr(page, "_content_layout")
+
+        # Agent note
+        agent_note = QtWidgets.QLabel(
+            "当前为本地确定性 Agent，基于已加载的 artifact 做规则化查询，不调用外部 LLM / API。"
+        )
+        agent_note.setStyleSheet(
+            "font-size: 11px; color: {}; background-color: #f0f4ff; "
+            "border: 1px solid #d0d8f0; border-radius: 4px; padding: 6px 10px;".format(
+                _TEXT_DIM
+            )
+        )
+        agent_note.setWordWrap(True)
+        layout.addWidget(agent_note)
 
         # Suggested questions
         sq_label = QtWidgets.QLabel("💡 建议问题")

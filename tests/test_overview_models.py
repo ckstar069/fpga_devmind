@@ -260,6 +260,47 @@ class TestBuildOverviewP1b(unittest.TestCase):
                 )
             )
 
+    def test_p1b_current_understanding_has_l5_l6_side(self) -> None:
+        """current_understanding includes L5/L6 side description."""
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_ov_"
+        ) as tmp:
+            bundle_dir = _write_p1b_bundle(Path(tmp) / "p1b")
+            bundle = load_bundle(bundle_dir)
+            vm = build_overview_view_model(bundle)
+            self.assertIn("L5/L6", vm.current_understanding)
+
+    def test_p1b_current_understanding_has_rtl_side(self) -> None:
+        """current_understanding includes RTL side description."""
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_ov_"
+        ) as tmp:
+            bundle_dir = _write_p1b_bundle(Path(tmp) / "p1b")
+            bundle = load_bundle(bundle_dir)
+            vm = build_overview_view_model(bundle)
+            self.assertIn("RTL", vm.current_understanding)
+
+    def test_p1b_current_understanding_has_mapping_claims(self) -> None:
+        """current_understanding includes mapping claim details."""
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_ov_"
+        ) as tmp:
+            bundle_dir = _write_p1b_bundle(Path(tmp) / "p1b")
+            bundle = load_bundle(bundle_dir)
+            vm = build_overview_view_model(bundle)
+            self.assertIn("映射声明", vm.current_understanding)
+
+    def test_p1b_current_understanding_has_why_not_confirmed(self) -> None:
+        """current_understanding explains why not confirmed."""
+        with tempfile.TemporaryDirectory(
+            prefix="fpga_devmind_ov_"
+        ) as tmp:
+            bundle_dir = _write_p1b_bundle(Path(tmp) / "p1b")
+            bundle = load_bundle(bundle_dir)
+            vm = build_overview_view_model(bundle)
+            self.assertIn("confirmed", vm.current_understanding)
+            self.assertIn("人工", vm.current_understanding)
+
 
 class TestBuildOverviewAgentRuntime(unittest.TestCase):
     """Agent runtime bundle → OverviewViewModel."""

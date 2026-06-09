@@ -158,12 +158,18 @@ def build_evidence_page_view_model(
     bridge_rows: list[EvidenceRow] = []
 
     for row in trace_vm.evidence:
-        if row.source_type.startswith("p1b_concept") or row.source_type in (
-            "concept",
+        if row.source_type in (
+            "concept_occurrence",
+            "p1b_concept",
             "l5_l6",
+            "concept",
         ):
             l5_l6_rows.append(row)
-        elif row.source_type.startswith("p1b_rtl") or row.source_type == "rtl":
+        elif row.source_type in (
+            "rtl_source",
+            "p1b_rtl",
+            "rtl",
+        ):
             rtl_rows.append(row)
         else:
             bridge_rows.append(row)
@@ -314,6 +320,11 @@ def build_agent_runtime_page_state(
         )
 
     if bundle.bundle_type != "agent_runtime":
+        # Check if noop_run exists in the same parent directory
+        noop_path = bundle.directory.parent / "noop_run"
+        noop_hint = ""
+        if noop_path.exists():
+            noop_hint = "\n\n已检测到 agent_runtime bundle:\n  {}".format(noop_path)
         return AgentRuntimePageState(
             is_visible=False,
             message=(
@@ -322,7 +333,8 @@ def build_agent_runtime_page_state(
                 "生成方式:\n"
                 "  PYTHONPATH=src python -m fpga_devmind.cli desktop-sample-run\n"
                 "  PYTHONPATH=src python -m fpga_devmind.desktop_app --recent"
-            ).format(bundle.bundle_type),
+                "{}"
+            ).format(bundle.bundle_type, noop_hint),
         )
 
     trace = get_agent_runtime_trace(bundle)
