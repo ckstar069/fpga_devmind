@@ -417,15 +417,37 @@ P1b + Desktop Shell V0.1 不做：
 - ✅ T013: Desktop Agent Shell V0.2 Readiness Review — 结论: READY WITH LIMITATIONS。详见 `docs/reviews/0008-desktop-agent-shell-v0.2-readiness-review.md`。
 - ✅ T015: Agent Runtime Contract — 9 dataclasses + validate_runtime_trace，schema `agent-runtime-contract-0.1`。详见 `docs/tasks/T015-agent-runtime-contract.md`。
 - ✅ T015a: Strengthen cross-reference validation — ToolPlan.steps task_id check, ToolResult.proposal_id existence, Answer limitations auto-ensure。68 tests。361 total。
+- ✅ T016: Local No-op ReAct Dry Run — 确定性单轮 Agent runtime，串联 T011/T012/T015 输出 contract-backed trace。19 tests。380 total。
 
-### 推荐下一步: T016 Local No-op ReAct Dry Run
+### Agent No-op Dry Run
+
+T016 是第一个基于 Agent Runtime Contract 的本地确定性 Agent dry run。它把 T011（查询）+ T012（计划预览）+ T015（contract）串成一条 observe→plan→propose→simulated-result→answer→blocked-graph-write trace。
+
+```bash
+PYTHONPATH=src python3 -m fpga_devmind.cli agent-noop-run \
+  --artifact-dir /tmp/fpga_devmind/p1b_peak_idx \
+  --question "summary" \
+  --out /tmp/fpga_devmind/noop_run
+```
+
+输出：
+
+```text
+/tmp/fpga_devmind/noop_run/
+- agent_runtime_trace.json   # 完整 contract-backed Agent trace
+- answer.md                  # 人类可读答案
+```
+
+不调用 LLM，不调用外部 API，不执行工具，不修改目标项目，所有 graph write 都 blocked by default。
+
+### 推荐下一步: T014 Desktop Shell usability hardening 或 T017 Desktop Agent Trace Viewer
 
 用 deterministic/noop provider 模拟 observe → plan → propose → answer 单次 loop，基于 T015 定义的 Agent Runtime Contract。不执行危险工具，不调用外部 API。
 
 ### 后续阶段
 
 - **T014** (可选): Desktop Shell usability hardening — PySide6 依赖策略、sample artifact 命令、GUI smoke 截图文档。
-- **T016** (依赖 T015 ✅): Local No-op ReAct Dry Run — 用 deterministic/noop provider 模拟 observe → plan → propose → answer 单次 loop，不执行危险工具，不调用外部 API。
+- **T017** (未来): Desktop Agent Trace Viewer — 在 GUI 中渲染 `agent_runtime_trace.json`。
 - **真实 LLM provider integration** 是更后续阶段，不是当前下一步。
 - P1b+: 批量多概念 trace、partial SystemVerilog parser、跨概念 structural edge。
 - P1c: Verification coverage trace。

@@ -71,6 +71,7 @@ Implemented:
 - Agent Tool Plan Preview (T012): Read-only tool/action plan preview in the Agent tab. For every user question, shows what artifacts a future Agent mode would read and why. No execution, no LLM, no API. Inherits referenced IDs from T011 response. 9 intent types covered with fixed safety notes. Pure Python view model (`desktop/agent_plan_models.py`) with 19 dedicated tests. 293 tests total pass.
 - Agent Runtime Contract (T015): Structured artifact definitions for a future ReAct-like Agent loop. 9 dataclasses (UserTask, Observation, ReasoningSummary, ToolPlan, ToolCallProposal, ToolResult, Answer, GraphWriteProposal, AgentRuntimeTrace) with validation, JSON round-trip, and cross-reference integrity checking. Schema version `agent-runtime-contract-0.1`. No execution, no LLM, no API. Pure Python contract module (`agent_runtime_contract.py`) with 60 dedicated tests. 353 tests total pass.
   - T015a: Strengthened cross-reference validation — ToolPlan.steps task_id check, ToolResult.proposal_id existence check, Answer limitations auto-ensure `no_llm_semantic_reasoning`. 68 dedicated tests. 361 tests total pass.
+- Local No-op ReAct Dry Run (T016): Deterministic single-turn Agent runtime that chains T011 (query) + T012 (plan preview) + T015 (runtime contract) into one observe→plan→propose→simulated-result→answer→blocked-graph-write trace. No LLM, no API, no execution. CLI entry point: `agent-noop-run`. Outputs `agent_runtime_trace.json` + `answer.md`. 19 dedicated tests. 380 tests total pass.
 
 Not implemented yet:
 

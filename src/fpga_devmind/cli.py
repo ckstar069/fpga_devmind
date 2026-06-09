@@ -68,6 +68,14 @@ def build_parser() -> argparse.ArgumentParser:
     p1b.add_argument("--concept", required=True)
     p1b.add_argument("--out", type=Path, required=True)
 
+    noop = sub.add_parser(
+        "agent-noop-run",
+        help="Run local no-op ReAct dry run over a P1a/P1b artifact bundle",
+    )
+    noop.add_argument("--artifact-dir", type=Path, required=True)
+    noop.add_argument("--question", required=True)
+    noop.add_argument("--out", type=Path, required=True)
+
     return parser
 
 
@@ -156,6 +164,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Blocking diagnostics: {metadata['blocking_diagnostics']}")
         print(f"Elapsed: {metadata['elapsed_seconds']}s")
         return 1 if metadata["status"] == "blocked" else 0
+    if args.command == "agent-noop-run":
+        from .agent_noop_runtime import run_noop_agent_once
+
+        try:
+            result = run_noop_agent_once(
+                artifact_dir=args.artifact_dir,
+                question=args.question,
+                out_dir=args.out,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+            return 2
+        print("Wrote no-op agent trace to {}".format(result.output_dir))
+        print("Trace: {}".format(result.artifact_path))
+        print("Status: {}".format(result.status))
+        print("Task: {}".format(result.trace.task.task_id))
+        print("Confidence: {}".format(
+            result.trace.answers[0].confidence
+            if result.trace.answers else "n/a"
+        ))
+        print("Diagnostics: {}".format(len(result.diagnostics)))
+        print("Graph write: blocked")
+        return 1 if result.status != "ok" else 0
     parser.error(f"unknown command {args.command}")
     return 2
 
