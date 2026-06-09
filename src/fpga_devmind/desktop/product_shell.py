@@ -223,6 +223,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ct_graph_scene: Any = None  # ConceptGraphScene; pyright: ignore[reportExplicitAny]
         self._ct_graph_info = QtWidgets.QLabel()
         self._ct_graph_detail = QtWidgets.QTextEdit()
+        self._ct_graph_mode = QtWidgets.QComboBox()
         self._ct_filter_modules = QtWidgets.QCheckBox()
         self._ct_filter_signals = QtWidgets.QCheckBox()
         self._ct_filter_always = QtWidgets.QCheckBox()
@@ -395,6 +396,9 @@ class MainWindow(QtWidgets.QMainWindow):
             group_label = QtWidgets.QLabel(group_name)
             layout.addWidget(group_label)
             for text, key in items:
+                if key in self._nav_buttons:
+                    # Defensive: skip duplicate registration (T025)
+                    continue
                 btn = NavButton(text, key)
                 btn.clicked.connect(
                     lambda _checked=False, k=key: self._navigate_to(k)
@@ -772,26 +776,34 @@ class MainWindow(QtWidgets.QMainWindow):
         graph_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #333;")
         layout.addWidget(graph_label)
 
-        # Filter bar
-        filter_bar = QtWidgets.QHBoxLayout()
+        # Graph mode selector + filter bar
+        graph_ctrl = QtWidgets.QHBoxLayout()
+        self._ct_graph_mode = QtWidgets.QComboBox()
+        self._ct_graph_mode.addItem("Overview", "overview")
+        self._ct_graph_mode.addItem("Evidence Detail", "evidence_detail")
+        self._ct_graph_mode.currentIndexChanged.connect(self._on_graph_mode_changed)
+        graph_ctrl.addWidget(QtWidgets.QLabel("视图模式:"))
+        graph_ctrl.addWidget(self._ct_graph_mode)
+        graph_ctrl.addSpacing(16)
+
         self._ct_filter_modules = QtWidgets.QCheckBox("模块")
         self._ct_filter_modules.setChecked(True)
         self._ct_filter_modules.stateChanged.connect(self._on_graph_filter_changed)
-        filter_bar.addWidget(self._ct_filter_modules)
+        graph_ctrl.addWidget(self._ct_filter_modules)
         self._ct_filter_signals = QtWidgets.QCheckBox("信号")
         self._ct_filter_signals.setChecked(True)
         self._ct_filter_signals.stateChanged.connect(self._on_graph_filter_changed)
-        filter_bar.addWidget(self._ct_filter_signals)
+        graph_ctrl.addWidget(self._ct_filter_signals)
         self._ct_filter_always = QtWidgets.QCheckBox("always/assign")
         self._ct_filter_always.setChecked(True)
         self._ct_filter_always.stateChanged.connect(self._on_graph_filter_changed)
-        filter_bar.addWidget(self._ct_filter_always)
+        graph_ctrl.addWidget(self._ct_filter_always)
         self._ct_filter_weak = QtWidgets.QCheckBox("weak 证据")
         self._ct_filter_weak.setChecked(True)
         self._ct_filter_weak.stateChanged.connect(self._on_graph_filter_changed)
-        filter_bar.addWidget(self._ct_filter_weak)
-        filter_bar.addStretch(1)
-        layout.addLayout(filter_bar)
+        graph_ctrl.addWidget(self._ct_filter_weak)
+        graph_ctrl.addStretch(1)
+        layout.addLayout(graph_ctrl)
 
         # Graph + detail panel
         graph_row = QtWidgets.QHBoxLayout()
@@ -886,11 +898,41 @@ class MainWindow(QtWidgets.QMainWindow):
 
         return page
 
+    def _on_graph_mode_changed(self) -> None:
+        """Re-render graph when display mode changes."""
+        if self._bundle is None:
+            return
+        mode = self._ct_graph_mode.currentData()
+        from fpga_devmind.desktop.concept_graph_view import (
+            ProjectGraphDisplayMode,
+            build_concept_graph_view_model,
+        )
+        vm = build_concept_graph_view_model(
+            self._bundle, mode=mode or ProjectGraphDisplayMode.OVERVIEW
+        )
+        if not vm.is_loaded:
+            return
+        self._ct_graph_scene.set_view_model(vm)
+        if self._bundle.bundle_type == "project":
+            info = "Overview: {} 节点 (隐藏 {} 个底层证据节点)".format(
+                len(vm.nodes), vm.hidden_node_count
+            ) if vm.mode == ProjectGraphDisplayMode.OVERVIEW else (
+                "Evidence Detail: {} 节点 (原始全量)".format(len(vm.nodes))
+            )
+            self._ct_graph_info.setText(info)
+
     def _on_graph_filter_changed(self) -> None:
         """Re-render graph when filter checkboxes change."""
         if self._bundle is None:
             return
-        vm = build_concept_graph_view_model(self._bundle)
+        from fpga_devmind.desktop.concept_graph_view import (
+            ProjectGraphDisplayMode,
+            build_concept_graph_view_model,
+        )
+        mode = self._ct_graph_mode.currentData()
+        vm = build_concept_graph_view_model(
+            self._bundle, mode=mode or ProjectGraphDisplayMode.OVERVIEW
+        )
         if not vm.is_loaded:
             return
         vm.filter_state = GraphFilterState(
@@ -904,7 +946,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_graph_node_clicked(self, node: Any) -> None:
         """Handle click on a graph node — show full detail panel."""
         lines = ["【选中对象详情】", ""]
-        lines.append("Node ID: {}".format(node.node_id))
         lines.append("Label: {}".format(node.label))
         lines.append("Kind: {}".format(node.kind))
         if node.stage:
@@ -916,32 +957,140 @@ class MainWindow(QtWidgets.QMainWindow):
         if node.has_diagnostics:
             lines.append("Diagnostics: 有")
 
-        # Try to enrich from graph data.
-        from fpga_devmind.desktop.artifact_loader import get_graph
-        if self._bundle is not None:
-            graph = get_graph(self._bundle)
-            detail = build_node_detail(node.node_id, graph)
-            if detail is not None:
-                if detail.evidence_ids:
-                    lines.append("\n关联证据:")
-                    for eid in detail.evidence_ids[:10]:
-                        lines.append("  • {}".format(eid))
-                    if len(detail.evidence_ids) > 10:
-                        lines.append("  ... 以及 {} 条".format(len(detail.evidence_ids) - 10))
-                if detail.claim_ids:
-                    lines.append("\n关联声明:")
-                    for cid in detail.claim_ids:
-                        lines.append("  • {}".format(cid))
+        # Enrich from project graph data when available.
+        if self._bundle is not None and self._bundle.bundle_type == "project":
+            from fpga_devmind.desktop.artifact_loader import get_project_graph
+            graph = get_project_graph(self._bundle)
+            if graph:
+                self._enrich_node_detail(lines, node, graph)
+        else:
+            from fpga_devmind.desktop.artifact_loader import get_graph
+            if self._bundle is not None:
+                graph = get_graph(self._bundle)
+                detail = build_node_detail(node.node_id, graph)
+                if detail is not None:
+                    if detail.evidence_ids:
+                        lines.append("\n关联证据:")
+                        for eid in detail.evidence_ids[:10]:
+                            lines.append("  • {}".format(eid))
+                        if len(detail.evidence_ids) > 10:
+                            lines.append("  ... 以及 {} 条".format(len(detail.evidence_ids) - 10))
+                    if detail.claim_ids:
+                        lines.append("\n关联声明:")
+                        for cid in detail.claim_ids:
+                            lines.append("  • {}".format(cid))
 
         self._ct_graph_detail.setPlainText("\n".join(lines))
 
-        # Also update info line.
+        # Info line.
         info = "节点: {} | 类型: {} | 可信度: {}".format(
             node.label, node.kind, node.confidence or "—"
         )
         if node.evidence_count:
             info += " | 证据: {} 条".format(node.evidence_count)
         self._ct_graph_info.setText(info)
+
+    def _enrich_node_detail(
+        self,
+        lines: list[str],
+        node: Any,  # pyright: ignore[reportExplicitAny]
+        graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+    ) -> None:
+        """Add project-graph-specific detail for *node* to *lines*."""
+        raw_nodes = graph.get("nodes", [])
+        raw_edges = graph.get("edges", [])
+
+        if node.kind == "project":
+            concept_count = sum(1 for n in raw_nodes if n.get("kind") == "concept")
+            claim_count = sum(1 for n in raw_nodes if n.get("kind") == "mapping_claim")
+            rtl_count = sum(1 for n in raw_nodes if n.get("kind", "").startswith("rtl"))
+            shared = sum(1 for e in raw_edges if e.get("edge_type") in ("shares_file", "shares_rtl_object"))
+            unknowns = sum(1 for n in raw_nodes if n.get("kind") == "concept" and n.get("confidence") == "unknown")
+            lines.append("\n项目统计:")
+            lines.append("  概念: {} | Claims: {} | RTL: {}".format(concept_count, claim_count, rtl_count))
+            lines.append("  共享边: {} | 不确定: {}".format(shared, unknowns))
+            concepts = [n.get("label", "") for n in raw_nodes if n.get("kind") == "concept"]
+            if concepts:
+                lines.append("  概念列表: {}".format(", ".join(concepts)))
+
+        elif node.kind == "concept":
+            concept_name = node.label
+            related_claims = [
+                n for n in raw_nodes
+                if n.get("kind") == "mapping_claim" and n.get("concept") == concept_name
+            ]
+            related_rtls: set[str] = set()
+            for e in raw_edges:
+                if e.get("edge_type") == "realizes":
+                    from_id = e.get("from_node_id", "")
+                    to_id = e.get("to_node_id", "")
+                    for c in related_claims:
+                        if c.get("node_id") == from_id:
+                            for n in raw_nodes:
+                                if n.get("node_id") == to_id and n.get("kind", "").startswith("rtl"):
+                                    related_rtls.add(n.get("label", to_id))
+            lines.append("\n相关 Claims: {}".format(len(related_claims)))
+            for c in related_claims:
+                lines.append("  • {} — {}".format(c.get("label", ""), c.get("confidence", "unknown")))
+            if related_rtls:
+                lines.append("\n相关 RTL:")
+                for rtl in sorted(related_rtls)[:10]:
+                    lines.append("  • {}".format(rtl))
+                if len(related_rtls) > 10:
+                    lines.append("  ... 还有 {} 个".format(len(related_rtls) - 10))
+
+        elif node.kind == "mapping_claim":
+            claim_raw = next((n for n in raw_nodes if n.get("node_id") == node.node_id), {})
+            concept = claim_raw.get("concept", "")
+            bridge = claim_raw.get("bridge_kind", "unknown")
+            lines.append("\nClaim 详情:")
+            lines.append("  Concept: {}".format(concept))
+            lines.append("  Bridge kind: {}".format(bridge))
+            ev_ids = claim_raw.get("evidence_ids", [])
+            if isinstance(ev_ids, list):
+                lines.append("  Evidence: {} 条".format(len(ev_ids)))
+            conf = claim_raw.get("confidence", "unknown")
+            if conf == "supported":
+                lines.append("  说明: 有支持证据")
+            elif conf == "inferred":
+                lines.append("  说明: 推断得出，证据强度不足")
+            elif conf == "unknown":
+                lines.append("  说明: 缺少足够证据确认")
+            missing = claim_raw.get("required_missing_evidence", [])
+            if isinstance(missing, list) and missing:
+                lines.append("  缺少证据: {}".format(", ".join(missing)))
+
+        elif node.kind in ("rtl_module", "rtl_aggregate"):
+            # Find edges pointing to this RTL node.
+            related_claims = []
+            related_concepts: set[str] = set()
+            for e in raw_edges:
+                if e.get("to_node_id") == node.node_id and e.get("edge_type") == "realizes":
+                    from_id = e.get("from_node_id", "")
+                    for n in raw_nodes:
+                        if n.get("node_id") == from_id and n.get("kind") == "mapping_claim":
+                            related_claims.append(n)
+                            related_concepts.add(n.get("concept", ""))
+            lines.append("\n相关 Claims: {}".format(len(related_claims)))
+            for c in related_claims:
+                lines.append("  • {} ({})".format(c.get("label", ""), c.get("concept", "")))
+            if related_concepts:
+                lines.append("\n承载概念: {}".format(", ".join(sorted(related_concepts))))
+            # Evidence breakdown for aggregate nodes.
+            if node.kind == "rtl_aggregate":
+                child_counts: dict[str, int] = {}
+                for n in raw_nodes:
+                    parent = None
+                    for e in raw_edges:
+                        if e.get("edge_type") == "contains" and e.get("to_node_id") == n.get("node_id"):
+                            parent = e.get("from_node_id")
+                            break
+                    if parent == node.node_id or n.get("file_path") == node.label:
+                        child_counts[n.get("kind", "other")] = child_counts.get(n.get("kind", "other"), 0) + 1
+                if child_counts:
+                    lines.append("\n包含节点:")
+                    for k, v in sorted(child_counts.items()):
+                        lines.append("  • {}: {}".format(k, v))
 
     def _update_concept_trace(self) -> None:
         self._ct_summary.clear()
@@ -984,13 +1133,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._ct_summary.setPlainText(
                     vm.load_error or "无法加载概念 trace 数据。"
                 )
+            mode = self._ct_graph_mode.currentData() if hasattr(self, "_ct_graph_mode") else "overview"
+            from fpga_devmind.desktop.concept_graph_view import ProjectGraphDisplayMode
             self._ct_graph_scene.set_view_model(
-                build_concept_graph_view_model(self._bundle)
+                build_concept_graph_view_model(
+                    self._bundle,
+                    mode=mode or ProjectGraphDisplayMode.OVERVIEW,
+                )
             )
             return
 
         self._ct_summary.setPlainText(format_concept_trace_summary(vm))
-        gvm = build_concept_graph_view_model(self._bundle)
+        mode = self._ct_graph_mode.currentData() if hasattr(self, "_ct_graph_mode") else "overview"
+        from fpga_devmind.desktop.concept_graph_view import ProjectGraphDisplayMode
+        gvm = build_concept_graph_view_model(
+            self._bundle, mode=mode or ProjectGraphDisplayMode.OVERVIEW
+        )
         if gvm.is_loaded:
             gvm.filter_state = GraphFilterState(
                 show_modules=self._ct_filter_modules.isChecked(),
@@ -999,6 +1157,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 show_weak_evidence=self._ct_filter_weak.isChecked(),
             )
         self._ct_graph_scene.set_view_model(gvm)
+        if self._bundle.bundle_type == "project":
+            info = "Overview: {} 节点 (隐藏 {} 个底层证据节点)".format(
+                len(gvm.nodes), gvm.hidden_node_count
+            ) if gvm.mode == ProjectGraphDisplayMode.OVERVIEW else (
+                "Evidence Detail: {} 节点 (原始全量)".format(len(gvm.nodes))
+            )
+            self._ct_graph_info.setText(info)
 
         # Populate tables
         self._ct_nodes_table.setRowCount(len(vm.nodes))

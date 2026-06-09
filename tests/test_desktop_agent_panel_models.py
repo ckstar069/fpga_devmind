@@ -693,7 +693,7 @@ class TestAgentPanelProjectBundle(unittest.TestCase):
     """Project bundle agent query tests (T024)."""
 
     def _make_project_bundle(self) -> Path:
-        """Create a project bundle."""
+        """Create a project bundle with realizes edges for RTL mapping."""
         tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_proj_"))
         graph = {
             "schema_version": "project-understanding-0.1",
@@ -719,6 +719,12 @@ class TestAgentPanelProjectBundle(unittest.TestCase):
                     "confidence": "supported",
                     "concept": "peak_idx",
                 },
+                {
+                    "node_id": "PUG_RTL_peak",
+                    "label": "peak_detect",
+                    "kind": "rtl_module",
+                    "file_path": "/rtl/peak_detect.v",
+                },
             ],
             "edges": [
                 {
@@ -733,6 +739,13 @@ class TestAgentPanelProjectBundle(unittest.TestCase):
                     "from_node_id": "PUG_CONCEPT_peak_idx",
                     "to_node_id": "PUG_CLAIM_peak_idx_MC_001",
                     "edge_type": "has_claim",
+                    "confidence": "supported",
+                },
+                {
+                    "edge_id": "E_REALIZES_peak",
+                    "from_node_id": "PUG_CLAIM_peak_idx_MC_001",
+                    "to_node_id": "PUG_RTL_peak",
+                    "edge_type": "realizes",
                     "confidence": "supported",
                 },
             ],
@@ -826,6 +839,45 @@ class TestAgentPanelProjectBundle(unittest.TestCase):
             self.assertEqual(vm.response_kind, "graph")
             self.assertIn("节点", vm.answer_text)
             self.assertIn("边", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_graph_answer_mentions_overview_mode(self):
+        """Graph answer mentions Overview Graph and hidden nodes."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "图画出")
+            self.assertTrue(vm.is_loaded)
+            self.assertIn("Overview Graph", vm.answer_text)
+            self.assertIn("隐藏", vm.answer_text)
+            self.assertIn("Evidence Detail", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_shared_answer_groups_by_rtl(self):
+        """Shared answer groups concepts by RTL module/file."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "哪些文件被多个概念共享")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "shared")
+            self.assertIn("RTL", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_summary_has_concept_to_rtl(self):
+        """Summary answer includes concept-to-RTL mapping."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "这个项目整体实现了什么")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "summary")
+            self.assertIn("peak_detect", vm.answer_text)
+            self.assertIn("主要对应", vm.answer_text)
+            self.assertIn("Evidence", vm.answer_text)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

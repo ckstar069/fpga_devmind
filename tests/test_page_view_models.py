@@ -182,11 +182,18 @@ def _write_project_bundle(tmp: Path) -> Path:
                 "kind": "mapping_claim",
                 "confidence": "supported",
                 "concept": "peak_idx",
+                "bridge_kind": "naming_plus_structure",
             },
             {
                 "node_id": "PUG_RTL_peak_idx_N1",
                 "label": "peak_detect",
                 "kind": "rtl_module",
+                "file_path": "/rtl/top.v",
+            },
+            {
+                "node_id": "PUG_RTL_peak_sig",
+                "label": "peak_signal",
+                "kind": "rtl_signal",
                 "file_path": "/rtl/top.v",
             },
         ],
@@ -203,6 +210,18 @@ def _write_project_bundle(tmp: Path) -> Path:
                 "to_node_id": "PUG_CLAIM_peak_idx_MC_001",
                 "edge_type": "has_claim",
             },
+            {
+                "edge_id": "E_realizes_1",
+                "from_node_id": "PUG_CLAIM_peak_idx_MC_001",
+                "to_node_id": "PUG_RTL_peak_idx_N1",
+                "edge_type": "realizes",
+            },
+            {
+                "edge_id": "E_realizes_2",
+                "from_node_id": "PUG_CLAIM_peak_idx_MC_001",
+                "to_node_id": "PUG_RTL_peak_sig",
+                "edge_type": "realizes",
+            },
         ],
         "grounding_diagnostics": [],
         "uncertainty_notes": [],
@@ -210,6 +229,15 @@ def _write_project_bundle(tmp: Path) -> Path:
     index = {
         "schema_version": "project-understanding-0.1",
         "concept_index": {"peak_idx": {"status": "ok", "claims": 1}},
+        "evidence_index": {
+            "EV_1": {
+                "source_type": "concept_occurrence",
+                "concept": "peak_idx",
+                "file_path": "/src/peak.py",
+                "symbol": "PeakDetector",
+                "strength": "strong",
+            }
+        },
     }
     metadata = {
         "schema_version": "p1b-project-run-metadata-0.1",
@@ -218,7 +246,7 @@ def _write_project_bundle(tmp: Path) -> Path:
         "concepts_processed": ["peak_idx"],
         "status": "ok",
         "mapping_claims": 1,
-        "evidence_items": 0,
+        "evidence_items": 1,
     }
     (tmp / "project_understanding_graph.json").write_text(
         json.dumps(graph), encoding="utf-8"
@@ -397,30 +425,50 @@ class TestAgentRuntimePageState(unittest.TestCase):
 
 
 class TestProjectEvidencePageViewModel(unittest.TestCase):
-    """Project bundle evidence page tests."""
+    """Project bundle evidence page tests — claim-centric grouping (T025)."""
 
-    def test_project_evidence_groups_by_concept(self) -> None:
-        """Project bundle groups evidence rows by concept."""
+    def test_project_evidence_groups_by_claim(self) -> None:
+        """Project bundle groups evidence rows by mapping claim."""
         with tempfile.TemporaryDirectory(prefix="fpga_devmind_proj_") as tmp:
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
             vm = build_evidence_page_view_model(bundle)
             self.assertTrue(vm.is_loaded)
             self.assertEqual(len(vm.groups), 1)
-            self.assertIn("peak_idx", vm.groups[0].title)
+            self.assertIn("Claim:", vm.groups[0].title)
+            self.assertIn("MC_001", vm.groups[0].title)
 
-    def test_project_evidence_claim_rows(self) -> None:
-        """Project evidence rows contain claim info."""
+    def test_claim_group_has_counts(self) -> None:
+        """Claim group description shows L5/L6 and RTL evidence counts."""
         with tempfile.TemporaryDirectory(prefix="fpga_devmind_proj_") as tmp:
             bundle_dir = _write_project_bundle(Path(tmp) / "project")
             bundle = load_bundle(bundle_dir)
             vm = build_evidence_page_view_model(bundle)
             self.assertTrue(vm.is_loaded)
-            self.assertEqual(len(vm.groups[0].rows), 1)
-            row = vm.groups[0].rows[0]
-            self.assertEqual(row.evidence_id, "PUG_CLAIM_peak_idx_MC_001")
-            self.assertEqual(row.symbol, "MC_001")
-            self.assertEqual(row.evidence_strength, "supported")
+            group = vm.groups[0]
+            self.assertIn("L5/L6=1", group.description)
+            self.assertIn("RTL=2", group.description)
+            self.assertIn("bridge=naming_plus_structure", group.description)
+
+    def test_evidence_row_mapping_correct(self) -> None:
+        """Evidence rows map to the correct claim group with RTL + L5/L6 rows."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_proj_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_evidence_page_view_model(bundle)
+            self.assertTrue(vm.is_loaded)
+            rows = vm.groups[0].rows
+            # L5/L6 row from evidence_index.
+            l5_l6 = [r for r in rows if r.source_type == "concept_occurrence"]
+            self.assertEqual(len(l5_l6), 1)
+            self.assertEqual(l5_l6[0].evidence_id, "EV_1")
+            self.assertEqual(l5_l6[0].symbol, "PeakDetector")
+            # RTL rows from realizes edges.
+            rtl = [r for r in rows if r.source_type.startswith("rtl_")]
+            self.assertEqual(len(rtl), 2)
+            rtl_ids = {r.evidence_id for r in rtl}
+            self.assertIn("PUG_RTL_peak_idx_N1", rtl_ids)
+            self.assertIn("PUG_RTL_peak_sig", rtl_ids)
 
 
 class TestProjectOverviewMetrics(unittest.TestCase):
@@ -434,7 +482,7 @@ class TestProjectOverviewMetrics(unittest.TestCase):
             m = build_overview_metrics(bundle)
             self.assertTrue(m.is_loaded)
             self.assertEqual(m.mapping_claims, 1)
-            self.assertEqual(m.rtl_objects, 1)
+            self.assertEqual(m.rtl_objects, 2)
             self.assertEqual(m.unknowns, 0)
 
 

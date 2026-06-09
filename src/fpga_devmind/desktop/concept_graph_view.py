@@ -34,6 +34,7 @@ _COLOURS: dict[str, tuple[int, int, int]] = {
     "claim": (168, 85, 247),           # purple
     "bridge": (168, 85, 247),
     "unknown": (239, 68, 68),          # red
+    "rtl_aggregate": (20, 184, 166),   # teal
 }
 
 _EDGE_CONFIDENCE: dict[str, QtCore.Qt.PenStyle] = {
@@ -75,6 +76,7 @@ class GraphEdge:
     to_label: str = ""
     edge_type: str = ""
     confidence: str = ""
+    evidence_count: int = 0  # aggregated from N raw edges (T025)
 
 
 @dataclass
@@ -115,6 +117,13 @@ class GraphFilterState:
     show_weak_evidence: bool = True
 
 
+class ProjectGraphDisplayMode:
+    """Display modes for project-level concept graphs (T025)."""
+
+    OVERVIEW = "overview"
+    EVIDENCE_DETAIL = "evidence_detail"
+
+
 @dataclass
 class ConceptGraphViewModel:
     """View model for the concept graph visualiser."""
@@ -124,6 +133,10 @@ class ConceptGraphViewModel:
     is_loaded: bool = False
     load_error: str | None = None
     filter_state: GraphFilterState = field(default_factory=GraphFilterState)
+    mode: str = ProjectGraphDisplayMode.OVERVIEW
+    raw_node_count: int = 0
+    hidden_node_count: int = 0
+    aggregated_edge_count: int = 0
 
     def visible_nodes(self) -> list[GraphNode]:
         """Return nodes that pass the current filter."""
@@ -169,12 +182,16 @@ class ConceptGraphViewModel:
 
 def build_concept_graph_view_model(
     bundle: ArtifactBundle,
+    mode: str = ProjectGraphDisplayMode.OVERVIEW,
 ) -> ConceptGraphViewModel:
-    """Build a concept graph view model from a P1b bundle.
+    """Build a concept graph view model from a P1b or project bundle.
 
     Creates a three-layer graph (Concept → Claim → RTL) by deriving
     virtual claim nodes from mapping_claims when the raw graph only has
     Concept → RTL edges.
+
+    For project bundles, *mode* controls whether to show the aggregated
+    Overview Graph (default) or the raw Evidence Detail Graph.
 
     Never raises.
     """
@@ -185,7 +202,7 @@ def build_concept_graph_view_model(
         )
 
     if bundle.bundle_type == "project":
-        return _build_project_graph_vm(bundle)
+        return _build_project_graph_vm(bundle, mode=mode)
 
     if bundle.bundle_type != "p1b":
         return ConceptGraphViewModel(
@@ -365,8 +382,15 @@ def build_concept_graph_view_model(
 
 def _build_project_graph_vm(
     bundle: ArtifactBundle,
+    mode: str = ProjectGraphDisplayMode.OVERVIEW,
 ) -> ConceptGraphViewModel:
-    """Build a graph view model from a project-level understanding bundle."""
+    """Build a graph view model from a project-level understanding bundle.
+
+    *mode*:
+      - OVERVIEW: aggregate rtl_signal/always/assign/comment under their
+        parent rtl_module/file nodes; hide weak/comment-only evidence.
+      - EVIDENCE_DETAIL: show every raw node/edge.
+    """
     graph = get_project_graph(bundle)
     if graph is None:
         return ConceptGraphViewModel(
@@ -374,19 +398,23 @@ def _build_project_graph_vm(
             load_error="project_understanding_graph.json not found.",
         )
 
+    raw_nodes = graph.get("nodes", [])
+    raw_edges = graph.get("edges", [])
+
+    # Always build the raw flat graph first.
     node_map: dict[str, str] = {}
-    for raw_node in graph.get("nodes", []):
+    for raw_node in raw_nodes:
         nid = raw_node.get("node_id", "")
         label = raw_node.get("label", nid)
         if nid:
             node_map[nid] = label
 
-    nodes: list[GraphNode] = []
-    for raw_node in graph.get("nodes", []):
+    all_nodes: list[GraphNode] = []
+    for raw_node in raw_nodes:
         nid = raw_node.get("node_id", "")
         evidence_ids = raw_node.get("evidence_ids", [])
         evidence_count = len(evidence_ids) if isinstance(evidence_ids, list) else 0
-        nodes.append(
+        all_nodes.append(
             GraphNode(
                 node_id=nid,
                 label=raw_node.get("label", ""),
@@ -398,16 +426,16 @@ def _build_project_graph_vm(
             )
         )
 
-    edges: list[GraphEdge] = []
-    node_ids = {n.node_id for n in nodes}
+    all_edges: list[GraphEdge] = []
+    node_ids = {n.node_id for n in all_nodes}
     dangling: list[str] = []
-    for raw_edge in graph.get("edges", []):
+    for raw_edge in raw_edges:
         fid = raw_edge.get("from_node_id", "")
         tid = raw_edge.get("to_node_id", "")
         if fid not in node_ids or tid not in node_ids:
             dangling.append(raw_edge.get("edge_id", ""))
             continue
-        edges.append(
+        all_edges.append(
             GraphEdge(
                 edge_id=raw_edge.get("edge_id", ""),
                 from_id=fid,
@@ -419,12 +447,173 @@ def _build_project_graph_vm(
             )
         )
 
-    _layout_project_nodes(nodes)
+    if mode == ProjectGraphDisplayMode.EVIDENCE_DETAIL:
+        _layout_project_nodes(all_nodes)
+        vm = ConceptGraphViewModel(
+            nodes=all_nodes,
+            edges=all_edges,
+            is_loaded=True,
+            mode=mode,
+            raw_node_count=len(all_nodes),
+            hidden_node_count=0,
+            aggregated_edge_count=0,
+        )
+        if dangling:
+            vm.load_error = "忽略 {} 条 dangling edge".format(len(dangling))
+        return vm
+
+    # ---------------------------------------------------------------
+    # OVERVIEW mode: aggregate fine-grained RTL nodes
+    # ---------------------------------------------------------------
+    hidden_kinds = {
+        "rtl_signal",
+        "rtl_always_block",
+        "rtl_assign",
+        "rtl_comment",
+        "comment",
+    }
+
+    # Determine which nodes are hidden.
+    hidden_node_ids: set[str] = set()
+    for n in all_nodes:
+        if n.kind in hidden_kinds or "comment" in n.kind:
+            hidden_node_ids.add(n.node_id)
+        elif n.confidence == "weak" and n.kind.startswith("rtl"):
+            hidden_node_ids.add(n.node_id)
+
+    # Build parent lookup for hidden nodes:
+    #   1. contains edge from rtl_module -> hidden node
+    #   2. file_path grouping (hidden node with same file_path as visible rtl_module)
+    parent_of: dict[str, str] = {}
+
+    # Step 1: direct contains edges.
+    for e in all_edges:
+        if e.edge_type == "contains":
+            if e.to_id in hidden_node_ids:
+                parent_of[e.to_id] = e.from_id
+
+    # Step 2: file_path grouping for remaining hidden nodes.
+    # Find visible rtl_module nodes and their file_paths.
+    visible_rtl_modules: dict[str, str] = {}  # node_id -> file_path
+    raw_node_by_id: dict[str, dict[str, Any]] = {}
+    for raw_node in raw_nodes:
+        nid = raw_node.get("node_id", "")
+        if nid:
+            raw_node_by_id[nid] = raw_node
+        kind = raw_node.get("kind", "")
+        if kind == "rtl_module" and nid not in hidden_node_ids:
+            fp = raw_node.get("file_path", "")
+            if fp:
+                visible_rtl_modules[nid] = fp
+
+    for hid in hidden_node_ids:
+        if hid in parent_of:
+            continue
+        hidden_raw = raw_node_by_id.get(hid, {})
+        h_fp = hidden_raw.get("file_path", "")
+        # Try to match by file_path to a visible rtl_module.
+        matched = False
+        if h_fp:
+            for vid, vfp in visible_rtl_modules.items():
+                if vfp == h_fp:
+                    parent_of[hid] = vid
+                    matched = True
+                    break
+        # Fallback: create an aggregate node for unclassified hidden nodes.
+        if not matched:
+            agg_id = "__agg_unclassified_{}".format(hid)
+            parent_of[hid] = agg_id
+
+    # Create aggregate nodes for unclassified hidden nodes.
+    # Group unclassified hidden nodes by their aggregate ID.
+    unclassified_groups: dict[str, list[str]] = {}
+    for hid, pid in parent_of.items():
+        if pid.startswith("__agg_"):
+            unclassified_groups.setdefault(pid, []).append(hid)
+
+    # Build final visible node list.
+    visible_nodes: list[GraphNode] = []
+    for n in all_nodes:
+        if n.node_id not in hidden_node_ids:
+            visible_nodes.append(n)
+
+    # Add aggregate nodes for unclassified groups.
+    for agg_id, hids in unclassified_groups.items():
+        # Use basename of first hidden node's file_path as label.
+        first_fp = raw_node_by_id.get(hids[0], {}).get("file_path", "")
+        label = first_fp.split("/")[-1] if first_fp else "未分类"
+        total_ev: list[str] = []
+        for h in hids:
+            ev = raw_node_by_id.get(h, {}).get("evidence_ids", [])
+            if isinstance(ev, list):
+                total_ev.extend(ev)
+        total_ev_count = len(total_ev)
+        visible_nodes.append(
+            GraphNode(
+                node_id=agg_id,
+                label=label,
+                kind="rtl_aggregate",
+                stage="RTL",
+                confidence="inferred",
+                evidence_count=total_ev_count,
+                has_diagnostics=False,
+            )
+        )
+
+    # Build visible edges with aggregation.
+    visible_node_ids = {n.node_id for n in visible_nodes}
+    edge_key_counts: dict[tuple[str, str, str], int] = {}
+    for e in all_edges:
+        src = e.from_id
+        dst = e.to_id
+        etype = e.edge_type
+
+        # Skip contains edges from module to hidden (module is now aggregate parent).
+        if etype == "contains" and dst in hidden_node_ids:
+            continue
+
+        # Remap hidden endpoints to their aggregate parent.
+        if src in hidden_node_ids:
+            src = parent_of.get(src, src)
+        if dst in hidden_node_ids:
+            dst = parent_of.get(dst, dst)
+
+        # Skip if both endpoints ended up the same.
+        if src == dst:
+            continue
+
+        # Skip if any endpoint is not visible.
+        if src not in visible_node_ids or dst not in visible_node_ids:
+            continue
+
+        key = (src, dst, etype)
+        edge_key_counts[key] = edge_key_counts.get(key, 0) + 1
+
+    visible_edges: list[GraphEdge] = []
+    for (src, dst, etype), count in edge_key_counts.items():
+        visible_edges.append(
+            GraphEdge(
+                edge_id="__agg_{}_{}_{}".format(src, dst, etype),
+                from_id=src,
+                to_id=dst,
+                from_label=node_map.get(src, src) or "",
+                to_label=node_map.get(dst, dst) or "",
+                edge_type=etype,
+                confidence="inferred" if etype in ("shares_file", "shares_rtl_object") else "supported",
+                evidence_count=count,
+            )
+        )
+
+    _layout_project_nodes(visible_nodes)
 
     vm = ConceptGraphViewModel(
-        nodes=nodes,
-        edges=edges,
+        nodes=visible_nodes,
+        edges=visible_edges,
         is_loaded=True,
+        mode=mode,
+        raw_node_count=len(all_nodes),
+        hidden_node_count=len(hidden_node_ids),
+        aggregated_edge_count=len(visible_edges),
     )
     if dangling:
         vm.load_error = "忽略 {} 条 dangling edge".format(len(dangling))
@@ -450,7 +639,7 @@ def _layout_project_nodes(nodes: list[GraphNode]) -> None:
             concepts.append(node)
         elif kind in ("mapping_claim", "claim"):
             claims.append(node)
-        elif kind.startswith("rtl"):
+        elif kind.startswith("rtl") or kind == "rtl_aggregate":
             rtl.append(node)
         else:
             other.append(node)
@@ -629,10 +818,13 @@ class ConceptGraphScene(QtWidgets.QGraphicsScene):
         self.addItem(line)
 
         # Edge label
-        if edge.edge_type:
+        label_text = edge.edge_type
+        if edge.evidence_count > 1:
+            label_text += " · {}".format(edge.evidence_count)
+        if label_text:
             mid_x = (from_node.x + to_node.x) / 2
             mid_y = (from_node.y + to_node.y) / 2
-            label = self.addText(edge.edge_type)
+            label = self.addText(label_text)
             label.setDefaultTextColor(QtGui.QColor(100, 100, 100))
             label_font = QtGui.QFont()
             label_font.setPointSize(7)
@@ -699,6 +891,38 @@ def build_node_detail(
                     diagnostics=[],
                 )
 
+    # Aggregate node: build detail from raw graph children.
+    if node_id.startswith("__agg_"):
+        # Find hidden nodes whose parent is this aggregate.
+        children: list[dict[str, Any]] = []  # pyright: ignore[reportExplicitAny]
+        for raw_node in graph.get("nodes", []):
+            nid = raw_node.get("node_id", "")
+            if not nid:
+                continue
+            # Heuristic: if the aggregate ID contains the hidden node ID.
+            if nid in node_id or node_id.endswith(nid):
+                children.append(raw_node)
+        if not children:
+            # Fallback: search by file_path match.
+            pass
+        total_ev: list[str] = []
+        for c in children:
+            ev = c.get("evidence_ids", [])
+            if isinstance(ev, list):
+                total_ev.extend(ev)
+        return GraphNodeDetail(
+            node_id=node_id,
+            label="聚合节点",
+            kind="rtl_aggregate",
+            stage="RTL",
+            confidence="inferred",
+            evidence_count=len(total_ev),
+            evidence_ids=total_ev,
+            claim_ids=[],
+            has_diagnostics=False,
+            diagnostics=[],
+        )
+
     return None
 
 
@@ -727,6 +951,21 @@ def build_edge_detail(
                 to_label=node_map.get(tid, tid) or "",
                 edge_type=raw_edge.get("edge_type", ""),
                 confidence=raw_edge.get("confidence", ""),
+                claim_refs=[],
+            )
+
+    # Aggregated edge: parse from synthetic edge_id __agg_{src}_{dst}_{etype}.
+    if edge_id.startswith("__agg_"):
+        rest = edge_id[6:]  # strip "__agg_"
+        parts = rest.rsplit("_", 2)
+        if len(parts) == 3:
+            src, dst, etype = parts
+            return GraphEdgeDetail(
+                edge_id=edge_id,
+                from_label=node_map.get(src, src) or "",
+                to_label=node_map.get(dst, dst) or "",
+                edge_type=etype,
+                confidence="inferred" if etype in ("shares_file", "shares_rtl_object") else "supported",
                 claim_refs=[],
             )
 

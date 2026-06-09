@@ -14,6 +14,7 @@ from fpga_devmind.desktop.artifact_loader import (
     get_agent_runtime_trace,
     get_graph,
     get_project_graph,
+    get_project_index,
     get_run_metadata,
 )
 from fpga_devmind.desktop.trace_view_models import (
@@ -29,10 +30,11 @@ from fpga_devmind.desktop.trace_view_models import (
 
 @dataclass
 class EvidenceGroup:
-    """A group of evidence rows with a title."""
+    """A group of evidence rows with a title and optional description."""
 
     title: str
     rows: list[EvidenceRow] = field(default_factory=list)
+    description: str = ""
 
 
 @dataclass
@@ -204,49 +206,101 @@ def build_evidence_page_view_model(
 def _build_project_evidence_page_view_model(
     bundle: ArtifactBundle,
 ) -> EvidencePageViewModel:
-    """Build evidence page for project bundles grouped by concept."""
+    """Build evidence page for project bundles grouped by mapping claim (T025).
+
+    Each claim becomes an EvidenceGroup.  RTL nodes reachable via *realizes*
+    edges from the claim are listed as RTL-side evidence rows.  L5/L6
+    evidence is looked up from the project index by matching the claim's
+    concept name.
+    """
     graph = get_project_graph(bundle)
+    index = get_project_index(bundle) or {}
     if graph is None:
         return EvidencePageViewModel(
             is_loaded=False,
             load_error="无法加载项目图数据。",
         )
 
-    # Collect evidence items from all concept nodes.
-    # For project graphs, we don't have per-concept evidence items directly.
-    # We use the node_index to find which evidence belongs to which concept.
-    groups: list[EvidenceGroup] = []
-    concept_nodes = [
-        n for n in graph.get("nodes", []) if n.get("kind") == "concept"
-    ]
+    raw_nodes = graph.get("nodes", [])
+    raw_edges = graph.get("edges", [])
 
-    for concept_node in concept_nodes:
-        concept_name = concept_node.get("label", "")
-        # Find claim nodes for this concept.
-        claim_nodes = [
-            n for n in graph.get("nodes", [])
-            if n.get("kind") == "mapping_claim"
-            and n.get("concept") == concept_name
-        ]
-        if claim_nodes:
-            rows: list[EvidenceRow] = []
-            for claim in claim_nodes:
-                rows.append(
-                    EvidenceRow(
-                        evidence_id=claim.get("node_id", ""),
-                        source_type="mapping_claim",
-                        file_path="",
-                        symbol=claim.get("label", ""),
-                        evidence_strength=claim.get("confidence", ""),
-                        referenced_by_claims="",
-                    )
+    # Build lookup tables.
+    node_by_id: dict[str, dict[str, Any]] = {}
+    for n in raw_nodes:
+        nid = n.get("node_id", "")
+        if nid:
+            node_by_id[nid] = n
+
+    # Map claim_id -> list of target RTL node IDs (via realizes edges).
+    claim_to_rtl: dict[str, list[str]] = {}
+    for e in raw_edges:
+        if e.get("edge_type") == "realizes":
+            from_id = e.get("from_node_id", "")
+            to_id = e.get("to_node_id", "")
+            from_node = node_by_id.get(from_id, {})
+            if from_node.get("kind") == "mapping_claim":
+                claim_to_rtl.setdefault(from_id, []).append(to_id)
+
+    # Evidence index keyed by concept.
+    evidence_index = index.get("evidence_index", {})
+    concept_to_evidence: dict[str, list[EvidenceRow]] = {}
+    if isinstance(evidence_index, dict):
+        for eid, info in evidence_index.items():
+            if isinstance(info, dict):
+                concept = info.get("concept", "")
+                row = EvidenceRow(
+                    evidence_id=eid,
+                    source_type=info.get("source_type", "concept_occurrence"),
+                    file_path=info.get("file_path", ""),
+                    symbol=info.get("symbol", ""),
+                    evidence_strength=info.get("strength", "unknown"),
+                    referenced_by_claims=concept,
                 )
-            groups.append(
-                EvidenceGroup(
-                    title="概念: {}".format(concept_name),
-                    rows=rows,
+                concept_to_evidence.setdefault(concept, []).append(row)
+
+    # Build claim-centric groups.
+    groups: list[EvidenceGroup] = []
+    for n in raw_nodes:
+        if n.get("kind") != "mapping_claim":
+            continue
+        claim_id = n.get("label", "")
+        concept = n.get("concept", "")
+        confidence = n.get("confidence", "unknown")
+        bridge = n.get("bridge_kind", "unknown")
+
+        # RTL-side evidence rows from realizes edges.
+        rtl_rows: list[EvidenceRow] = []
+        for rtl_id in claim_to_rtl.get(n.get("node_id", ""), []):
+            rtl = node_by_id.get(rtl_id, {})
+            rtl_rows.append(
+                EvidenceRow(
+                    evidence_id=rtl_id,
+                    source_type=rtl.get("kind", "rtl"),
+                    file_path=rtl.get("file_path", ""),
+                    symbol=rtl.get("label", ""),
+                    evidence_strength=rtl.get("confidence", "inferred"),
+                    referenced_by_claims=claim_id,
                 )
             )
+
+        # L5/L6 evidence rows from index.
+        l5_l6_rows = concept_to_evidence.get(concept, [])
+
+        all_rows = l5_l6_rows + rtl_rows
+
+        title = "Claim: {} (concept={}, confidence={})".format(
+            claim_id, concept, confidence
+        )
+        desc = "bridge={} | L5/L6={} | RTL={}".format(
+            bridge, len(l5_l6_rows), len(rtl_rows)
+        )
+        groups.append(
+            EvidenceGroup(
+                title=title,
+                rows=all_rows,
+                description=desc,
+            )
+        )
 
     if not groups:
         return EvidencePageViewModel(

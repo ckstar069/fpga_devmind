@@ -243,6 +243,50 @@ def _answer_project_summary(
         lines.append("其中 {} 个概念 trace 失败：{}".format(len(failed), ", ".join(failed)))
     lines.append("")
     lines.append("聚合统计：{} 个 mapping claims，{} 条证据。".format(total_claims, total_evidence))
+    lines.append("")
+
+    # Build concept -> RTL mapping from realizes edges.
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+    node_by_id = {}
+    for n in nodes:
+        nid = n.get("node_id", "")
+        if nid:
+            node_by_id[nid] = n
+
+    concept_to_rtl: dict[str, list[str]] = {}
+    for e in edges:
+        if e.get("edge_type") == "realizes":
+            from_node = node_by_id.get(e.get("from_node_id", ""), {})
+            to_node = node_by_id.get(e.get("to_node_id", ""), {})
+            concept = from_node.get("concept", "") or from_node.get("label", "")
+            rtl_label = to_node.get("label", "")
+            rtl_kind = to_node.get("kind", "")
+            if concept and rtl_label and rtl_kind.startswith("rtl_"):
+                display = "{} ({})".format(rtl_label, rtl_kind)
+                concept_to_rtl.setdefault(concept, []).append(display)
+
+    if concept_to_rtl:
+        lines.append("识别出的概念及主要 RTL 实现：")
+        for concept in sorted(concept_to_rtl):
+            rtls = sorted(set(concept_to_rtl[concept]))[:5]
+            lines.append("• {} — 主要对应 {}".format(concept, ", ".join(rtls)))
+        lines.append("")
+
+    # Uncertainty count.
+    unknown_concepts = [
+        n for n in nodes
+        if n.get("kind") == "concept" and n.get("confidence") == "unknown"
+    ]
+    if unknown_concepts:
+        lines.append("不确定项：")
+        lines.append("  • {} 个概念存在 unknown 状态".format(len(unknown_concepts)))
+        lines.append("")
+
+    lines.append("下一步建议：")
+    lines.append("  • 点击 Overview 图中的概念节点查看详情")
+    lines.append("  • 在 Evidence 页面查看各 claim 的证据分组")
+    lines.append('  • 使用 "哪些概念还不确定？" 查看缺失证据')
 
     return AgentPanelResponse(
         question=question,
@@ -334,11 +378,53 @@ def _answer_project_shared(
     graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
 ) -> AgentPanelResponse:
     """Answer '哪些 RTL 文件承载了多个概念？'"""
+    nodes = graph.get("nodes", [])
     edges = graph.get("edges", [])
+
+    node_map = {}
+    for n in nodes:
+        nid = n.get("node_id", "")
+        if nid:
+            node_map[nid] = n.get("label", nid)
+
+    # Group by RTL module/file: find which concepts share each rtl_module node.
+    rtl_to_concepts: dict[str, list[str]] = {}
+    for e in edges:
+        if e.get("edge_type") == "realizes":
+            from_id = e.get("from_node_id", "")
+            to_id = e.get("to_node_id", "")
+            to_node = next((n for n in nodes if n.get("node_id") == to_id), None)
+            if to_node is not None and to_node.get("kind", "").startswith("rtl_"):
+                from_node = next((n for n in nodes if n.get("node_id") == from_id), None)
+                if from_node is not None:
+                    concept = from_node.get("concept", "") or from_node.get("label", "")
+                    rtl_label = to_node.get("label", to_id)
+                    if concept:
+                        rtl_to_concepts.setdefault(rtl_label, []).append(concept)
+
+    # Also report concept-concept shares_file edges.
     shared_edges = [e for e in edges if e.get("edge_type") in ("shares_file", "shares_rtl_object")]
 
     lines = ["概念之间的共享关系（结构推断）：", ""]
+
+    if rtl_to_concepts:
+        lines.append("按 RTL 模块/文件分组：")
+        for rtl_label, concepts in sorted(rtl_to_concepts.items()):
+            unique = sorted(set(concepts))
+            if len(unique) > 1:
+                lines.append(
+                    "• {} — 被 {} 个概念共享：{}".format(
+                        rtl_label, len(unique), ", ".join(unique)
+                    )
+                )
+            else:
+                lines.append(
+                    "• {} — 仅关联概念：{}".format(rtl_label, ", ".join(unique))
+                )
+        lines.append("")
+
     if shared_edges:
+        lines.append("概念之间的共享边：")
         for edge in shared_edges:
             from_label = edge.get("from_node_id", "").replace("PUG_CONCEPT_", "")
             to_label = edge.get("to_node_id", "").replace("PUG_CONCEPT_", "")
@@ -346,7 +432,7 @@ def _answer_project_shared(
             notes = edge.get("notes", "")
             lines.append("• {} 和 {} 共享 {} — {}".format(from_label, to_label, etype, notes))
     else:
-        lines.append("未发现概念之间的共享文件或 RTL 对象。")
+        lines.append("未发现额外的概念之间共享文件或 RTL 对象边。")
 
     return AgentPanelResponse(
         question=question,
@@ -360,12 +446,22 @@ def _answer_project_graph(
     question: str,
     graph: dict[str, Any],  # pyright: ignore[reportExplicitAny]
 ) -> AgentPanelResponse:
-    """Answer '画出项目理解图'"""
+    """Answer '画出项目理解图'."""
     nodes = graph.get("nodes", [])
     edges = graph.get("edges", [])
 
+    # Count hidden kinds for overview stats.
+    hidden_kinds = {"rtl_signal", "rtl_always_block", "rtl_assign", "rtl_comment", "comment"}
+    hidden_count = sum(1 for n in nodes if n.get("kind", "") in hidden_kinds)
+
     lines = ["项目理解图概览：", ""]
-    lines.append("节点：{} 个".format(len(nodes)))
+    lines.append(
+        "当前默认显示 Overview Graph（语义聚合视图）。"
+        "signal / always_block / assign / comment 等底层节点已隐藏，"
+        "可在 Evidence Detail Graph 中查看全部节点。"
+    )
+    lines.append("")
+    lines.append("节点：{} 个（Overview 视图中隐藏 {} 个）".format(len(nodes), hidden_count))
     lines.append("边：{} 条".format(len(edges)))
     lines.append("")
     lines.append("节点类型分布：")
@@ -383,6 +479,11 @@ def _answer_project_graph(
         etype_counts[etype] = etype_counts.get(etype, 0) + 1
     for etype, count in sorted(etype_counts.items()):
         lines.append("  • {}: {}".format(etype, count))
+    lines.append("")
+    lines.append(
+        "💡 提示：shares_file / shares_rtl_object 边是 structural inferred，"
+        "不是语义确认。它们表示多个概念引用了同一 RTL 文件或对象。"
+    )
 
     return AgentPanelResponse(
         question=question,
