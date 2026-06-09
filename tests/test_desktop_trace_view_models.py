@@ -331,7 +331,7 @@ class TestConceptTraceViewModel(unittest.TestCase):
             bundle = load_bundle(p)
             vm = build_concept_trace_view_model(bundle)
             self.assertFalse(vm.is_loaded)
-            self.assertIn("P1b bundles only", vm.load_error or "")
+            self.assertIn("P1b/project bundles only", vm.load_error or "")
 
     def test_incomplete_bundle_load_error(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -649,6 +649,198 @@ class TestConceptTraceViewModel(unittest.TestCase):
             for name in P1B_REQUIRED_ARTIFACTS:
                 if name != "concept_trace_graph.json":
                     (tmp / name).write_text("{}" if name.endswith(".json") else "")
+            bundle = load_bundle(tmp)
+            vm = build_concept_trace_view_model(bundle)
+            self.assertFalse(vm.is_loaded)
+            self.assertIn("graph", vm.load_error or "")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestProjectTraceViewModel(unittest.TestCase):
+    """Project bundle trace view model tests (T024a)."""
+
+    def _make_project_bundle(self) -> Path:
+        """Create a project bundle with realistic data."""
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_proj_"))
+        graph = {
+            "schema_version": "project-understanding-0.1",
+            "project_id": "test_project",
+            "nodes": [
+                {
+                    "node_id": "PUG_PROJECT",
+                    "label": "test_project",
+                    "kind": "project",
+                },
+                {
+                    "node_id": "PUG_CONCEPT_peak_idx",
+                    "label": "peak_idx",
+                    "kind": "concept",
+                    "confidence": "supported",
+                    "stage": "concept",
+                },
+                {
+                    "node_id": "PUG_CONCEPT_cfo",
+                    "label": "cfo",
+                    "kind": "concept",
+                    "confidence": "unknown",
+                    "stage": "concept",
+                },
+                {
+                    "node_id": "PUG_CLAIM_peak_idx_MC_001",
+                    "label": "MC_peak_idx_001",
+                    "kind": "mapping_claim",
+                    "confidence": "supported",
+                    "concept": "peak_idx",
+                },
+                {
+                    "node_id": "PUG_RTL_peak_detect",
+                    "label": "peak_detect",
+                    "kind": "rtl_module",
+                    "stage": "RTL",
+                    "file_path": "/rtl/peak_detect.v",
+                },
+            ],
+            "edges": [
+                {
+                    "edge_id": "E_HAS_CLAIM_peak_idx",
+                    "from_node_id": "PUG_CONCEPT_peak_idx",
+                    "to_node_id": "PUG_CLAIM_peak_idx_MC_001",
+                    "edge_type": "has_claim",
+                    "confidence": "supported",
+                },
+                {
+                    "edge_id": "E_SHARED_FILE",
+                    "from_node_id": "PUG_CONCEPT_peak_idx",
+                    "to_node_id": "PUG_CONCEPT_cfo",
+                    "edge_type": "shares_file",
+                    "confidence": "inferred",
+                },
+            ],
+            "grounding_diagnostics": [
+                {
+                    "diagnostic_id": "GD_0001",
+                    "severity": "warning",
+                    "issue_type": "missing_evidence",
+                    "target_claim_id": "",
+                    "message": "Some evidence missing",
+                }
+            ],
+            "uncertainty_notes": [],
+        }
+        index = {
+            "evidence_index": {
+                "EV_001": {
+                    "source_type": "rtl_source",
+                    "file_path": "/rtl/peak_detect.v",
+                    "symbol": "peak_detect",
+                    "strength": "strong",
+                }
+            }
+        }
+        metadata = {
+            "schema_version": "p1b-project-run-metadata-0.1",
+            "command": "p1b-trace-project",
+            "project_root": "/tmp/test_project",
+            "concepts_processed": ["peak_idx", "cfo"],
+            "status": "ok",
+        }
+        (tmp / "project_understanding_graph.json").write_text(
+            json.dumps(graph), encoding="utf-8"
+        )
+        (tmp / "project_understanding_index.json").write_text(
+            json.dumps(index), encoding="utf-8"
+        )
+        (tmp / "run_metadata.json").write_text(
+            json.dumps(metadata), encoding="utf-8"
+        )
+        (tmp / "project_understanding.md").write_text("# Project\n", encoding="utf-8")
+        (tmp / "project_understanding.mmd").write_text("graph TD\n", encoding="utf-8")
+        return tmp
+
+    def test_project_bundle_loaded(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = build_concept_trace_view_model(bundle)
+            self.assertTrue(vm.is_loaded)
+            self.assertIsNone(vm.load_error)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_nodes_parsed(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = build_concept_trace_view_model(bundle)
+            self.assertEqual(len(vm.nodes), 5)
+            kinds = {n.kind for n in vm.nodes}
+            self.assertIn("project", kinds)
+            self.assertIn("concept", kinds)
+            self.assertIn("mapping_claim", kinds)
+            self.assertIn("rtl_module", kinds)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_edges_parsed(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = build_concept_trace_view_model(bundle)
+            self.assertEqual(len(vm.edges), 2)
+            edge_types = {e.edge_type for e in vm.edges}
+            self.assertIn("has_claim", edge_types)
+            self.assertIn("shares_file", edge_types)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_claims_from_nodes(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = build_concept_trace_view_model(bundle)
+            self.assertEqual(len(vm.claims), 1)
+            self.assertEqual(vm.claims[0].claim_id, "MC_peak_idx_001")
+            self.assertEqual(vm.claims[0].concept_ref, "peak_idx")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_evidence_from_index(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = build_concept_trace_view_model(bundle)
+            self.assertEqual(len(vm.evidence), 1)
+            self.assertEqual(vm.evidence[0].evidence_id, "EV_001")
+            self.assertEqual(vm.evidence[0].file_path, "/rtl/peak_detect.v")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_diagnostics_parsed(self):
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = build_concept_trace_view_model(bundle)
+            self.assertEqual(len(vm.diagnostics), 1)
+            self.assertEqual(vm.diagnostics[0].diagnostic_id, "GD_0001")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_missing_graph_error(self):
+        tmp = Path(tempfile.mkdtemp(prefix="fpga_devmind_proj_"))
+        try:
+            metadata = {
+                "schema_version": "p1b-project-run-metadata-0.1",
+                "command": "p1b-trace-project",
+                "project_root": "/tmp/test_project",
+                "concepts_processed": ["peak_idx"],
+                "status": "ok",
+            }
+            (tmp / "run_metadata.json").write_text(
+                json.dumps(metadata), encoding="utf-8"
+            )
+            (tmp / "project_understanding.md").write_text("#\n", encoding="utf-8")
+            (tmp / "project_understanding.mmd").write_text("graph\n", encoding="utf-8")
             bundle = load_bundle(tmp)
             vm = build_concept_trace_view_model(bundle)
             self.assertFalse(vm.is_loaded)

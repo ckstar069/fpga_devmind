@@ -839,6 +839,51 @@ class TestAgentPanelProjectBundle(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_project_summary_chinese_full(self):
+        """'这个项目整体实现了什么' routes to summary."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "这个项目整体实现了什么？")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "summary")
+            self.assertIn("test_project", vm.answer_text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_summary_chinese_short(self):
+        """'项目整体实现了什么' routes to summary."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "项目整体实现了什么")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "summary")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_summary_chinese_what_did(self):
+        """'这个项目做了什么' routes to summary."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "这个项目做了什么")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "summary")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_summary_chinese_overview(self):
+        """'项目概况' routes to summary."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            vm = query_artifact_bundle(bundle, "项目概况")
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(vm.response_kind, "summary")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

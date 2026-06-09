@@ -600,13 +600,20 @@ def _build_p1a_overview(
 def format_concept_trace_summary(
     vm: ConceptTraceViewModel,
 ) -> str:
-    """Format a ConceptTraceViewModel into a three-section natural-language
-    summary: L5/L6 side → Mapping claims → RTL side.
+    """Format a ConceptTraceViewModel into a natural-language summary.
+
+    For P1b bundles: three-section (L5/L6 → Mapping claims → RTL).
+    For project bundles: project-level aggregate summary.
 
     Deterministic template — no LLM.
     """
     if not vm.is_loaded:
         return vm.load_error or "无法加载概念 trace 数据。"
+
+    # Detect project bundle by presence of a project-kind node.
+    has_project_node = any(n.kind == "project" for n in vm.nodes)
+    if has_project_node:
+        return _format_project_trace_summary(vm)
 
     sections: list[str] = []
 
@@ -708,6 +715,46 @@ def format_concept_trace_summary(
         return "暂无 L5/L6 或 RTL 证据数据。"
 
     return "\n".join(sections)
+
+
+def _format_project_trace_summary(
+    vm: ConceptTraceViewModel,
+) -> str:
+    """Format a project-level trace view model summary."""
+    concept_count = sum(1 for n in vm.nodes if n.kind == "concept")
+    claim_count = sum(1 for n in vm.nodes if n.kind == "mapping_claim")
+    rtl_count = sum(1 for n in vm.nodes if n.kind.startswith("rtl"))
+    shared_file = sum(
+        1 for e in vm.edges if e.edge_type == "shares_file"
+    )
+    shared_rtl = sum(
+        1 for e in vm.edges if e.edge_type == "shares_rtl_object"
+    )
+    unknown_count = sum(
+        1 for n in vm.nodes if n.kind == "concept" and n.confidence == "unknown"
+    )
+    diag_count = len(vm.diagnostics)
+
+    lines: list[str] = []
+    lines.append("## 项目理解图摘要")
+    lines.append("")
+    lines.append("概念数量: {}".format(concept_count))
+    lines.append("Mapping claims: {}".format(claim_count))
+    lines.append("RTL 对象: {}".format(rtl_count))
+    if shared_file or shared_rtl:
+        lines.append(
+            "结构共享边: {} (shares_file) + {} (shares_rtl_object)".format(
+                shared_file, shared_rtl
+            )
+        )
+    if unknown_count:
+        lines.append("不确定概念: {}".format(unknown_count))
+    if diag_count:
+        lines.append("诊断: {} 条".format(diag_count))
+    if vm.evidence:
+        lines.append("证据项: {} 条".format(len(vm.evidence)))
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

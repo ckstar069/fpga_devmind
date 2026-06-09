@@ -14,6 +14,8 @@ from fpga_devmind.desktop.artifact_loader import (
     get_graph,
     get_grounding_report,
     get_index,
+    get_project_graph,
+    get_project_index,
 )
 
 
@@ -106,6 +108,89 @@ class ConceptTraceViewModel:
     load_error: str | None = None
 
 
+def _build_project_trace_vm(
+    bundle: ArtifactBundle,
+) -> ConceptTraceViewModel:
+    """Build a ConceptTraceViewModel from a project-level understanding bundle."""
+    graph = get_project_graph(bundle)
+    index = get_project_index(bundle) or {}
+
+    if graph is None:
+        return ConceptTraceViewModel(
+            is_loaded=False,
+            load_error="project_understanding_graph.json not found or invalid",
+        )
+
+    node_map = _build_node_map(graph)
+
+    # Nodes: all nodes from project graph.
+    nodes: list[NodeRow] = []
+    for node in graph.get("nodes", []):
+        nodes.append(
+            NodeRow(
+                node_id=node.get("node_id", ""),
+                label=node.get("label", ""),
+                kind=node.get("kind", ""),
+                stage_id=node.get("stage", ""),
+                confidence=node.get("confidence", ""),
+                evidence_count=0,
+                has_diagnostics=False,
+            )
+        )
+
+    # Edges: all edges from project graph.
+    edges = _build_edge_rows(graph, node_map)
+
+    # Claims: mapping_claim nodes from graph.
+    claims: list[ClaimRow] = []
+    for node in graph.get("nodes", []):
+        if node.get("kind") == "mapping_claim":
+            claims.append(
+                ClaimRow(
+                    claim_id=node.get("label", ""),
+                    concept_ref=node.get("concept", ""),
+                    confidence=node.get("confidence", ""),
+                    bridge_kind="",
+                    l5_l6_evidence_count=0,
+                    rtl_evidence_count=0,
+                    bridge_evidence_count=0,
+                    required_missing_evidence="",
+                    diagnostic_count=0,
+                )
+            )
+
+    # Evidence: from project index evidence_index.
+    evidence: list[EvidenceRow] = []
+    evidence_index = index.get("evidence_index", {})
+    if isinstance(evidence_index, dict):
+        for eid, info in evidence_index.items():
+            if isinstance(info, dict):
+                evidence.append(
+                    EvidenceRow(
+                        evidence_id=eid,
+                        source_type=info.get("source_type", ""),
+                        file_path=info.get("file_path", ""),
+                        symbol=info.get("symbol") or "",
+                        evidence_strength=info.get("strength", ""),
+                        referenced_by_claims="",
+                    )
+                )
+
+    # Diagnostics: from project graph grounding_diagnostics.
+    diagnostics = _build_diagnostic_rows_from_list(
+        graph.get("grounding_diagnostics", [])
+    )
+
+    return ConceptTraceViewModel(
+        nodes=nodes,
+        edges=edges,
+        claims=claims,
+        evidence=evidence,
+        diagnostics=diagnostics,
+        is_loaded=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
@@ -127,10 +212,13 @@ def build_concept_trace_view_model(
             load_error="; ".join(errors) if errors else "Incomplete bundle",
         )
 
+    if bundle.bundle_type == "project":
+        return _build_project_trace_vm(bundle)
+
     if bundle.bundle_type != "p1b":
         return ConceptTraceViewModel(
             is_loaded=False,
-            load_error="Trace view available for P1b bundles only",
+            load_error="Trace view available for P1b/project bundles only",
         )
 
     graph = get_graph(bundle)

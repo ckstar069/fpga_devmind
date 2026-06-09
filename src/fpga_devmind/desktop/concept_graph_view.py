@@ -16,6 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from fpga_devmind.desktop.artifact_loader import (
     ArtifactBundle,
     get_graph,
+    get_project_graph,
 )
 
 
@@ -183,10 +184,13 @@ def build_concept_graph_view_model(
             load_error="Bundle incomplete.",
         )
 
+    if bundle.bundle_type == "project":
+        return _build_project_graph_vm(bundle)
+
     if bundle.bundle_type != "p1b":
         return ConceptGraphViewModel(
             is_loaded=False,
-            load_error="Graph view available for P1b bundles only.",
+            load_error="Graph view available for P1b/project bundles only.",
         )
 
     graph = get_graph(bundle)
@@ -234,8 +238,8 @@ def build_concept_graph_view_model(
                 edge_id=raw_edge.get("edge_id", ""),
                 from_id=fid,
                 to_id=tid,
-                from_label=node_map.get(fid, fid),
-                to_label=node_map.get(tid, tid),
+                from_label=node_map.get(fid, fid) or "",
+                to_label=node_map.get(tid, tid) or "",
                 edge_type=raw_edge.get("edge_type", ""),
                 confidence=raw_edge.get("confidence", ""),
             )
@@ -313,7 +317,7 @@ def build_concept_graph_view_model(
                     edge_id="__ec_{}".format(cid),
                     from_id=concept_node_id,
                     to_id=cnode_id,
-                    from_label=node_map.get(concept_node_id, concept_node_id),
+                    from_label=node_map.get(concept_node_id, concept_node_id) or "",
                     to_label=label,
                     edge_type="claims",
                     confidence=conf,
@@ -357,6 +361,115 @@ def build_concept_graph_view_model(
         edges=edges,
         is_loaded=True,
     )
+
+
+def _build_project_graph_vm(
+    bundle: ArtifactBundle,
+) -> ConceptGraphViewModel:
+    """Build a graph view model from a project-level understanding bundle."""
+    graph = get_project_graph(bundle)
+    if graph is None:
+        return ConceptGraphViewModel(
+            is_loaded=False,
+            load_error="project_understanding_graph.json not found.",
+        )
+
+    node_map: dict[str, str] = {}
+    for raw_node in graph.get("nodes", []):
+        nid = raw_node.get("node_id", "")
+        label = raw_node.get("label", nid)
+        if nid:
+            node_map[nid] = label
+
+    nodes: list[GraphNode] = []
+    for raw_node in graph.get("nodes", []):
+        nid = raw_node.get("node_id", "")
+        evidence_ids = raw_node.get("evidence_ids", [])
+        evidence_count = len(evidence_ids) if isinstance(evidence_ids, list) else 0
+        nodes.append(
+            GraphNode(
+                node_id=nid,
+                label=raw_node.get("label", ""),
+                kind=raw_node.get("kind", ""),
+                stage=raw_node.get("stage", ""),
+                confidence=raw_node.get("confidence", ""),
+                evidence_count=evidence_count,
+                has_diagnostics=raw_node.get("has_diagnostics", False),
+            )
+        )
+
+    edges: list[GraphEdge] = []
+    node_ids = {n.node_id for n in nodes}
+    dangling: list[str] = []
+    for raw_edge in graph.get("edges", []):
+        fid = raw_edge.get("from_node_id", "")
+        tid = raw_edge.get("to_node_id", "")
+        if fid not in node_ids or tid not in node_ids:
+            dangling.append(raw_edge.get("edge_id", ""))
+            continue
+        edges.append(
+            GraphEdge(
+                edge_id=raw_edge.get("edge_id", ""),
+                from_id=fid,
+                to_id=tid,
+                from_label=node_map.get(fid, fid) or "",
+                to_label=node_map.get(tid, tid) or "",
+                edge_type=raw_edge.get("edge_type", ""),
+                confidence=raw_edge.get("confidence", ""),
+            )
+        )
+
+    _layout_project_nodes(nodes)
+
+    vm = ConceptGraphViewModel(
+        nodes=nodes,
+        edges=edges,
+        is_loaded=True,
+    )
+    if dangling:
+        vm.load_error = "忽略 {} 条 dangling edge".format(len(dangling))
+    return vm
+
+
+def _layout_project_nodes(nodes: list[GraphNode]) -> None:
+    """Assign (x, y) positions using a four-column layout.
+
+    Columns: project(0) → concept(1) → mapping_claim(2) → rtl(3).
+    """
+    project: list[GraphNode] = []
+    concepts: list[GraphNode] = []
+    claims: list[GraphNode] = []
+    rtl: list[GraphNode] = []
+    other: list[GraphNode] = []
+
+    for node in nodes:
+        kind = node.kind
+        if kind == "project":
+            project.append(node)
+        elif kind == "concept":
+            concepts.append(node)
+        elif kind in ("mapping_claim", "claim"):
+            claims.append(node)
+        elif kind.startswith("rtl"):
+            rtl.append(node)
+        else:
+            other.append(node)
+
+    col_width = 240
+    row_height = 60
+    margin = 40
+
+    def _place_column(column: list[GraphNode], col_idx: int) -> None:
+        x = margin + col_idx * col_width
+        for i, node in enumerate(column):
+            node.x = x
+            node.y = margin + i * row_height
+
+    _place_column(project, 0)
+    _place_column(concepts, 1)
+    _place_column(claims, 2)
+    _place_column(rtl, 3)
+    _place_column(other, 1)
 
 
 def _layout_nodes(nodes: list[GraphNode]) -> None:
@@ -610,8 +723,8 @@ def build_edge_detail(
             tid = raw_edge.get("to_node_id", "")
             return GraphEdgeDetail(
                 edge_id=edge_id,
-                from_label=node_map.get(fid, fid),
-                to_label=node_map.get(tid, tid),
+                from_label=node_map.get(fid, fid) or "",
+                to_label=node_map.get(tid, tid) or "",
                 edge_type=raw_edge.get("edge_type", ""),
                 confidence=raw_edge.get("confidence", ""),
                 claim_refs=[],

@@ -33,6 +33,8 @@ from fpga_devmind.desktop.overview_models import (
 from fpga_devmind.desktop.trace_view_models import (
     ConceptTraceViewModel,
     ClaimRow,
+    DiagnosticRow,
+    EdgeRow,
     EvidenceRow,
     NodeRow,
 )
@@ -505,6 +507,120 @@ class TestFormatConceptTraceSummary(unittest.TestCase):
         )
         result = format_concept_trace_summary(vm)
         self.assertIn("Missing graph", result)
+
+    def test_project_bundle_summary(self) -> None:
+        """Project bundle VM produces project-level summary."""
+        vm = ConceptTraceViewModel(
+            is_loaded=True,
+            nodes=[
+                NodeRow(
+                    node_id="PUG_PROJECT",
+                    label="test_project",
+                    kind="project",
+                    stage_id="",
+                    confidence="",
+                    evidence_count=0,
+                    has_diagnostics=False,
+                ),
+                NodeRow(
+                    node_id="PUG_CONCEPT_peak_idx",
+                    label="peak_idx",
+                    kind="concept",
+                    stage_id="concept",
+                    confidence="supported",
+                    evidence_count=0,
+                    has_diagnostics=False,
+                ),
+                NodeRow(
+                    node_id="PUG_CONCEPT_cfo",
+                    label="cfo",
+                    kind="concept",
+                    stage_id="concept",
+                    confidence="unknown",
+                    evidence_count=0,
+                    has_diagnostics=False,
+                ),
+                NodeRow(
+                    node_id="PUG_CLAIM_001",
+                    label="MC_001",
+                    kind="mapping_claim",
+                    stage_id="",
+                    confidence="supported",
+                    evidence_count=0,
+                    has_diagnostics=False,
+                ),
+                NodeRow(
+                    node_id="PUG_RTL_peak_detect",
+                    label="peak_detect",
+                    kind="rtl_module",
+                    stage_id="RTL",
+                    confidence="",
+                    evidence_count=0,
+                    has_diagnostics=False,
+                ),
+            ],
+            edges=[
+                EdgeRow(
+                    edge_id="E1",
+                    from_label="peak_idx",
+                    to_label="cfo",
+                    edge_type="shares_file",
+                    confidence="inferred",
+                    claim_refs="",
+                ),
+                EdgeRow(
+                    edge_id="E2",
+                    from_label="peak_idx",
+                    to_label="peak_detect",
+                    edge_type="shares_rtl_object",
+                    confidence="inferred",
+                    claim_refs="",
+                ),
+            ],
+            claims=[
+                ClaimRow(
+                    claim_id="MC_001",
+                    concept_ref="peak_idx",
+                    confidence="supported",
+                    bridge_kind="",
+                    l5_l6_evidence_count=0,
+                    rtl_evidence_count=0,
+                    bridge_evidence_count=0,
+                    required_missing_evidence="",
+                    diagnostic_count=0,
+                )
+            ],
+            evidence=[
+                EvidenceRow(
+                    evidence_id="EV_001",
+                    source_type="rtl_source",
+                    file_path="/rtl/peak_detect.v",
+                    symbol="peak_detect",
+                    evidence_strength="strong",
+                    referenced_by_claims="MC_001",
+                )
+            ],
+            diagnostics=[
+                DiagnosticRow(
+                    diagnostic_id="GD_001",
+                    severity="warning",
+                    issue_type="missing_evidence",
+                    target_claim_id="",
+                    message="test",
+                    recommended_action="",
+                )
+            ],
+        )
+        result = format_concept_trace_summary(vm)
+        self.assertIn("项目理解图摘要", result)
+        self.assertIn("概念数量: 2", result)
+        self.assertIn("Mapping claims: 1", result)
+        self.assertIn("RTL 对象: 1", result)
+        self.assertIn("shares_file", result)
+        self.assertIn("shares_rtl_object", result)
+        self.assertIn("不确定概念: 1", result)
+        self.assertIn("诊断: 1 条", result)
+        self.assertIn("证据项: 1 条", result)
 
 
 class TestHelperFunctions(unittest.TestCase):
