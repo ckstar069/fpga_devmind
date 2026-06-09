@@ -212,6 +212,7 @@ def _answer_concept_node(
     lines.append("")
     lines.append(
         "💡 提示：在 Evidence 页面可按 claim 查看该概念的所有证据分组。"
+        "点击节点详情中的「📄 证据」按钮可直接跳转到过滤后的 Evidence 页面。"
     )
 
     return AgentPanelResponse(
@@ -307,6 +308,7 @@ def _answer_claim_node(
     lines.append("")
     lines.append(
         "💡 提示：在 Evidence 页面可按 claim 查看该声明的证据分组。"
+        "点击节点详情中的「📄 证据」按钮可直接跳转到过滤后的 Evidence 页面。"
     )
 
     return AgentPanelResponse(
@@ -391,6 +393,7 @@ def _answer_rtl_node(
     lines.append("")
     lines.append(
         "💡 提示：在 Evidence Detail Graph 中可查看该模块下的所有 signal/always/assign 节点。"
+        "点击节点详情中的「📄 证据」按钮可直接跳转到过滤后的 Evidence 页面。"
     )
 
     return AgentPanelResponse(

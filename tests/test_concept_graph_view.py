@@ -565,6 +565,80 @@ class TestProjectGraphOverviewAggregation(unittest.TestCase):
             self.assertTrue(vm.aggregated_edge_count >= 0)
 
 
+class TestFocusMode(unittest.TestCase):
+    """Graph focus mode — show selected node and neighbors only (T028)."""
+
+    def test_focus_mode_empty_selected(self) -> None:
+        """With empty selected_node_id, focus mode shows all nodes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(
+                bundle, mode=ProjectGraphDisplayMode.OVERVIEW
+            )
+            vm.focus_enabled = True
+            vm.selected_node_id = ""
+            self.assertEqual(len(vm.visible_nodes()), len(vm.nodes))
+
+    def test_focus_mode_one_hop(self) -> None:
+        """Focus on concept node shows itself and directly connected claims."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(
+                bundle, mode=ProjectGraphDisplayMode.OVERVIEW
+            )
+            vm.focus_enabled = True
+            vm.focus_depth = 1
+            vm.selected_node_id = "C_peak"
+            visible = {n.node_id for n in vm.visible_nodes()}
+            self.assertIn("C_peak", visible)
+            self.assertIn("CL_1", visible)
+
+    def test_focus_mode_two_hop(self) -> None:
+        """Focus depth 2 reaches RTL nodes via claim intermediaries."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(
+                bundle, mode=ProjectGraphDisplayMode.OVERVIEW
+            )
+            vm.focus_enabled = True
+            vm.focus_depth = 2
+            vm.selected_node_id = "C_peak"
+            visible = {n.node_id for n in vm.visible_nodes()}
+            self.assertIn("C_peak", visible)
+            self.assertIn("CL_1", visible)
+            self.assertIn("M1", visible)
+
+    def test_focus_mode_disabled(self) -> None:
+        """When focus_enabled is False, all nodes remain visible."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(
+                bundle, mode=ProjectGraphDisplayMode.OVERVIEW
+            )
+            vm.focus_enabled = False
+            vm.selected_node_id = "C_peak"
+            self.assertEqual(len(vm.visible_nodes()), len(vm.nodes))
+
+    def test_focus_edges_filtered(self) -> None:
+        """Visible edges respect focus mode."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_concept_graph_view_model(
+                bundle, mode=ProjectGraphDisplayMode.OVERVIEW
+            )
+            vm.focus_enabled = True
+            vm.focus_depth = 1
+            vm.selected_node_id = "C_peak"
+            for e in vm.visible_edges():
+                self.assertIn(e.from_id, {n.node_id for n in vm.visible_nodes()})
+                self.assertIn(e.to_id, {n.node_id for n in vm.visible_nodes()})
+
+
 class TestProjectGraphDetailBuilders(unittest.TestCase):
     """Enhanced detail builders for project graph nodes/edges."""
 

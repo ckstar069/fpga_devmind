@@ -243,6 +243,39 @@ class TestContextualAgentModels(unittest.TestCase):
             self.assertTrue(vm.is_loaded)
             self.assertIn("peak_idx", vm.answer_text)
 
+    def test_concept_hint_mentions_evidence_button(self) -> None:
+        """Concept answer hints about Evidence page filtering (T028)."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ctx_") as tmp:
+            bundle_dir = _make_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = query_selected_node(
+                bundle, "C_peak", "concept", "peak_idx", "解释当前节点"
+            )
+            self.assertTrue(vm.is_loaded)
+            self.assertIn("证据", vm.answer_text)
+
+    def test_claim_hint_mentions_evidence_button(self) -> None:
+        """Claim answer hints about Evidence page filtering (T028)."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ctx_") as tmp:
+            bundle_dir = _make_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = query_selected_node(
+                bundle, "CL_peak", "mapping_claim", "MC_peak_001", "解释当前节点"
+            )
+            self.assertTrue(vm.is_loaded)
+            self.assertIn("证据", vm.answer_text)
+
+    def test_rtl_hint_mentions_evidence_button(self) -> None:
+        """RTL answer hints about Evidence page filtering (T028)."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ctx_") as tmp:
+            bundle_dir = _make_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = query_selected_node(
+                bundle, "RTL_peak", "rtl_module", "peak_detect", "解释当前节点"
+            )
+            self.assertTrue(vm.is_loaded)
+            self.assertIn("证据", vm.answer_text)
+
 
 class TestSafety(unittest.TestCase):
     """Safety boundary checks."""

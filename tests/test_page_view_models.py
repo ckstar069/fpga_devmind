@@ -310,6 +310,54 @@ class TestEvidencePageViewModel(unittest.TestCase):
             self.assertFalse(vm.is_loaded)
             self.assertIn("agent_runtime", vm.load_error or "")
 
+    def test_project_evidence_filter_by_concept(self) -> None:
+        """Filtering by concept node shows only claims for that concept."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ev_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_evidence_page_view_model(
+                bundle, selected_node_id="PUG_CONCEPT_peak_idx"
+            )
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(len(vm.groups), 1)
+            self.assertIn("peak_idx", vm.groups[0].title)
+
+    def test_project_evidence_filter_by_claim(self) -> None:
+        """Filtering by claim node shows only that claim."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ev_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_evidence_page_view_model(
+                bundle, selected_node_id="PUG_CLAIM_peak_idx_MC_001"
+            )
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(len(vm.groups), 1)
+            self.assertIn("MC_001", vm.groups[0].title)
+
+    def test_project_evidence_filter_by_rtl(self) -> None:
+        """Filtering by RTL node shows claims realizing to it."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ev_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_evidence_page_view_model(
+                bundle, selected_node_id="PUG_RTL_peak_idx_N1"
+            )
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(len(vm.groups), 1)
+            self.assertIn("MC_001", vm.groups[0].title)
+
+    def test_project_evidence_filter_no_match(self) -> None:
+        """Filtering by unrelated node returns empty groups."""
+        with tempfile.TemporaryDirectory(prefix="fpga_devmind_ev_") as tmp:
+            bundle_dir = _write_project_bundle(Path(tmp) / "project")
+            bundle = load_bundle(bundle_dir)
+            vm = build_evidence_page_view_model(
+                bundle, selected_node_id="NONEXISTENT"
+            )
+            self.assertTrue(vm.is_loaded)
+            self.assertEqual(len(vm.groups), 1)
+            self.assertEqual(len(vm.groups[0].rows), 0)
+
 
 class TestUnknownsPageViewModel(unittest.TestCase):
     """Unknowns page builder tests."""

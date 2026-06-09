@@ -131,6 +131,7 @@ def build_plan_tools_page_state(plan_preview_text: str) -> PlanToolsPageState:
 
 def build_evidence_page_view_model(
     bundle: ArtifactBundle,
+    selected_node_id: str = "",
 ) -> EvidencePageViewModel:
     """Build evidence page data grouped by source type or concept."""
     if not bundle.is_complete:
@@ -140,7 +141,7 @@ def build_evidence_page_view_model(
         )
 
     if bundle.bundle_type == "project":
-        return _build_project_evidence_page_view_model(bundle)
+        return _build_project_evidence_page_view_model(bundle, selected_node_id)
 
     if bundle.bundle_type != "p1b":
         return EvidencePageViewModel(
@@ -205,6 +206,7 @@ def build_evidence_page_view_model(
 
 def _build_project_evidence_page_view_model(
     bundle: ArtifactBundle,
+    selected_node_id: str = "",
 ) -> EvidencePageViewModel:
     """Build evidence page for project bundles grouped by mapping claim (T025).
 
@@ -301,6 +303,37 @@ def _build_project_evidence_page_view_model(
                 description=desc,
             )
         )
+
+    # Filter by selected node (T028).
+    if selected_node_id and groups:
+        selected_node = node_by_id.get(selected_node_id, {})
+        selected_kind = selected_node.get("kind", "")
+        selected_label = selected_node.get("label", "")
+        if selected_kind == "concept":
+            groups = [
+                g for g in groups
+                if selected_label in g.title
+            ]
+        elif selected_kind in ("mapping_claim", "claim"):
+            groups = [
+                g for g in groups
+                if selected_label in g.title
+            ]
+        elif selected_kind.startswith("rtl"):
+            # Find claims that realize to this RTL node.
+            realizing_claim_ids: set[str] = set()
+            for e in raw_edges:
+                if e.get("edge_type") == "realizes" and e.get("to_node_id") == selected_node_id:
+                    from_node = node_by_id.get(e.get("from_node_id", ""), {})
+                    if from_node.get("kind") == "mapping_claim":
+                        realizing_claim_ids.add(from_node.get("label", ""))
+            groups = [
+                g for g in groups
+                if any(cid in g.title for cid in realizing_claim_ids)
+            ]
+        else:
+            # Unknown or nonexistent node kind — return empty.
+            groups = []
 
     if not groups:
         return EvidencePageViewModel(

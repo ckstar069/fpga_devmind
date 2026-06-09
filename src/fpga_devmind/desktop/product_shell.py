@@ -234,11 +234,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ct_graph_info = QtWidgets.QLabel()
         self._ct_graph_detail = QtWidgets.QTextEdit()
         self._ct_ask_agent_btn = QtWidgets.QPushButton()
+        self._ct_focus_btn = QtWidgets.QPushButton()
+        self._ct_evidence_btn = QtWidgets.QPushButton()
         self._ct_graph_mode = QtWidgets.QComboBox()
         self._ct_filter_modules = QtWidgets.QCheckBox()
         self._ct_filter_signals = QtWidgets.QCheckBox()
         self._ct_filter_always = QtWidgets.QCheckBox()
         self._ct_filter_weak = QtWidgets.QCheckBox()
+        self._ct_focus_toggle = QtWidgets.QCheckBox()
         self._ct_summary = QtWidgets.QTextEdit()
         self._ct_nodes_table = QtWidgets.QTableWidget()
         self._ct_edges_table = QtWidgets.QTableWidget()
@@ -248,6 +251,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Evidence page widgets
         self._evidence_stack = QtWidgets.QStackedWidget()
+        self._evidence_filter_label = QtWidgets.QLabel()
+        self._evidence_clear_filter_btn = QtWidgets.QPushButton()
         self._evidence_header = QtWidgets.QTextEdit()
         self._evidence_groups_layout = QtWidgets.QVBoxLayout()
         self._evidence_detail = QtWidgets.QTextEdit()
@@ -821,6 +826,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ct_filter_weak.setChecked(True)
         self._ct_filter_weak.stateChanged.connect(self._on_graph_filter_changed)
         graph_ctrl.addWidget(self._ct_filter_weak)
+        graph_ctrl.addSpacing(16)
+
+        self._ct_focus_toggle = QtWidgets.QCheckBox("聚焦选中节点")
+        self._ct_focus_toggle.setChecked(False)
+        self._ct_focus_toggle.setToolTip("仅显示选中节点及其邻居（默认2跳）")
+        self._ct_focus_toggle.stateChanged.connect(self._on_focus_toggle_changed)
+        graph_ctrl.addWidget(self._ct_focus_toggle)
         graph_ctrl.addStretch(1)
         layout.addLayout(graph_ctrl)
 
@@ -844,6 +856,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ct_graph_detail.setMaximumWidth(280)
         self._ct_graph_detail.setPlaceholderText("点击图节点查看详情")
         detail_col.addWidget(self._ct_graph_detail, stretch=1)
+
+        # Quick action buttons (T028)
+        btn_row = QtWidgets.QHBoxLayout()
+        self._ct_focus_btn = QtWidgets.QPushButton("🔍 聚焦")
+        self._ct_focus_btn.setStyleSheet(
+            "background-color: {}; color: white; border: none; "
+            "border-radius: 4px; padding: 4px 8px; font-size: 11px;".format(_ACCENT)
+        )
+        self._ct_focus_btn.setEnabled(False)
+        self._ct_focus_btn.setToolTip("聚焦当前节点，仅显示邻居")
+        self._ct_focus_btn.clicked.connect(self._on_detail_focus_clicked)
+        btn_row.addWidget(self._ct_focus_btn)
+
+        self._ct_evidence_btn = QtWidgets.QPushButton("📄 证据")
+        self._ct_evidence_btn.setStyleSheet(
+            "background-color: #a6e3a1; color: #1e1e2e; border: none; "
+            "border-radius: 4px; padding: 4px 8px; font-size: 11px;"
+        )
+        self._ct_evidence_btn.setEnabled(False)
+        self._ct_evidence_btn.setToolTip("跳转到 Evidence 页面查看相关证据")
+        self._ct_evidence_btn.clicked.connect(self._on_detail_evidence_clicked)
+        btn_row.addWidget(self._ct_evidence_btn)
+        detail_col.addLayout(btn_row)
 
         self._ct_ask_agent_btn = QtWidgets.QPushButton("🤖 问 Agent 解释此节点")
         self._ct_ask_agent_btn.setStyleSheet(
@@ -945,12 +980,27 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         if not vm.is_loaded:
             return
+        vm.filter_state = GraphFilterState(
+            show_modules=self._ct_filter_modules.isChecked(),
+            show_signals=self._ct_filter_signals.isChecked(),
+            show_always_assign=self._ct_filter_always.isChecked(),
+            show_weak_evidence=self._ct_filter_weak.isChecked(),
+        )
+        vm.focus_enabled = self._ct_focus_toggle.isChecked()
+        vm.selected_node_id = self._selected_node_id
         self._ct_graph_scene.set_view_model(vm)
         if self._bundle.bundle_type == "project":
-            info = "Overview: {} 节点 (隐藏 {} 个底层证据节点)".format(
-                len(vm.nodes), vm.hidden_node_count
-            ) if vm.mode == ProjectGraphDisplayMode.OVERVIEW else (
-                "Evidence Detail: {} 节点 (原始全量)".format(len(vm.nodes))
+            visible_nodes = vm.visible_nodes()
+            info = "聚焦: {} | 可见 {} 节点 (共 {} 个)".format(
+                self._selected_node_label or "未选中",
+                len(visible_nodes),
+                len(vm.nodes),
+            ) if vm.focus_enabled else (
+                "Overview: {} 节点 (隐藏 {} 个底层证据节点)".format(
+                    len(vm.nodes), vm.hidden_node_count
+                ) if vm.mode == ProjectGraphDisplayMode.OVERVIEW else (
+                    "Evidence Detail: {} 节点 (原始全量)".format(len(vm.nodes))
+                )
             )
             self._ct_graph_info.setText(info)
 
@@ -974,7 +1024,47 @@ class MainWindow(QtWidgets.QMainWindow):
             show_always_assign=self._ct_filter_always.isChecked(),
             show_weak_evidence=self._ct_filter_weak.isChecked(),
         )
+        vm.focus_enabled = self._ct_focus_toggle.isChecked()
+        vm.selected_node_id = self._selected_node_id
         self._ct_graph_scene.set_view_model(vm)
+
+    def _on_focus_toggle_changed(self) -> None:
+        """Enable/disable graph focus mode."""
+        if self._bundle is None:
+            return
+        from fpga_devmind.desktop.concept_graph_view import (
+            ProjectGraphDisplayMode,
+            build_concept_graph_view_model,
+        )
+        mode = self._ct_graph_mode.currentData()
+        vm = build_concept_graph_view_model(
+            self._bundle, mode=mode or ProjectGraphDisplayMode.OVERVIEW
+        )
+        if not vm.is_loaded:
+            return
+        vm.filter_state = GraphFilterState(
+            show_modules=self._ct_filter_modules.isChecked(),
+            show_signals=self._ct_filter_signals.isChecked(),
+            show_always_assign=self._ct_filter_always.isChecked(),
+            show_weak_evidence=self._ct_filter_weak.isChecked(),
+        )
+        vm.focus_enabled = self._ct_focus_toggle.isChecked()
+        vm.selected_node_id = self._selected_node_id
+        self._ct_graph_scene.set_view_model(vm)
+        # Update info label.
+        visible_nodes = vm.visible_nodes()
+        info = "聚焦: {} | 可见 {} 节点 (共 {} 个)".format(
+            self._selected_node_label or "未选中",
+            len(visible_nodes),
+            len(vm.nodes),
+        ) if vm.focus_enabled else (
+            "Overview: {} 节点 (隐藏 {} 个底层证据节点)".format(
+                len(vm.nodes), vm.hidden_node_count
+            ) if vm.mode == ProjectGraphDisplayMode.OVERVIEW else (
+                "Evidence Detail: {} 节点 (原始全量)".format(len(vm.nodes))
+            )
+        )
+        self._ct_graph_info.setText(info)
 
     def _on_graph_node_clicked(self, node: Any) -> None:
         """Handle click on a graph node — show full detail panel."""
@@ -1026,8 +1116,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._ct_graph_detail.setPlainText("\n".join(lines))
 
-        # Enable quick agent button (T027).
+        # Enable quick action buttons (T028).
         self._ct_ask_agent_btn.setEnabled(True)
+        self._ct_focus_btn.setEnabled(True)
+        self._ct_evidence_btn.setEnabled(True)
 
         # Info line.
         info = "节点: {} | 类型: {} | 可信度: {}".format(
@@ -1036,6 +1128,20 @@ class MainWindow(QtWidgets.QMainWindow):
         if node.evidence_count:
             info += " | 证据: {} 条".format(node.evidence_count)
         self._ct_graph_info.setText(info)
+
+    def _on_detail_focus_clicked(self) -> None:
+        """Enable focus mode for the currently selected node."""
+        if not self._selected_node_id:
+            return
+        self._ct_focus_toggle.setChecked(True)
+        self._on_focus_toggle_changed()
+
+    def _on_detail_evidence_clicked(self) -> None:
+        """Navigate to Evidence page filtered by selected node."""
+        if not self._selected_node_id:
+            return
+        self._navigate_to("evidence")
+        self._update_evidence()
 
     def _enrich_node_detail(
         self,
@@ -1190,12 +1296,20 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
             mode = self._ct_graph_mode.currentData() if hasattr(self, "_ct_graph_mode") else "overview"
             from fpga_devmind.desktop.concept_graph_view import ProjectGraphDisplayMode
-            self._ct_graph_scene.set_view_model(
-                build_concept_graph_view_model(
-                    self._bundle,
-                    mode=mode or ProjectGraphDisplayMode.OVERVIEW,
-                )
+            gvm = build_concept_graph_view_model(
+                self._bundle,
+                mode=mode or ProjectGraphDisplayMode.OVERVIEW,
             )
+            if gvm.is_loaded:
+                gvm.filter_state = GraphFilterState(
+                    show_modules=self._ct_filter_modules.isChecked(),
+                    show_signals=self._ct_filter_signals.isChecked(),
+                    show_always_assign=self._ct_filter_always.isChecked(),
+                    show_weak_evidence=self._ct_filter_weak.isChecked(),
+                )
+                gvm.focus_enabled = self._ct_focus_toggle.isChecked()
+                gvm.selected_node_id = self._selected_node_id
+            self._ct_graph_scene.set_view_model(gvm)
             return
 
         self._ct_summary.setPlainText(format_concept_trace_summary(vm))
@@ -1211,12 +1325,21 @@ class MainWindow(QtWidgets.QMainWindow):
                 show_always_assign=self._ct_filter_always.isChecked(),
                 show_weak_evidence=self._ct_filter_weak.isChecked(),
             )
+            gvm.focus_enabled = self._ct_focus_toggle.isChecked()
+            gvm.selected_node_id = self._selected_node_id
         self._ct_graph_scene.set_view_model(gvm)
         if self._bundle.bundle_type == "project":
-            info = "Overview: {} 节点 (隐藏 {} 个底层证据节点)".format(
-                len(gvm.nodes), gvm.hidden_node_count
-            ) if gvm.mode == ProjectGraphDisplayMode.OVERVIEW else (
-                "Evidence Detail: {} 节点 (原始全量)".format(len(gvm.nodes))
+            visible_nodes = gvm.visible_nodes()
+            info = "聚焦: {} | 可见 {} 节点 (共 {} 个)".format(
+                self._selected_node_label or "未选中",
+                len(visible_nodes),
+                len(gvm.nodes),
+            ) if gvm.focus_enabled else (
+                "Overview: {} 节点 (隐藏 {} 个底层证据节点)".format(
+                    len(gvm.nodes), gvm.hidden_node_count
+                ) if gvm.mode == ProjectGraphDisplayMode.OVERVIEW else (
+                    "Evidence Detail: {} 节点 (原始全量)".format(len(gvm.nodes))
+                )
             )
             self._ct_graph_info.setText(info)
 
@@ -1288,6 +1411,23 @@ class MainWindow(QtWidgets.QMainWindow):
         loaded_layout = QtWidgets.QVBoxLayout(loaded_widget)
         loaded_layout.setContentsMargins(0, 0, 0, 0)
 
+        # Filter status bar (T028)
+        filter_bar = QtWidgets.QHBoxLayout()
+        self._evidence_filter_label = QtWidgets.QLabel("")
+        self._evidence_filter_label.setStyleSheet(
+            "font-size: 12px; color: {}; padding: 4px 0;".format(_TEXT_DIM)
+        )
+        filter_bar.addWidget(self._evidence_filter_label, stretch=1)
+        self._evidence_clear_filter_btn = QtWidgets.QPushButton("清除过滤")
+        self._evidence_clear_filter_btn.setStyleSheet(
+            "background-color: {}; color: white; border: none; "
+            "border-radius: 4px; padding: 4px 12px; font-size: 11px;".format(_ACCENT)
+        )
+        self._evidence_clear_filter_btn.setEnabled(False)
+        self._evidence_clear_filter_btn.clicked.connect(self._on_evidence_clear_filter)
+        filter_bar.addWidget(self._evidence_clear_filter_btn)
+        loaded_layout.addLayout(filter_bar)
+
         # Evidence strength explanation header
         self._evidence_header = QtWidgets.QTextEdit()
         self._evidence_header.setReadOnly(True)
@@ -1344,13 +1484,36 @@ class MainWindow(QtWidgets.QMainWindow):
             self._evidence_empty.setText("请先加载 artifact bundle。")
             return
 
-        vm = build_evidence_page_view_model(self._bundle)
+        vm = build_evidence_page_view_model(self._bundle, self._selected_node_id)
         if not vm.is_loaded:
             self._evidence_stack.setCurrentIndex(1)
             self._evidence_empty.setText(vm.load_error or "无法加载证据数据。")
             return
 
         self._evidence_stack.setCurrentIndex(0)
+
+        # Update filter status (T028).
+        if self._selected_node_id:
+            self._evidence_filter_label.setText(
+                "当前过滤: 节点 '{}' ({})".format(
+                    self._selected_node_label or self._selected_node_id,
+                    self._selected_node_kind or "unknown",
+                )
+            )
+            self._evidence_clear_filter_btn.setEnabled(True)
+        else:
+            self._evidence_filter_label.setText("显示全部证据")
+            self._evidence_clear_filter_btn.setEnabled(False)
+
+        if not vm.groups:
+            empty_label = QtWidgets.QLabel(
+                "当前节点没有关联的证据。点击「清除过滤」查看全部证据。"
+            )
+            empty_label.setStyleSheet(
+                "color: {}; font-size: 13px; padding: 12px;".format(_TEXT_DIM)
+            )
+            self._evidence_groups_layout.addWidget(empty_label)
+            return
 
         group_descriptions = {
             "L5/L6 代码证据": "从 L5/L6 Python 代码中提取的符号、类、函数、方法等证据项。",
@@ -1399,6 +1562,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 lambda _t=table, _rows=group_rows: self._on_evidence_row_selected(_t, _rows)
             )
             self._evidence_groups_layout.addWidget(table)
+
+    def _on_evidence_clear_filter(self) -> None:
+        """Clear the evidence page node filter and show all evidence."""
+        self._selected_node_id = ""
+        self._selected_node_kind = ""
+        self._selected_node_label = ""
+        self._update_evidence()
 
     def _on_evidence_row_selected(
         self,

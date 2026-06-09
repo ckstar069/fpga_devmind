@@ -137,9 +137,12 @@ class ConceptGraphViewModel:
     raw_node_count: int = 0
     hidden_node_count: int = 0
     aggregated_edge_count: int = 0
+    selected_node_id: str = ""
+    focus_enabled: bool = False
+    focus_depth: int = 2
 
     def visible_nodes(self) -> list[GraphNode]:
-        """Return nodes that pass the current filter."""
+        """Return nodes that pass the current filter and focus."""
         result: list[GraphNode] = []
         for node in self.nodes:
             kind = node.kind
@@ -164,6 +167,11 @@ class ConceptGraphViewModel:
                     result.append(node)
                 continue
             result.append(node)
+
+        if self.focus_enabled and self.selected_node_id:
+            focused = self._focused_node_ids()
+            result = [n for n in result if n.node_id in focused]
+
         return result
 
     def visible_edges(self) -> list[GraphEdge]:
@@ -173,6 +181,35 @@ class ConceptGraphViewModel:
             e for e in self.edges
             if e.from_id in visible_ids and e.to_id in visible_ids
         ]
+
+    def _focused_node_ids(self) -> set[str]:
+        """Compute node IDs within focus_depth of selected_node_id."""
+        if not self.selected_node_id:
+            return {n.node_id for n in self.nodes}
+
+        # Build adjacency: node_id -> set of neighbor node_ids.
+        adj: dict[str, set[str]] = {}
+        for e in self.edges:
+            src = e.from_id
+            dst = e.to_id
+            adj.setdefault(src, set()).add(dst)
+            adj.setdefault(dst, set()).add(src)
+
+        focused: set[str] = {self.selected_node_id}
+        frontier: set[str] = {self.selected_node_id}
+
+        for _ in range(self.focus_depth):
+            next_frontier: set[str] = set()
+            for nid in frontier:
+                for neighbor in adj.get(nid, set()):
+                    if neighbor not in focused:
+                        focused.add(neighbor)
+                        next_frontier.add(neighbor)
+            frontier = next_frontier
+            if not frontier:
+                break
+
+        return focused
 
 
 # ---------------------------------------------------------------------------
