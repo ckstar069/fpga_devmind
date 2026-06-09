@@ -19,27 +19,50 @@ const SUGGESTED_QUESTIONS = [
 
 export { SUGGESTED_QUESTIONS };
 
+/** Helper to build a standard AgentAnswer with evidence-chain fields */
+function makeAnswer(partial: {
+  question: string;
+  answer: string;
+  referenced_nodes?: string[];
+  referenced_claims?: string[];
+  referenced_evidence?: string[];
+  follow_up_questions?: string[];
+  conclusion: string;
+  strength: string;
+  limitations_summary: string;
+}): AgentAnswer {
+  return {
+    question: partial.question,
+    answer: partial.answer,
+    referenced_nodes: partial.referenced_nodes ?? [],
+    referenced_claims: partial.referenced_claims ?? [],
+    referenced_evidence: partial.referenced_evidence ?? [],
+    follow_up_questions: partial.follow_up_questions ?? SUGGESTED_QUESTIONS.slice(0, 3),
+    conclusion: partial.conclusion,
+    strength: partial.strength,
+    limitations_summary: partial.limitations_summary,
+  };
+}
+
 export function answerQuestion(
   bundle: ProjectBundle | null,
   question: string,
   selectedNodeId: string | null,
 ): AgentAnswer {
   if (!bundle) {
-    return {
+    return makeAnswer({
       question,
       answer: "请先加载 project bundle。在 Settings 页面输入 bundle 路径或生成新的 bundle。",
-      referenced_nodes: [],
-      referenced_claims: [],
-      referenced_evidence: [],
       follow_up_questions: SUGGESTED_QUESTIONS.slice(0, 3),
-    };
+      conclusion: "未加载数据，无法回答。",
+      strength: "none",
+      limitations_summary: "需要先加载 bundle 数据。",
+    });
   }
 
   const q = question.trim();
-  const { nodes, edges } = bundle.graph;
+  const { nodes } = bundle.graph;
   const concepts = nodes.filter((n) => n.kind === "concept");
-  const claims = nodes.filter((n) => n.kind === "mapping_claim");
-  const { aggregates } = aggregateRtl(nodes, edges);
 
   // Pattern matching on question
   if (q.includes("整体") && (q.includes("实现") || q.includes("什么"))) {
@@ -85,14 +108,14 @@ export function answerQuestion(
     }
   }
 
-  return {
+  return makeAnswer({
     question: q,
     answer: `当前确定性 Agent 不完全理解这个问题。请尝试以下建议问题，或点击右侧链接：`,
-    referenced_nodes: [],
-    referenced_claims: [],
-    referenced_evidence: [],
     follow_up_questions: SUGGESTED_QUESTIONS,
-  };
+    conclusion: "无法理解问题。",
+    strength: "none",
+    limitations_summary: "确定性 Agent 仅支持预定义问题模式。",
+  });
 }
 
 function answerProjectSummary(bundle: ProjectBundle, q: string): AgentAnswer {
@@ -119,25 +142,39 @@ function answerProjectSummary(bundle: ProjectBundle, q: string): AgentAnswer {
       ? `当前无 blocking diagnostics。但注意：这只是证据抽取阶段未发现 blocking 问题，不代表设计已验证正确。仍需进一步确认映射准确性和设计完整性。`
       : `存在 ${bundle.metadata.diagnostics} 个 diagnostics，请查看 Evidence 页面。`);
 
-  return {
+  const refNodes = concepts.map((c) => c.node_id);
+  const refClaims = claims.map((c) => c.node_id);
+
+  return makeAnswer({
     question: q,
     answer,
-    referenced_nodes: concepts.map((c) => c.node_id),
-    referenced_claims: claims.map((c) => c.node_id),
+    referenced_nodes: refNodes,
+    referenced_claims: refClaims,
     referenced_evidence: [],
     follow_up_questions: [
       "peak_idx 是怎么从 L5/L6 映射到 RTL 的？",
       "哪些 RTL 文件承载了多个概念？",
       "哪些地方还不能确认？",
     ],
-  };
+    conclusion: `项目 "${bundle.graph.project_id}" 实现了 OFDM coarse sync，识别出 ${concepts.length} 个概念，${claims.length} 个映射声明（${supported.length} supported，${inferred.length} inferred），${bundle.metadata.evidence_items} 条证据。`,
+    strength: supported.length > inferred.length ? "supported" : "mixed",
+    limitations_summary: inferred.length > 0
+      ? `有 ${inferred.length} 个推断性映射需进一步验证。仅基于静态分析，未经仿真或形式验证确认。`
+      : "仅基于静态分析，未经仿真或形式验证确认。",
+  });
 }
 
 function answerConceptMapping(bundle: ProjectBundle, conceptName: string, q: string): AgentAnswer {
   const { nodes, edges } = bundle.graph;
   const concept = nodes.find((n) => n.kind === "concept" && n.label === conceptName);
   if (!concept) {
-    return { question: q, answer: `未找到概念 "${conceptName}"。`, referenced_nodes: [], referenced_claims: [], referenced_evidence: [], follow_up_questions: SUGGESTED_QUESTIONS };
+    return makeAnswer({
+      question: q,
+      answer: `未找到概念 "${conceptName}"。`,
+      conclusion: `概念 "${conceptName}" 未在 bundle 中找到。`,
+      strength: "none",
+      limitations_summary: "无法分析不存在的概念。",
+    });
   }
 
   const claim = nodes.find((n) => n.kind === "mapping_claim" && n.concept === conceptName);
@@ -145,7 +182,7 @@ function answerConceptMapping(bundle: ProjectBundle, conceptName: string, q: str
   const ci = bundle.index.concept_index[conceptName];
 
   const aggIds = claim ? (claimToAgg.get(claim.node_id) ?? []) : [];
-  const aggLabels = aggIds.map((id) => aggregates.find((a) => a.id === id)?.label).filter(Boolean);
+  const aggLabels = aggIds.map((id) => aggregates.find((a) => a.id === id)?.label).filter(Boolean) as string[];
 
   const l5Evidence = Object.entries(bundle.index.evidence_index)
     .filter(([, v]) => v.concept === conceptName && v.source_type === "concept_occurrence");
@@ -173,18 +210,25 @@ function answerConceptMapping(bundle: ProjectBundle, conceptName: string, q: str
           ? "仅命名匹配（弱证据）。"
           : "映射方式待确认。");
 
-  return {
+  const refEvidence = [...l5Evidence.slice(0, 3), ...rtlEvidence.slice(0, 3)].map(([id]) => id);
+
+  return makeAnswer({
     question: q,
     answer,
     referenced_nodes: [concept.node_id, ...(claim ? [claim.node_id] : [])],
     referenced_claims: claim ? [claim.node_id] : [],
-    referenced_evidence: [...l5Evidence.slice(0, 3), ...rtlEvidence.slice(0, 3)].map(([id]) => id),
+    referenced_evidence: refEvidence,
     follow_up_questions: [
       `cfo 对应哪些 RTL？`,
       "哪些证据最关键？",
       "哪些地方还不能确认？",
     ],
-  };
+    conclusion: `概念 "${conceptName}" 通过 ${claim?.bridge_kind ?? "?"} 映射到 RTL（${aggLabels.join("、") || "无"}），置信度 ${claim?.confidence ?? "unknown"}。`,
+    strength: claim?.confidence === "supported" ? "supported" : claim?.confidence === "inferred" ? "inferred" : "unknown",
+    limitations_summary: claim?.bridge_kind === "naming_only"
+      ? "仅基于命名匹配，无结构/行为验证，可能存在假阳性。"
+      : `证据总数 ${ci?.evidence ?? 0} 条，需确认 L5/L6 计算逻辑是否真正对应 RTL 实现。`,
+  });
 }
 
 function answerConceptRtl(bundle: ProjectBundle, conceptName: string, q: string): AgentAnswer {
@@ -203,7 +247,7 @@ function answerConceptRtl(bundle: ProjectBundle, conceptName: string, q: string)
       : "未找到对应的 RTL 模块。") +
     `\n\nClaim：${claim?.label ?? "无"} (${claim?.confidence ?? "?"}, bridge: ${claim?.bridge_kind ?? "?"})`;
 
-  return {
+  return makeAnswer({
     question: q,
     answer,
     referenced_nodes: relatedAggs.map((a) => a!.id),
@@ -214,7 +258,10 @@ function answerConceptRtl(bundle: ProjectBundle, conceptName: string, q: string)
       "哪些 RTL 文件承载了多个概念？",
       "哪些证据最关键？",
     ],
-  };
+    conclusion: `概念 "${conceptName}" 对应 ${relatedAggs.length} 个 RTL 文件/模块${relatedAggs.length > 0 ? "：" + relatedAggs.map((a) => a!.label).join("、") : ""}。`,
+    strength: claim?.confidence === "supported" ? "supported" : "inferred",
+    limitations_summary: "RTL 聚合基于文件路径分组，不保证语义完整性。",
+  });
 }
 
 function answerWhyInferred(bundle: ProjectBundle, conceptName: string, q: string): AgentAnswer {
@@ -253,7 +300,7 @@ function answerWhyInferred(bundle: ProjectBundle, conceptName: string, q: string
       ? "仅依赖命名匹配是推断而非确认的主要原因。建议检查 L5/L6 代码中的计算逻辑是否与 RTL 实现对应。"
       : "证据强度不足以达到 supported 级别。建议检查更多 L5/L6 与 RTL 的结构对比证据。"}`;
 
-  return {
+  return makeAnswer({
     question: q,
     answer,
     referenced_nodes: [concept?.node_id ?? "", claim?.node_id ?? ""].filter(Boolean),
@@ -264,7 +311,12 @@ function answerWhyInferred(bundle: ProjectBundle, conceptName: string, q: string
       "peak_idx 是怎么从 L5/L6 映射到 RTL 的？",
       "哪些地方还不能确认？",
     ],
-  };
+    conclusion: `"${conceptName}" 置信度为 ${conf}，因为 bridge_kind=${bridge}，${strongEv.length} 条 strong 证据 / ${evEntries.length} 条总证据。`,
+    strength: conf,
+    limitations_summary: bridge === "naming_only"
+      ? "命名匹配可能产生假阳性，需进一步验证。"
+      : "证据强度不足以达到 supported 级别。",
+  });
 }
 
 function answerSharedRtl(bundle: ProjectBundle, q: string): AgentAnswer {
@@ -280,7 +332,7 @@ function answerSharedRtl(bundle: ProjectBundle, q: string): AgentAnswer {
       ).join("\n\n")
     : "当前未发现承载多个概念的 RTL 文件。所有概念都映射到独立的 RTL 模块。";
 
-  return {
+  return makeAnswer({
     question: q,
     answer,
     referenced_nodes: shared.map((a) => a.id),
@@ -291,7 +343,12 @@ function answerSharedRtl(bundle: ProjectBundle, q: string): AgentAnswer {
       "这个项目整体实现了什么？",
       "哪些地方还不能确认？",
     ],
-  };
+    conclusion: shared.length > 0
+      ? `发现 ${shared.length} 个承载多个概念的 RTL 文件。`
+      : "所有概念映射到独立 RTL 模块。",
+    strength: shared.length > 0 ? "inferred" : "supported",
+    limitations_summary: "shared edges 是结构推断，不是语义确认。",
+  });
 }
 
 function answerKeyEvidence(bundle: ProjectBundle, q: string): AgentAnswer {
@@ -318,18 +375,23 @@ function answerKeyEvidence(bundle: ProjectBundle, q: string): AgentAnswer {
     `strong 证据是最可靠的：它们来自 L5/L6 代码中直接使用概念计算逻辑的地方，或 RTL 代码中有明确对应实现的证据。\n` +
     `weak/naming 证据仅基于命名匹配，不能作为确认依据。`;
 
-  return {
+  const strongEvIds = strong.slice(0, 10).map(([id]) => id);
+
+  return makeAnswer({
     question: q,
     answer,
     referenced_nodes: [],
     referenced_claims: [],
-    referenced_evidence: strong.slice(0, 10).map(([id]) => id),
+    referenced_evidence: strongEvIds,
     follow_up_questions: [
       "peak_idx 是怎么从 L5/L6 映射到 RTL 的？",
       "哪些地方还不能确认？",
       "哪些 RTL 文件承载了多个概念？",
     ],
-  };
+    conclusion: `${strong.length} 条 strong 证据（共 ${entries.length} 条）。Strong 证据是映射确认的核心依据。`,
+    strength: strong.length > 0 ? "supported" : "weak",
+    limitations_summary: `仅 ${strong.length} / ${entries.length} 条为 strong 级别，其余需进一步验证。`,
+  });
 }
 
 function answerUncertainty(bundle: ProjectBundle, q: string): AgentAnswer {
@@ -357,7 +419,7 @@ function answerUncertainty(bundle: ProjectBundle, q: string): AgentAnswer {
       : "   无弱证据") + "\n\n" +
     `建议：重点验证 inferred 概念的映射准确性，特别是 naming_only claim 对应的概念。`;
 
-  return {
+  return makeAnswer({
     question: q,
     answer,
     referenced_nodes: [...unknownConcepts, ...inferredConcepts].map((n) => n.node_id),
@@ -368,11 +430,14 @@ function answerUncertainty(bundle: ProjectBundle, q: string): AgentAnswer {
       "哪些证据最关键？",
       "这个项目整体实现了什么？",
     ],
-  };
+    conclusion: `${inferredConcepts.length} 个推断性概念，${namingOnlyClaims.length} 个 naming_only claim，${weakEv.length} 条弱证据。`,
+    strength: inferredConcepts.length > 0 ? "inferred" : "supported",
+    limitations_summary: "不确定性分析基于静态证据抽取，未经仿真或形式验证。",
+  });
 }
 
 function answerDrawGraph(_bundle: ProjectBundle, q: string): AgentAnswer {
-  return {
+  return makeAnswer({
     question: q,
     answer: "请点击左侧导航栏的「Project Graph」查看可视化理解图。\n\n图支持三种模式：\n• Summary：项目 → 概念 → Claim → RTL 聚合（推荐）\n• Detail：展开所有 RTL 细节节点\n• Focus：只看选中节点的相邻关系\n\n在图中点击任意节点，右侧会显示理解卡。",
     referenced_nodes: [],
@@ -383,7 +448,10 @@ function answerDrawGraph(_bundle: ProjectBundle, q: string): AgentAnswer {
       "解释当前选中节点",
       "peak_idx 是怎么从 L5/L6 映射到 RTL 的？",
     ],
-  };
+    conclusion: "请前往 Project Graph 页面查看可视化图。",
+    strength: "none",
+    limitations_summary: "文字描述无法替代图形可视化。",
+  });
 }
 
 function answerExplainSelected(
@@ -392,26 +460,26 @@ function answerExplainSelected(
   selectedNodeId: string | null,
 ): AgentAnswer {
   if (!selectedNodeId) {
-    return {
+    return makeAnswer({
       question: q,
       answer: "当前没有选中节点。请在 Project Graph 中点击一个节点，然后再问这个问题。",
-      referenced_nodes: [],
-      referenced_claims: [],
-      referenced_evidence: [],
       follow_up_questions: ["这个项目整体实现了什么？", "画出项目理解图"],
-    };
+      conclusion: "未选中节点。",
+      strength: "none",
+      limitations_summary: "需要先在图中选择一个节点。",
+    });
   }
 
   const node = bundle.graph.nodes.find((n) => n.node_id === selectedNodeId);
   if (!node) {
-    return {
+    return makeAnswer({
       question: q,
       answer: `未找到节点 "${selectedNodeId}"。`,
-      referenced_nodes: [],
-      referenced_claims: [],
-      referenced_evidence: [],
       follow_up_questions: SUGGESTED_QUESTIONS,
-    };
+      conclusion: `节点 "${selectedNodeId}" 不在 bundle 中。`,
+      strength: "none",
+      limitations_summary: "节点可能属于聚合节点或已移除。",
+    });
   }
 
   // Use the concept mapping answer for concept nodes
@@ -429,12 +497,15 @@ function answerExplainSelected(
     return answerProjectSummary(bundle, q);
   }
 
-  return {
+  return makeAnswer({
     question: q,
     answer: `节点 "${node.label}"（类型：${node.kind}，置信度：${node.confidence ?? "unknown"}）。请在 Understanding Card 页面查看完整分析。`,
     referenced_nodes: [node.node_id],
     referenced_claims: [],
     referenced_evidence: [],
     follow_up_questions: SUGGESTED_QUESTIONS.slice(0, 3),
-  };
+    conclusion: `节点 "${node.label}"（${node.kind}），置信度 ${node.confidence ?? "unknown"}。`,
+    strength: node.confidence ?? "unknown",
+    limitations_summary: "此节点类型的分析有限，请在 Understanding Card 查看详情。",
+  });
 }

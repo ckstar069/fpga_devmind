@@ -34,7 +34,6 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
 
   const suggestedToShow = useMemo(() => {
     if (history.length === 0) return SUGGESTED_QUESTIONS;
-    // Show follow_up_questions from last answer, or default
     return history[0].follow_up_questions.length > 0
       ? history[0].follow_up_questions
       : SUGGESTED_QUESTIONS;
@@ -85,7 +84,31 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
           <div className="qa-question">{a.question}</div>
           <div className="qa-answer">{a.answer}</div>
 
-          {/* Referenced nodes */}
+          {/* Evidence-chain summary (T034) */}
+          <div className="qa-chain">
+            <div className="qa-chain-item">
+              <span className="qa-chain-label">结论：</span>
+              <span className="qa-chain-text">{a.conclusion}</span>
+            </div>
+            <div className="qa-chain-item">
+              <span className="qa-chain-label">强度：</span>
+              <span className={`badge badge-${
+                a.strength === "supported" ? "supported"
+                : a.strength === "inferred" ? "inferred"
+                : "unknown"
+              }`}>
+                {a.strength}
+              </span>
+            </div>
+            <div className="qa-chain-item">
+              <span className="qa-chain-label">局限：</span>
+              <span className="qa-chain-text" style={{ color: "var(--yellow)" }}>
+                {a.limitations_summary}
+              </span>
+            </div>
+          </div>
+
+          {/* Referenced nodes (clickable) */}
           {a.referenced_nodes.length > 0 && (
             <div className="qa-refs">
               <span className="qa-refs-label">相关节点：</span>
@@ -98,6 +121,44 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
                   {id.length > 20 ? id.slice(0, 20) + "…" : id}
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* Referenced claims (clickable) */}
+          {a.referenced_claims.length > 0 && (
+            <div className="qa-refs">
+              <span className="qa-refs-label">Claims：</span>
+              {a.referenced_claims.slice(0, 8).map((id) => (
+                <button
+                  key={id}
+                  className="qa-ref-btn"
+                  onClick={() => onNavigateNode(id)}
+                >
+                  {id.length > 20 ? id.slice(0, 20) + "…" : id}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Referenced evidence IDs (clickable concept for now) */}
+          {a.referenced_evidence.length > 0 && (
+            <div className="qa-refs">
+              <span className="qa-refs-label">证据 ID：</span>
+              {a.referenced_evidence.slice(0, 6).map((id) => (
+                <span
+                  key={id}
+                  className="qa-ref-btn"
+                  style={{ cursor: "default" }}
+                  title={id}
+                >
+                  {id.length > 25 ? id.slice(0, 25) + "…" : id}
+                </span>
+              ))}
+              {a.referenced_evidence.length > 6 && (
+                <span style={{ fontSize: 10, color: "var(--text2)" }}>
+                  +{a.referenced_evidence.length - 6} 条
+                </span>
+              )}
             </div>
           )}
 

@@ -45,6 +45,31 @@ fn read_source_context(
     loader::read_source_context(&file_path, lines)
 }
 
+/// Read source context for a specific evidence item.
+/// Uses evidence_id to determine line range, returns structured context
+/// with evidence lines highlighted.
+#[tauri::command]
+fn read_evidence_source_context(
+    file_path: String,
+    evidence_id: Option<String>,
+    line_start: Option<u64>,
+    line_end: Option<u64>,
+    context_lines: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<loader::SourceContext, String> {
+    let ctx_lines = context_lines.unwrap_or(5);
+    let lock = state.bundle.lock().map_err(|e| e.to_string())?;
+    let bundle_ref = lock.as_ref();
+    loader::read_source_context_for_evidence(
+        &file_path,
+        evidence_id.as_deref(),
+        line_start,
+        line_end,
+        ctx_lines,
+        bundle_ref,
+    )
+}
+
 #[tauri::command]
 fn get_default_bundle_path() -> Option<String> {
     loader::find_default_bundle().map(|p| p.to_string_lossy().to_string())
@@ -123,6 +148,7 @@ pub fn run() {
             load_project_bundle,
             get_bundle_summary,
             read_source_context,
+            read_evidence_source_context,
             get_default_bundle_path,
             run_project_trace,
         ])

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { ProjectBundle, UnderstandingCard as UCard } from "../types";
+import type { ProjectBundle } from "../types";
 import { buildUnderstandingCard } from "../utils/cardBuilder";
 import { nodeColor, nodeKindLabel } from "../utils/transforms";
 
@@ -61,13 +61,57 @@ function UnderstandingCardPage({ bundle, selectedNodeId, onSelectNode }: Props) 
           {/* Role & Implementation Path */}
           <div className="card">
             <div className="card-title">在项目中的角色</div>
-            <div className="detail-text">{card.role_in_project}</div>
+            <div className="detail-text" style={{ whiteSpace: "pre-wrap" }}>{card.role_in_project}</div>
           </div>
 
           <div className="card">
             <div className="card-title">实现路径</div>
             <div className="uc-path">{card.implementation_path}</div>
           </div>
+
+          {/* Data Provenance (T034) */}
+          <div className="card" style={{ borderLeft: "3px solid var(--accent2)" }}>
+            <div className="card-title">📦 数据来源 (Data Provenance)</div>
+            <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+              <div>
+                <span style={{ color: "var(--text2)" }}>源节点：</span>
+                <span style={{ fontFamily: "monospace" }}>{card.data_provenance.source_node_id}</span>
+                <span style={{ color: "var(--text2)", marginLeft: 8 }}>({card.data_provenance.source_node_kind})</span>
+              </div>
+              {card.data_provenance.raw_rtl_node_count > 0 && (
+                <div>
+                  <span style={{ color: "var(--text2)" }}>原始 RTL 节点数：</span>
+                  {card.data_provenance.raw_rtl_node_count}
+                </div>
+              )}
+              {card.data_provenance.edge_types.length > 0 && (
+                <div>
+                  <span style={{ color: "var(--text2)" }}>连接边类型：</span>
+                  {card.data_provenance.edge_types.join("、")}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Why Connected (T034) */}
+          {card.why_connected.length > 0 && (
+            <div className="card">
+              <div className="card-title">🔗 为什么连接到邻居</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {card.why_connected.slice(0, 10).map((wc, i) => (
+                  <div
+                    key={i}
+                    className="uc-related-item"
+                    onClick={() => onSelectNode(wc.neighbor_id)}
+                  >
+                    <span className="uc-ev-source">{wc.edge_type}</span>
+                    <span style={{ fontSize: 12, flex: 1 }}>{wc.explanation}</span>
+                    <span style={{ fontSize: 11, color: "var(--accent)" }}>→</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Related Concepts */}
           {card.related_concepts.length > 0 && (
@@ -174,6 +218,25 @@ function UnderstandingCardPage({ bundle, selectedNodeId, onSelectNode }: Props) 
                       </span>
                     )}
                   </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Traceable Evidence IDs (T034) */}
+          {card.traceable_evidence.length > 0 && (
+            <div className="card">
+              <div className="card-title">🔍 可追溯证据 ID ({card.traceable_evidence.length})</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {card.traceable_evidence.map((eid) => (
+                  <span
+                    key={eid}
+                    className="uc-ev-source"
+                    style={{ cursor: "pointer", fontSize: 10 }}
+                    title={eid}
+                  >
+                    {eid.length > 30 ? eid.slice(0, 30) + "…" : eid}
+                  </span>
                 ))}
               </div>
             </div>

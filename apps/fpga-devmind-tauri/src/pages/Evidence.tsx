@@ -3,6 +3,16 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ProjectBundle, EvidenceGroup } from "../types";
 import { groupEvidenceByClaim } from "../utils/transforms";
 
+interface SourceContextResult {
+  file_path: string;
+  evidence_start: number;
+  evidence_end: number;
+  total_lines: number;
+  context_start: number;
+  context_end: number;
+  lines: string[];
+}
+
 interface Props {
   bundle: ProjectBundle;
 }
@@ -10,24 +20,42 @@ interface Props {
 function Evidence({ bundle }: Props) {
   const groups = useMemo(() => groupEvidenceByClaim(bundle), [bundle]);
   const [selectedEvId, setSelectedEvId] = useState<string | null>(null);
-  const [sourceContext, setSourceContext] = useState<string | null>(null);
+  const [sourceContext, setSourceContext] = useState<SourceContextResult | null>(null);
   const [loadingCtx, setLoadingCtx] = useState(false);
 
   const handleSelectEvidence = async (evId: string, filePath?: string) => {
     setSelectedEvId(evId);
     if (!filePath) {
-      setSourceContext("(无文件路径)");
+      setSourceContext(null);
       return;
     }
     setLoadingCtx(true);
     try {
-      const ctx = await invoke<string>("read_source_context", {
+      const ctx = await invoke<SourceContextResult>("read_evidence_source_context", {
         filePath,
-        contextLines: 10,
+        evidenceId: evId,
+        contextLines: 5,
       });
       setSourceContext(ctx);
     } catch {
-      setSourceContext("(无法读取文件)");
+      // Fallback to legacy command
+      try {
+        const legacyCtx = await invoke<string>("read_source_context", {
+          filePath,
+          contextLines: 15,
+        });
+        setSourceContext({
+          file_path: filePath,
+          evidence_start: 0,
+          evidence_end: 0,
+          total_lines: 0,
+          context_start: 0,
+          context_end: 0,
+          lines: legacyCtx.split("\n"),
+        });
+      } catch {
+        setSourceContext(null);
+      }
     } finally {
       setLoadingCtx(false);
     }
@@ -68,10 +96,18 @@ function Evidence({ bundle }: Props) {
         </div>
 
         {/* Right: detail */}
-        <div style={{ width: 420, minWidth: 340 }}>
+        <div style={{ width: 460, minWidth: 360 }}>
           {selectedEv && selectedGroup ? (
             <div className="card">
               <div className="card-title">Evidence Detail</div>
+
+              {/* Evidence ID */}
+              <div className="detail-section">
+                <div className="detail-section-title">Evidence ID</div>
+                <div className="detail-text" style={{ fontSize: 11, fontFamily: "monospace", wordBreak: "break-all" }}>
+                  {selectedEvId}
+                </div>
+              </div>
 
               <div className="detail-section">
                 <div className="detail-section-title">所属 Claim</div>
@@ -86,6 +122,12 @@ function Evidence({ bundle }: Props) {
                 <div className="detail-text" style={{ color: "var(--yellow)" }}>
                   {selectedGroup.item.why_matters}
                 </div>
+                {/* Weak/naming evidence warning */}
+                {(selectedEv.source_type === "naming_match" || selectedEv.strength === "weak") && (
+                  <div style={{ fontSize: 12, color: "var(--red)", marginTop: 4, fontStyle: "italic" }}>
+                    ⚠ 弱/命名证据：不能单独作为强映射证据
+                  </div>
+                )}
               </div>
 
               <div className="detail-section">
@@ -122,13 +164,25 @@ function Evidence({ bundle }: Props) {
                 </div>
               )}
 
+              {/* Line range info */}
+              {sourceContext && sourceContext.evidence_start > 0 && (
+                <div className="detail-section">
+                  <div className="detail-section-title">行号范围</div>
+                  <div className="detail-text">
+                    L{sourceContext.evidence_start}–L{sourceContext.evidence_end}（共 {sourceContext.evidence_end - sourceContext.evidence_start + 1} 行，文件共 {sourceContext.total_lines} 行）
+                  </div>
+                </div>
+              )}
+
               {sourceContext && (
                 <div className="detail-section">
                   <div className="detail-section-title">源码上下文</div>
                   {loadingCtx ? (
                     <div style={{ fontSize: 12, color: "var(--text2)" }}>加载中...</div>
                   ) : (
-                    <div className="source-context">{sourceContext}</div>
+                    <div className="source-context">
+                      {sourceContext.lines.join("\n")}
+                    </div>
                   )}
                 </div>
               )}
@@ -197,6 +251,10 @@ function EvidenceGroupComp({
             }`} style={{ marginLeft: 8 }}>
               {ev.strength}
             </span>
+          )}
+          {/* Weak evidence marker */}
+          {(ev.source_type === "naming_match" || ev.strength === "weak") && (
+            <span style={{ fontSize: 10, color: "var(--red)", marginLeft: 6 }}>⚠弱</span>
           )}
           <div style={{ fontSize: 10, color: "var(--text2)", marginTop: 2 }}>
             {ev.why_matters}

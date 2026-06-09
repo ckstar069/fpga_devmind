@@ -120,6 +120,17 @@ export interface UnderstandingCard {
   limitations: string[];
   next_steps: string[];
   implementation_path: string;
+  /** T034: Data provenance */
+  data_provenance: {
+    source_node_id: string;
+    source_node_kind: string;
+    raw_rtl_node_count: number;
+    edge_types: string[];
+  };
+  /** T034: Why connected to neighbors */
+  why_connected: { neighbor_id: string; edge_type: string; explanation: string }[];
+  /** T034: Clickable evidence IDs */
+  traceable_evidence: string[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -175,6 +186,10 @@ export interface AgentAnswer {
   referenced_claims: string[];
   referenced_evidence: string[];
   follow_up_questions: string[];
+  /** T034: Evidence-chain fields */
+  conclusion: string;
+  strength: string;
+  limitations_summary: string;
 }
 
 /* ------------------------------------------------------------------ */

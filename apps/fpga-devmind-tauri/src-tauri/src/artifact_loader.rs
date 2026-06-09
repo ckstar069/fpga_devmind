@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -23,6 +24,10 @@ pub struct GraphNode {
     pub evidence_ids: Vec<String>,
     #[serde(default)]
     pub file_path: Option<String>,
+    #[serde(default)]
+    pub line_start: Option<u64>,
+    #[serde(default)]
+    pub line_end: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +64,10 @@ pub struct EvidenceEntry {
     pub symbol: Option<String>,
     #[serde(default)]
     pub strength: Option<String>,
+    #[serde(default)]
+    pub line_start: Option<u64>,
+    #[serde(default)]
+    pub line_end: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,9 +90,9 @@ pub struct ClaimInfo {
 pub struct ProjectIndex {
     pub schema_version: String,
     pub project_id: String,
-    pub concept_index: std::collections::HashMap<String, ConceptInfo>,
-    pub claim_index: std::collections::HashMap<String, ClaimInfo>,
-    pub evidence_index: std::collections::HashMap<String, EvidenceEntry>,
+    pub concept_index: HashMap<String, ConceptInfo>,
+    pub claim_index: HashMap<String, ClaimInfo>,
+    pub evidence_index: HashMap<String, EvidenceEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,9 +200,131 @@ pub fn bundle_summary(bundle: &ProjectBundle) -> ProjectBundleSummary {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Source context reader                                              */
+/*  Evidence line range parsing                                        */
 /* ------------------------------------------------------------------ */
 
+/// Parse an evidence_id like "E:p1b_concept:9db6fc88:399-473:001"
+/// Returns (start_line, end_line) as 1-based line numbers.
+pub fn parse_line_range_from_evidence_id(evidence_id: &str) -> Option<(usize, usize)> {
+    // Format: E:source_type:hash:start-end:seq
+    // Example: E:p1b_concept:9db6fc88:399-473:001
+    // parts: ["E", "p1b_concept", "9db6fc88", "399-473", "001"]
+    let parts: Vec<&str> = evidence_id.split(':').collect();
+    if parts.len() >= 5 {
+        // parts[3] should be like "399-473"
+        if let Some(range_part) = parts.get(3) {
+            let range_parts: Vec<&str> = range_part.split('-').collect();
+            if range_parts.len() == 2 {
+                if let (Ok(start), Ok(end)) = (range_parts[0].parse::<usize>(), range_parts[1].parse::<usize>()) {
+                    if start > 0 && end >= start {
+                        return Some((start, end));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Mask secrets in a line of source code.
+fn mask_secrets(line: &str) -> String {
+    let mut result = line.to_string();
+
+    // Mask sk- tokens (OpenAI-style)
+    if let Ok(re) = regex::Regex::new(r"sk-[a-zA-Z0-9]{20,}") {
+        result = re.replace_all(&result, "sk-***MASKED***").to_string();
+    }
+
+    // Mask Bearer tokens
+    if let Ok(re) = regex::Regex::new(r"(?i)(Bearer\s+)[a-zA-Z0-9._-]{20,}") {
+        result = re.replace_all(&result, "${1}***MASKED***").to_string();
+    }
+
+    // Mask api_key / password / secret / token values
+    if let Ok(re) = regex::Regex::new(r#"(?i)(api_key\s*[:=]\s*)['"][^'"]*['"]"#) {
+        result = re.replace_all(&result, "${1}***MASKED***").to_string();
+    }
+    if let Ok(re) = regex::Regex::new(r#"(?i)(password\s*[:=]\s*)['"][^'"]*['"]"#) {
+        result = re.replace_all(&result, "${1}***MASKED***").to_string();
+    }
+    if let Ok(re) = regex::Regex::new(r#"(?i)(secret\s*[:=]\s*)['"][^'"]{8,}['"]"#) {
+        result = re.replace_all(&result, "${1}***MASKED***").to_string();
+    }
+    if let Ok(re) = regex::Regex::new(r#"(?i)(token\s*[:=]\s*)['"][^'"]{16,}['"]"#) {
+        result = re.replace_all(&result, "${1}***MASKED***").to_string();
+    }
+
+    result
+}
+
+/// Read source context around evidence lines.
+///
+/// If `evidence_id` is provided, parses line range from it.
+/// Falls back to `line_start`/`line_end` fields from the evidence index.
+/// Returns context lines with evidence lines marked with "▶".
+pub fn read_source_context_for_evidence(
+    file_path: &str,
+    evidence_id: Option<&str>,
+    line_start: Option<u64>,
+    line_end: Option<u64>,
+    context_lines: usize,
+    bundle: Option<&ProjectBundle>,
+) -> Result<SourceContext, String> {
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+
+    let content = fs::read_to_string(path).map_err(|e| format!("Cannot read file: {}", e))?;
+    let all_lines: Vec<&str> = content.lines().collect();
+    let total_lines = all_lines.len();
+
+    if total_lines == 0 {
+        return Err("File is empty".into());
+    }
+
+    // Determine evidence line range
+    let (ev_start, ev_end) = resolve_line_range(evidence_id, line_start, line_end, bundle)?;
+
+    // Convert to usize and clamp to file bounds (1-based)
+    let total = total_lines as u64;
+    let ev_start = (ev_start.max(1).min(total)) as usize;
+    let ev_end = (ev_end.max(ev_start as u64).min(total)) as usize;
+
+    // Compute context window
+    let ctx_pad = context_lines.max(5).min(60);
+    let show_start = ev_start.saturating_sub(ctx_pad + 1) + 1; // 1-based
+    let show_end = (ev_end + ctx_pad).min(total_lines);
+
+    // Cap at 120 lines
+    let max_lines = 120;
+    let show_end = show_end.min(show_start + max_lines - 1);
+
+    // Build output with evidence lines marked
+    let mut lines = Vec::new();
+    for i in show_start..=show_end {
+        let idx = i - 1; // 0-based index
+        if idx >= all_lines.len() {
+            break;
+        }
+        let is_evidence = i >= ev_start as usize && i <= ev_end as usize;
+        let marker = if is_evidence { "▶" } else { " " };
+        let masked = mask_secrets(all_lines[idx]);
+        lines.push(format!("{:>4} {}│ {}", i, marker, masked));
+    }
+
+    Ok(SourceContext {
+        file_path: file_path.to_string(),
+        evidence_start: ev_start as u64,
+        evidence_end: ev_end as u64,
+        total_lines: total_lines as u64,
+        context_start: show_start as u64,
+        context_end: show_end as u64,
+        lines,
+    })
+}
+
+/// Legacy function for backward compatibility.
 pub fn read_source_context(
     file_path: &str,
     context_lines: usize,
@@ -207,7 +338,6 @@ pub fn read_source_context(
     let lines: Vec<&str> = content.lines().collect();
     let total = lines.len();
 
-    // Return last N lines as context (simple approach)
     let start = if total > context_lines {
         total - context_lines
     } else {
@@ -215,10 +345,59 @@ pub fn read_source_context(
     };
 
     let ctx: Vec<String> = (start..total)
-        .map(|i| format!("{:>4} │ {}", i + 1, lines[i]))
+        .map(|i| format!("{:>4} │ {}", i + 1, mask_secrets(lines[i])))
         .collect();
 
     Ok(ctx.join("\n"))
+}
+
+/// Resolve evidence line range from multiple sources.
+fn resolve_line_range(
+    evidence_id: Option<&str>,
+    line_start: Option<u64>,
+    line_end: Option<u64>,
+    bundle: Option<&ProjectBundle>,
+) -> Result<(u64, u64), String> {
+    // 1. Try parsing from evidence_id
+    if let Some(eid) = evidence_id {
+        if let Some((s, e)) = parse_line_range_from_evidence_id(eid) {
+            return Ok((s as u64, e as u64));
+        }
+    }
+
+    // 2. Try explicit line_start/line_end
+    if let (Some(s), Some(e)) = (line_start, line_end) {
+        if s > 0 && e >= s {
+            return Ok((s, e));
+        }
+    }
+
+    // 3. Try looking up from bundle evidence_index
+    if let (Some(b), Some(eid)) = (bundle, evidence_id) {
+        if let Some(ev) = b.index.evidence_index.get(eid) {
+            if let (Some(s), Some(e)) = (ev.line_start, ev.line_end) {
+                if s > 0 && e >= s {
+                    return Ok((s, e));
+                }
+            }
+        }
+    }
+
+    Err(format!(
+        "Cannot determine line range for evidence. evidence_id={:?}, line_start={:?}, line_end={:?}",
+        evidence_id, line_start, line_end
+    ))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceContext {
+    pub file_path: String,
+    pub evidence_start: u64,
+    pub evidence_end: u64,
+    pub total_lines: u64,
+    pub context_start: u64,
+    pub context_end: u64,
+    pub lines: Vec<String>,
 }
 
 /* ------------------------------------------------------------------ */
@@ -227,9 +406,9 @@ pub fn read_source_context(
 
 pub fn find_default_bundle() -> Option<PathBuf> {
     let candidates = [
+        "/tmp/fpga_devmind/t034_project_smoke",
+        "/tmp/fpga_devmind/t033_project_smoke",
         "/tmp/fpga_devmind/t025_project_smoke",
-        "/tmp/fpga_devmind/t031_gui_smoke",
-        "/tmp/fpga_devmind/t024a_project_smoke",
     ];
 
     for c in &candidates {
@@ -248,7 +427,6 @@ pub fn find_default_bundle() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // std::io::Write would be needed for file creation in future tests
 
     #[test]
     fn test_load_bundle_missing_dir() {
@@ -348,34 +526,208 @@ mod tests {
     }
 
     #[test]
-    fn test_read_source_context_missing() {
-        let result = read_source_context("/nonexistent/file.v", 5);
+    fn test_parse_line_range_from_evidence_id() {
+        // Standard format: E:source_type:hash:start-end:seq
+        assert_eq!(
+            parse_line_range_from_evidence_id("E:p1b_concept:9db6fc88:399-473:001"),
+            Some((399, 473))
+        );
+        assert_eq!(
+            parse_line_range_from_evidence_id("E:p1b_rtl:abcd:124-143:001"),
+            Some((124, 143))
+        );
+        assert_eq!(
+            parse_line_range_from_evidence_id("E:p1b_concept:180d8fc3:47-214:007"),
+            Some((47, 214))
+        );
+        // Single line
+        assert_eq!(
+            parse_line_range_from_evidence_id("E:p1b_rtl:abc:50-50:001"),
+            Some((50, 50))
+        );
+        // Invalid formats
+        assert_eq!(parse_line_range_from_evidence_id("invalid"), None);
+        assert_eq!(parse_line_range_from_evidence_id("E:a:b:c"), None);
+        assert_eq!(parse_line_range_from_evidence_id(""), None);
+    }
+
+    #[test]
+    fn test_read_source_context_for_evidence() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file_path = tmp.path().join("test.py");
+        // Create a file with 100 lines
+        let content: String = (1..=100).map(|i| format!("line {} content\n", i)).collect();
+        fs::write(&file_path, &content).unwrap();
+
+        let path_str = file_path.to_string_lossy().to_string();
+
+        // Test with evidence_id containing line range
+        let ctx = read_source_context_for_evidence(
+            &path_str,
+            Some("E:p1b_concept:abc:10-15:001"),
+            None,
+            None,
+            5,
+            None,
+        ).unwrap();
+
+        assert_eq!(ctx.evidence_start, 10);
+        assert_eq!(ctx.evidence_end, 15);
+        assert_eq!(ctx.total_lines, 100);
+
+        // Check that evidence lines are marked with ▶
+        let evidence_lines: Vec<&String> = ctx.lines.iter().filter(|l| l.contains("▶")).collect();
+        assert!(evidence_lines.len() >= 6, "Should have 6 evidence lines (10-15)");
+
+        // First line should be around line 5 (evidence_start - 5 - 1)
+        assert!(ctx.context_start <= 6);
+        assert!(ctx.context_end >= 15);
+    }
+
+    #[test]
+    fn test_read_source_context_fallback_line_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file_path = tmp.path().join("test.v");
+        let content: String = (1..=50).map(|i| format!("assign x = {};\n", i)).collect();
+        fs::write(&file_path, &content).unwrap();
+
+        let path_str = file_path.to_string_lossy().to_string();
+
+        // No evidence_id, use line_start/line_end
+        let ctx = read_source_context_for_evidence(
+            &path_str,
+            None,
+            Some(20),
+            Some(25),
+            3,
+            None,
+        ).unwrap();
+
+        assert_eq!(ctx.evidence_start, 20);
+        assert_eq!(ctx.evidence_end, 25);
+    }
+
+    #[test]
+    fn test_read_source_context_missing_file() {
+        let result = read_source_context_for_evidence(
+            "/nonexistent/file.v",
+            Some("E:p1b_concept:abc:10-15:001"),
+            None,
+            None,
+            5,
+            None,
+        );
         assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_read_source_context_no_line_info() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file_path = tmp.path().join("test.py");
+        fs::write(&file_path, "hello\n").unwrap();
+
+        let result = read_source_context_for_evidence(
+            &file_path.to_string_lossy(),
+            Some("invalid_evidence_id"),
+            None,
+            None,
+            5,
+            None,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Cannot determine line range"));
+    }
+
+    #[test]
+    fn test_mask_secrets() {
+        assert!(mask_secrets("api_key = \"sk-abc123\"").contains("***MASKED***"));
+        assert!(mask_secrets("password = \"secret123\"").contains("***MASKED***"));
+        assert!(mask_secrets("token = \"abcdef1234567890\"").contains("***MASKED***"));
+        assert!(!mask_secrets("x = 42").contains("***MASKED***"));
     }
 
     #[test]
     fn test_find_default_bundle_none() {
-        // This test may find one if smoke bundles exist, so just verify it doesn't panic
         let _ = find_default_bundle();
     }
 
     #[test]
     fn test_deserialize_graph_from_real_bundle() {
-        let path = Path::new("/tmp/fpga_devmind/t025_project_smoke");
+        let path = Path::new("/tmp/fpga_devmind/t034_project_smoke");
         if !path.join("project_understanding_graph.json").exists() {
-            eprintln!("Skipping: real bundle not found");
-            return;
+            // Fallback to older bundles
+            let path = Path::new("/tmp/fpga_devmind/t025_project_smoke");
+            if !path.join("project_understanding_graph.json").exists() {
+                eprintln!("Skipping: real bundle not found");
+                return;
+            }
         }
         let bundle = load_bundle(path).unwrap();
         assert!(!bundle.graph.nodes.is_empty());
         assert!(!bundle.graph.edges.is_empty());
         assert_eq!(bundle.graph.project_id, "fpga_project_coarse_sync_glm");
 
-        // Verify node kinds
         let kinds: std::collections::HashSet<&str> =
             bundle.graph.nodes.iter().map(|n| n.kind.as_str()).collect();
         assert!(kinds.contains("project"));
         assert!(kinds.contains("concept"));
         assert!(kinds.contains("mapping_claim"));
+    }
+
+    #[test]
+    fn test_read_source_context_real_evidence() {
+        let path = Path::new("/tmp/fpga_devmind/t034_project_smoke");
+        if !path.join("project_understanding_index.json").exists() {
+            eprintln!("Skipping: real bundle not found");
+            return;
+        }
+        let bundle = load_bundle(path).unwrap();
+
+        // Find a concept evidence with known line range
+        let target_eid = "E:p1b_concept:9db6fc88:399-473:001";
+        let ev = match bundle.index.evidence_index.get(target_eid) {
+            Some(e) => e,
+            None => {
+                eprintln!("Skipping: evidence {} not found", target_eid);
+                return;
+            }
+        };
+
+        let file_path = match &ev.file_path {
+            Some(f) => f.clone(),
+            None => {
+                eprintln!("Skipping: no file_path");
+                return;
+            }
+        };
+
+        if !Path::new(&file_path).exists() {
+            eprintln!("Skipping: source file not found: {}", file_path);
+            return;
+        }
+
+        let ctx = read_source_context_for_evidence(
+            &file_path,
+            Some(target_eid),
+            None,
+            None,
+            5,
+            Some(&bundle),
+        ).unwrap();
+
+        assert_eq!(ctx.evidence_start, 399);
+        assert_eq!(ctx.evidence_end, 473);
+
+        // Verify evidence lines are marked
+        let evidence_lines: Vec<&String> = ctx.lines.iter().filter(|l| l.contains("▶")).collect();
+        assert!(evidence_lines.len() > 0, "Evidence lines should be marked");
+
+        // Verify first context line is before 399
+        assert!(ctx.context_start < 399, "Context should start before evidence");
+
+        // Verify line 399 content is present
+        let line_399 = ctx.lines.iter().find(|l| l.contains("▶") && l.contains("399"));
+        assert!(line_399.is_some(), "Line 399 should be in context");
     }
 }

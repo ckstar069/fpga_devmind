@@ -777,3 +777,46 @@ html, body, #root {
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
+
+/* ================================================================ */
+/*  Evidence-chain (T034)                                           */
+/* ================================================================ */
+
+.qa-chain {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: rgba(99, 102, 241, 0.06);
+  border-radius: 6px;
+  border-left: 3px solid var(--accent2);
+}
+
+.qa-chain-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.qa-chain-item:last-child {
+  margin-bottom: 0;
+}
+
+.qa-chain-label {
+  font-weight: 600;
+  color: var(--text2);
+  min-width: 40px;
+  flex-shrink: 0;
+}
+
+.qa-chain-text {
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* Source context evidence highlight */
+.source-context .evidence-marker {
+  color: var(--accent);
+  font-weight: bold;
+}
