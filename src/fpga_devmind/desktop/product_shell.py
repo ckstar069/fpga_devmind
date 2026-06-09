@@ -55,6 +55,11 @@ from fpga_devmind.desktop.page_view_models import (
     build_agent_runtime_page_state,
     build_plan_tools_page_state,
 )
+from fpga_devmind.desktop.understanding_card_models import (
+    build_understanding_card,
+    populate_snippet_source_context,
+    render_understanding_card_text,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -854,7 +859,7 @@ class MainWindow(QtWidgets.QMainWindow):
         detail_col = QtWidgets.QVBoxLayout()
         self._ct_graph_detail = QtWidgets.QTextEdit()
         self._ct_graph_detail.setReadOnly(True)
-        self._ct_graph_detail.setMaximumWidth(280)
+        self._ct_graph_detail.setMaximumWidth(380)
         self._ct_graph_detail.setPlaceholderText("点击图节点查看详情")
         detail_col.addWidget(self._ct_graph_detail, stretch=1)
 
@@ -1074,25 +1079,33 @@ class MainWindow(QtWidgets.QMainWindow):
         self._selected_node_kind = node.kind
         self._selected_node_label = node.label
 
-        lines = ["【选中对象详情】", ""]
-        lines.append("Label: {}".format(node.label))
-        lines.append("Kind: {}".format(node.kind))
-        if node.stage:
-            lines.append("Stage: {}".format(node.stage))
-        if node.confidence:
-            lines.append("Confidence: {}".format(node.confidence))
-        if node.evidence_count:
-            lines.append("Evidence: {} 条".format(node.evidence_count))
-        if node.has_diagnostics:
-            lines.append("Diagnostics: 有")
-
-        # Enrich from project graph data when available.
+        # T030: Use understanding card for project bundles.
         if self._bundle is not None and self._bundle.bundle_type == "project":
-            from fpga_devmind.desktop.artifact_loader import get_project_graph
-            graph = get_project_graph(self._bundle)
-            if graph:
-                self._enrich_node_detail(lines, node, graph)
+            card = build_understanding_card(
+                self._bundle, node.node_id,
+            )
+            if card.is_loaded:
+                populate_snippet_source_context(
+                    self._bundle, card.evidence_snippets,
+                )
+                display_text = render_understanding_card_text(card)
+            else:
+                display_text = card.load_error or "无法加载理解卡。"
+            self._ct_graph_detail.setPlainText(display_text)
         else:
+            # P1b bundle fallback: original detail logic.
+            lines = ["【选中对象详情】", ""]
+            lines.append("Label: {}".format(node.label))
+            lines.append("Kind: {}".format(node.kind))
+            if node.stage:
+                lines.append("Stage: {}".format(node.stage))
+            if node.confidence:
+                lines.append("Confidence: {}".format(node.confidence))
+            if node.evidence_count:
+                lines.append("Evidence: {} 条".format(node.evidence_count))
+            if node.has_diagnostics:
+                lines.append("Diagnostics: 有")
+
             from fpga_devmind.desktop.artifact_loader import get_graph
             if self._bundle is not None:
                 graph = get_graph(self._bundle)
@@ -1109,13 +1122,11 @@ class MainWindow(QtWidgets.QMainWindow):
                         for cid in detail.claim_ids:
                             lines.append("  • {}".format(cid))
 
-        # Add quick-link to Agent contextual query (T027).
-        lines.append("")
-        lines.append("【快捷操作】")
-        lines.append("  → 点击下方「问 Agent 解释此节点」按钮")
-        lines.append("    或切换到 Agent 问答页查看 contextual 问题")
-
-        self._ct_graph_detail.setPlainText("\n".join(lines))
+            lines.append("")
+            lines.append("【快捷操作】")
+            lines.append("  → 点击下方「问 Agent 解释此节点」按钮")
+            lines.append("    或切换到 Agent 问答页查看 contextual 问题")
+            self._ct_graph_detail.setPlainText("\n".join(lines))
 
         # Enable quick action buttons (T028).
         self._ct_ask_agent_btn.setEnabled(True)
