@@ -177,7 +177,21 @@ def _plan_project_question(
     concepts = meta.get("concepts_processed", [])
 
     # Order matters: more specific before broad.
-    if has_any(normalized, ["summary", "概况", "整体情况", "做了什么", "overview", "about"]):
+    if has_any(
+        normalized,
+        [
+            "summary",
+            "概况",
+            "整体情况",
+            "做了什么",
+            "overview",
+            "about",
+            "这个项目整体实现了什么",
+            "项目整体实现了什么",
+            "这个项目做了什么",
+            "项目概况",
+        ],
+    ):
         intent = "summary"
         steps = [
             _base_step(

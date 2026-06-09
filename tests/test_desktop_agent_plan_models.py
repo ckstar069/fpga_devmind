@@ -556,6 +556,82 @@ class TestAgentPlanModels(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
     # ------------------------------------------------------------------
+    # Answer / Plan intent consistency (T024b)
+    # ------------------------------------------------------------------
+
+    def test_project_summary_answer_plan_consistency(self):
+        """'这个项目整体实现了什么？' → answer=summary, plan=summary."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            answer = query_artifact_bundle(bundle, "这个项目整体实现了什么？")
+            plan = build_agent_plan_preview(bundle, "这个项目整体实现了什么？")
+            self.assertEqual(answer.response_kind, "summary")
+            self.assertEqual(plan.intent, "summary")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_concepts_answer_plan_consistency(self):
+        """'有哪些概念？' → answer=concepts, plan=concepts."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            answer = query_artifact_bundle(bundle, "有哪些概念？")
+            plan = build_agent_plan_preview(bundle, "有哪些概念？")
+            self.assertEqual(answer.response_kind, "concepts")
+            self.assertEqual(plan.intent, "concepts")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_mapped_answer_plan_consistency(self):
+        """'哪些概念有 RTL 映射？' → answer=mapped, plan=mapped."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            answer = query_artifact_bundle(bundle, "哪些概念有 RTL 映射？")
+            plan = build_agent_plan_preview(bundle, "哪些概念有 RTL 映射？")
+            self.assertEqual(answer.response_kind, "mapped")
+            self.assertEqual(plan.intent, "mapped")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_unknown_answer_plan_consistency(self):
+        """'哪些概念还不确定？' → answer=unknown, plan=unknown."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            answer = query_artifact_bundle(bundle, "哪些概念还不确定？")
+            plan = build_agent_plan_preview(bundle, "哪些概念还不确定？")
+            self.assertEqual(answer.response_kind, "unknown")
+            self.assertEqual(plan.intent, "unknown")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_shared_answer_plan_consistency(self):
+        """'哪些 RTL 文件承载了多个概念？' → answer=shared, plan=shared."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            answer = query_artifact_bundle(bundle, "哪些 RTL 文件承载了多个概念？")
+            plan = build_agent_plan_preview(bundle, "哪些 RTL 文件承载了多个概念？")
+            self.assertEqual(answer.response_kind, "shared")
+            self.assertEqual(plan.intent, "shared")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_project_graph_answer_plan_consistency(self):
+        """'画出项目理解图' → answer=graph, plan=graph."""
+        tmp = self._make_project_bundle()
+        try:
+            bundle = load_bundle(tmp)
+            answer = query_artifact_bundle(bundle, "画出项目理解图")
+            plan = build_agent_plan_preview(bundle, "画出项目理解图")
+            self.assertEqual(answer.response_kind, "graph")
+            self.assertEqual(plan.intent, "graph")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    # ------------------------------------------------------------------
     # Step properties
     # ------------------------------------------------------------------
 
