@@ -81,6 +81,43 @@ export {
   denyExternalRequest,
 } from "./approvalGate";
 
+// T046: External Provider Execution Pipeline
+export type {
+  ExternalProviderId,
+  ExternalProviderDescriptor,
+} from "./externalProviderRegistry";
+export {
+  EXTERNAL_PROVIDER_REGISTRY_VERSION,
+  getExternalProviderDescriptors,
+  getExternalProviderDescriptor,
+  isExternalProviderSendAllowed,
+  getSelectableExternalProviderIds,
+} from "./externalProviderRegistry";
+
+export type { EgressGuardInput, EgressGuardDecision } from "./egressGuard";
+export { EGRESS_GUARD_VERSION, evaluateEgressGuard } from "./egressGuard";
+
+export type {
+  ExternalTransportKind,
+  ExternalTransportRequest,
+  ExternalTransportResponse,
+} from "./externalTransport";
+export {
+  EXTERNAL_TRANSPORT_VERSION,
+  executeBlockedTransport,
+  executeMockTransport,
+} from "./externalTransport";
+
+export type {
+  ExternalExecutionInput,
+  ExternalExecutionResult,
+  ExternalApprovalAction,
+} from "./externalExecution";
+export {
+  EXTERNAL_EXECUTION_VERSION,
+  executeExternalProviderPipeline,
+} from "./externalExecution";
+
 import type { AgentRunRequest, AgentRunResult, AgentProviderKind } from "./providers";
 import { deterministicProvider } from "./deterministicProvider";
 import { offlineMockProvider } from "./offlineMockProvider";
