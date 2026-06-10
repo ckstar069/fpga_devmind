@@ -67,7 +67,7 @@ export function buildDryRunExternalRequestPlan(
 
   // Hypothetical request preview — for developer review only
   const systemPrompt = buildHypotheticalSystemPrompt(contextBundle);
-  const userPrompt = buildHypotheticalUserPrompt(contextBundle, question);
+  const userPrompt = buildHypotheticalUserPrompt(contextBundle);
 
   return {
     schema_version: REQUEST_PLAN_VERSION,
@@ -124,14 +124,14 @@ function buildHypotheticalSystemPrompt(contextBundle: LlmContextBundle): string 
   ].join("\n");
 }
 
-function buildHypotheticalUserPrompt(contextBundle: LlmContextBundle, question: string): string {
+function buildHypotheticalUserPrompt(contextBundle: LlmContextBundle): string {
   const items = contextBundle.context_items;
   const contextBody = items
     .map((item) => `[${item.kind}] ${item.title}:\n${item.content_preview}`)
     .join("\n\n");
 
   return [
-    "Question: " + question,
+    "Question preview: " + contextBundle.question_preview,
     "",
     "Project context:",
     contextBody || "(No context items available)",

@@ -162,7 +162,11 @@ export function buildSourceEvidencePack(
   // ─── 4. Fallback: keyword-match from graph nodes ────────────────────
   if (items.length === 0 && bundle.graph) {
     artifactSet.add("project_understanding_graph.json");
-    limitations.push("No agent_navigation_index — using fallback keyword matching from graph.");
+    if (!nav) {
+      limitations.push("No agent_navigation_index available — using fallback keyword matching from graph.");
+    } else {
+      limitations.push("No matching navigation route found — using fallback keyword matching from graph.");
+    }
 
     const qLower = question.toLowerCase();
     const matchedNodes = bundle.graph.nodes.filter((n: GraphNode) => {
