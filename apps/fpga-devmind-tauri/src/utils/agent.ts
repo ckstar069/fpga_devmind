@@ -25,6 +25,9 @@ export const SUGGESTED_QUESTIONS = [
   "pipeline 有哪些阶段？",
   "实现细节有哪些？",
   "数据来源是什么？",
+  "某个概念的 pipeline 路径是什么？",
+  "哪些概念跨了所有阶段？",
+  "dataflow 是怎样的？",
 ];
 
 /** Helper to build a standard AgentAnswer with evidence-chain fields */
@@ -167,6 +170,19 @@ export function answerQuestion(
 
   if (q.includes("选中") || q.includes("解释") || q.includes("当前节点")) {
     return answerExplainSelected(bundle, q, selectedNodeId);
+  }
+
+  // T039/T040: Pipeline / dataflow questions
+  if (q.includes("pipeline 路径") || q.includes("路径是什么") || q.includes("dataflow")) {
+    return answerPipelinePath(bundle, q);
+  }
+
+  if (q.includes("跨了所有阶段") || q.includes("跨阶段") || q.includes("full pipeline")) {
+    return answerFullPipelineConcepts(bundle, q);
+  }
+
+  if (q.includes("dataflow") || q.includes("数据流") || q.includes("数据流向")) {
+    return answerDataflowSummary(bundle, q);
   }
 
   // T036: "为什么这些概念被选中？" / "selection reason"
@@ -1384,5 +1400,207 @@ function answerWhySelected(bundle: ProjectBundle, conceptName: string, q: string
     conclusion: `"${cc.display_name}" 因 ${cc.why_selected} 被选中，置信度 ${cc.confidence}。`,
     strength: cc.confidence,
     limitations_summary: cc.limitations.length > 0 ? cc.limitations.join("；") : "无已知局限。",
+  });
+}
+
+/* ================================================================== */
+/*  T039/T040: Pipeline / Dataflow Agent Answers                      */
+/* ================================================================== */
+
+function answerPipelinePath(bundle: ProjectBundle, q: string): AgentAnswer {
+  const pv = bundle.semantic_pipeline_view;
+  if (!pv) {
+    return makeAnswer({
+      question: q,
+      answer: "当前 bundle 没有 pipeline view 数据。请加载 T039+ bundle 或重新生成项目 trace。",
+      conclusion: "无 pipeline view 数据",
+      strength: "none",
+      limitations_summary: "需要 T039/T040 semantic pipeline view artifact。",
+    });
+  }
+
+  // Try to match a specific concept from the question
+  const concepts = pv.pipeline_summary.concepts_with_full_pipeline;
+  let targetConcept = "";
+  for (const c of concepts) {
+    if (q.includes(c)) {
+      targetConcept = c;
+      break;
+    }
+  }
+
+  // If no specific concept matched, give an overview of all full-pipeline concepts
+  if (!targetConcept) {
+    const full = pv.pipeline_summary.concepts_with_full_pipeline;
+    const gaps = pv.pipeline_summary.concepts_with_gaps;
+    const answer = `Pipeline 路径概览：\n\n` +
+      `具有完整跨阶段证据链的概念 (${full.length})：\n` +
+      (full.length > 0
+        ? full.map((c) => `  • ${c}`).join("\n")
+        : "  无") +
+      `\n\n证据链存在缺口的概念 (${gaps.length})：\n` +
+      (gaps.length > 0
+        ? gaps.map((c) => `  • ${c}`).join("\n")
+        : "  无");
+
+    return makeAnswer({
+      question: q,
+      answer,
+      referenced_nodes: [],
+      referenced_claims: [],
+      referenced_evidence: [],
+      follow_up_questions: [
+        "哪些概念跨了所有阶段？",
+        "dataflow 是怎样的？",
+        "哪些概念缺失 RTL 证据？",
+      ],
+      conclusion: `${full.length} 个概念具有完整 pipeline，${gaps.length} 个存在缺口。`,
+      strength: full.length > gaps.length ? "supported" : "mixed",
+      limitations_summary: "Pipeline 路径基于静态证据链推断。",
+    });
+  }
+
+  // Specific concept pipeline path
+  const lanes = pv.lanes;
+  let answer = `概念 "${targetConcept}" 的 Pipeline 路径：\n\n`;
+
+  for (const lane of lanes) {
+    const laneNodes = lane.nodes.filter(
+      (n) => n.concept === targetConcept || n.label === targetConcept
+    );
+    if (laneNodes.length > 0) {
+      answer += `【${lane.label}】\n`;
+      for (const n of laneNodes) {
+        answer += `  • ${n.label} (${n.kind}, ${n.confidence ?? "unknown"})\n`;
+      }
+    }
+  }
+
+  // Find cross-stage edges for this concept
+  const conceptEdges = pv.cross_stage_edges.filter(
+    (e) => e.from_node_id.includes(targetConcept) || e.to_node_id.includes(targetConcept)
+  );
+  if (conceptEdges.length > 0) {
+    answer += `\n跨阶段连接：\n`;
+    for (const e of conceptEdges) {
+      answer += `  ${e.from_lane} → ${e.to_lane} | ${e.edge_type} (${e.confidence})\n`;
+    }
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些概念跨了所有阶段？",
+      "dataflow 是怎样的？",
+      "项目的不确定性有哪些？",
+    ],
+    conclusion: `"${targetConcept}" 的 pipeline 路径已列出。`,
+    strength: "supported",
+    limitations_summary: "路径基于 evidence chain 的 stage 分类。",
+  });
+}
+
+function answerFullPipelineConcepts(bundle: ProjectBundle, q: string): AgentAnswer {
+  const pv = bundle.semantic_pipeline_view;
+  const ss = bundle.semantic_summary;
+
+  if (!pv && !ss) {
+    return makeAnswer({
+      question: q,
+      answer: "当前无 pipeline view 或 semantic summary 数据。",
+      conclusion: "无数据",
+      strength: "none",
+      limitations_summary: "需要 T039+ artifact。",
+    });
+  }
+
+  const full = pv?.pipeline_summary.concepts_with_full_pipeline ?? [];
+  const cross = ss?.l5_l6_to_rtl_summary.summary.concepts_with_cross_stage_mapping ?? 0;
+
+  const answer = `跨阶段概念分析：\n\n` +
+    `具有完整 L5/L6 → RTL 证据链的概念 (${full.length})：\n` +
+    (full.length > 0
+      ? full.map((c) => `  • ${c}`).join("\n")
+      : "  无") +
+    `\n\n` +
+    (cross > 0
+      ? `L5/L6-to-RTL 映射总结：${cross} 个概念具有跨阶段映射（来自 semantic summary）。`
+      : "无 L5/L6-to-RTL 映射总结数据。");
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "某个概念的 pipeline 路径是什么？",
+      "dataflow 是怎样的？",
+      "哪些概念缺失 RTL 证据？",
+    ],
+    conclusion: `${full.length} 个概念跨了所有阶段。`,
+    strength: full.length > 0 ? "supported" : "inferred",
+    limitations_summary: "跨阶段判断基于 evidence chain 的 stage 覆盖。",
+  });
+}
+
+function answerDataflowSummary(bundle: ProjectBundle, q: string): AgentAnswer {
+  const pv = bundle.semantic_pipeline_view;
+  if (!pv) {
+    return makeAnswer({
+      question: q,
+      answer: "当前无 pipeline view 数据。请加载 T039+ bundle。",
+      conclusion: "无数据",
+      strength: "none",
+      limitations_summary: "需要 semantic_pipeline_view.json。",
+    });
+  }
+
+  const summary = pv.pipeline_summary;
+  const lanes = pv.lanes;
+
+  let answer = `Pipeline Dataflow 概览：\n\n`;
+  answer += `阶段节点分布：\n`;
+  for (const lane of lanes) {
+    const concepts = lane.nodes.filter((n) => n.kind === "concept").length;
+    const evidence = lane.nodes.filter((n) => n.kind === "evidence").length;
+    answer += `  • ${lane.label}: ${concepts} 概念, ${evidence} 证据\n`;
+  }
+
+  answer += `\n跨阶段连接：${summary.cross_stage_claim_count} 条 claim/realize 边，`;
+  answer += `${summary.dataflow_edge_count} 条总跨阶段边。\n`;
+
+  if (summary.concepts_with_full_pipeline.length > 0) {
+    answer += `\n完整 pipeline 概念 (${summary.concepts_with_full_pipeline.length})：` +
+      summary.concepts_with_full_pipeline.slice(0, 8).join("、") +
+      (summary.concepts_with_full_pipeline.length > 8 ? " ..." : "") +
+      "\n";
+  }
+
+  if (summary.concepts_with_gaps.length > 0) {
+    answer += `\n存在证据缺口的概念 (${summary.concepts_with_gaps.length})：` +
+      summary.concepts_with_gaps.slice(0, 8).join("、") +
+      (summary.concepts_with_gaps.length > 8 ? " ..." : "") +
+      "\n";
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些概念跨了所有阶段？",
+      "某个概念的 pipeline 路径是什么？",
+      "项目的不确定性有哪些？",
+    ],
+    conclusion: `Dataflow: ${summary.total_nodes} 节点, ${summary.total_cross_stage_edges} 跨阶段边。`,
+    strength: summary.concepts_with_full_pipeline.length > 0 ? "supported" : "inferred",
+    limitations_summary: "Dataflow 基于静态证据链，非动态仿真结果。",
   });
 }

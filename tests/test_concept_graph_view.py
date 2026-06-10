@@ -11,6 +11,10 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+pytest.importorskip("PySide6")
+
 from fpga_devmind.desktop.concept_graph_view import (
     GraphEdge,
     GraphNode,

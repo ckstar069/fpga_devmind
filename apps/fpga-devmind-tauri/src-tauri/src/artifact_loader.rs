@@ -131,6 +131,9 @@ pub struct ProjectBundle {
     pub discovery_eval_result: Option<serde_json::Value>,
     #[serde(default)]
     pub concept_candidates: Option<serde_json::Value>,
+    /// T039/T040: Semantic pipeline view (lane-based dataflow)
+    #[serde(default)]
+    pub semantic_pipeline_view: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -250,6 +253,26 @@ pub fn load_bundle(dir: &Path) -> Result<ProjectBundle, String> {
         None
     };
 
+    // T039/T040: Load semantic pipeline view if present
+    let pipeline_view_path = dir.join("semantic_pipeline_view.json");
+    let semantic_pipeline_view = if pipeline_view_path.exists() {
+        match fs::read_to_string(&pipeline_view_path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(val) => Some(val),
+                Err(e) => {
+                    eprintln!("Warning: failed to parse semantic_pipeline_view.json: {e}");
+                    None
+                }
+            },
+            Err(e) => {
+                eprintln!("Warning: failed to read semantic_pipeline_view.json: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     Ok(ProjectBundle {
         path: dir.to_string_lossy().to_string(),
         graph,
@@ -258,6 +281,7 @@ pub fn load_bundle(dir: &Path) -> Result<ProjectBundle, String> {
         semantic_summary,
         discovery_eval_result,
         concept_candidates,
+        semantic_pipeline_view,
     })
 }
 
@@ -483,6 +507,9 @@ pub struct SourceContext {
 
 pub fn find_default_bundle() -> Option<PathBuf> {
     let candidates = [
+        "/tmp/fpga_devmind/t040_coarse",
+        "/tmp/fpga_devmind/t040_fine_cfo",
+        "/tmp/fpga_devmind/t040_fft",
         "/tmp/fpga_devmind/t038_coarse_semantic",
         "/tmp/fpga_devmind/t038_fine_cfo_semantic",
         "/tmp/fpga_devmind/t038_fft_semantic",

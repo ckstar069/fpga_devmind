@@ -14,6 +14,7 @@ import {
   buildSummaryGraph,
   buildDetailGraph,
   buildFocusGraph,
+  buildPipelineGraph,
   nodeColor,
   nodeKindLabel,
 } from "../utils/transforms";
@@ -79,6 +80,7 @@ const MODES: { key: GraphMode; label: string }[] = [
   { key: "summary", label: "Summary（推荐）" },
   { key: "detail", label: "Detail（全节点）" },
   { key: "focus", label: "Focus（选中邻域）" },
+  { key: "pipeline", label: "Pipeline（阶段流）" },
 ];
 
 function ProjectGraph({ bundle, selectedNodeId, onSelectNode }: Props) {
@@ -93,6 +95,8 @@ function ProjectGraph({ bundle, selectedNodeId, onSelectNode }: Props) {
         return buildDetailGraph(bundle, selectedNodeId, hideShared);
       case "focus":
         return buildFocusGraph(bundle, selectedNodeId, 2);
+      case "pipeline":
+        return buildPipelineGraph(bundle);
       default:
         return buildSummaryGraph(bundle, selectedNodeId, hideShared);
     }

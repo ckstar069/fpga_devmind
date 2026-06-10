@@ -535,6 +535,58 @@ function SemanticSummarySection({ summary, onSelectNode }: SemanticSummaryProps)
         </div>
       )}
 
+      {/* Cross-stage summary (T039/T040) */}
+      {summary.l5_l6_to_rtl_summary && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "var(--text2)" }}>
+            Cross-Stage Mapping Summary
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text2)", lineHeight: 1.6 }}>
+            {(() => {
+              const s = summary.l5_l6_to_rtl_summary.summary;
+              return (
+                <>
+                  {s.concepts_with_cross_stage_mapping > 0 && (
+                    <span style={{ color: "var(--green)" }}>
+                      {s.concepts_with_cross_stage_mapping} 个概念具有跨阶段映射
+                    </span>
+                  )}
+                  {s.concepts_missing_l5_l6 > 0 && (
+                    <>
+                      {" | "}
+                      <span style={{ color: "var(--yellow)" }}>
+                        {s.concepts_missing_l5_l6} 个缺失 L5/L6 证据
+                      </span>
+                    </>
+                  )}
+                  {s.concepts_missing_rtl > 0 && (
+                    <>
+                      {" | "}
+                      <span style={{ color: "var(--red)" }}>
+                        {s.concepts_missing_rtl} 个缺失 RTL 证据
+                      </span>
+                    </>
+                  )}
+                  {s.inferred_only_mappings > 0 && (
+                    <>
+                      {" | "}
+                      <span style={{ color: "var(--orange)" }}>
+                        {s.inferred_only_mappings} 个为纯推断映射
+                      </span>
+                    </>
+                  )}
+                  {s.concepts_with_cross_stage_mapping === 0 &&
+                    s.concepts_missing_l5_l6 === 0 &&
+                    s.concepts_missing_rtl === 0 &&
+                    s.inferred_only_mappings === 0 &&
+                    "所有概念均具有完整的跨阶段证据链。"}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
       {/* Provenance */}
       <div style={{ fontSize: 11, color: "var(--text2)", marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 6 }}>
         Generated from: {summary.source_provenance.summary_generated_from.join(", ")} at{" "}

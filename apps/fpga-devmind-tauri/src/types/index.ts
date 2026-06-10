@@ -96,6 +96,8 @@ export interface ProjectBundle {
   discovery_eval_result?: EvalResult | unknown;
   /** T038.1: Concept candidates loaded from JSON */
   concept_candidates?: ConceptCandidateV2[] | unknown;
+  /** T039/T040: Optional semantic pipeline view */
+  semantic_pipeline_view?: SemanticPipelineView;
 }
 
 export interface ProjectBundleSummary {
@@ -147,7 +149,7 @@ export interface UnderstandingCard {
 /*  Graph view model                                                  */
 /* ------------------------------------------------------------------ */
 
-export type GraphMode = "summary" | "detail" | "focus";
+export type GraphMode = "summary" | "detail" | "focus" | "pipeline";
 
 export interface RtlAggregate {
   id: string;
@@ -502,4 +504,82 @@ export interface SourceProvenance {
   summary_generated_from: string[];
   generation_timestamp: string;
   generator: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  T039/T040: Semantic Pipeline View                                 */
+/* ------------------------------------------------------------------ */
+
+export interface SemanticPipelineView {
+  schema_version: string;
+  project_id: string;
+  lanes: PipelineLane[];
+  cross_stage_edges: CrossStageEdge[];
+  pipeline_summary: PipelineSummary;
+  uncertainty_flags: PipelineUncertaintyFlag[];
+  source_provenance: SourceProvenance;
+}
+
+export interface PipelineLane {
+  lane_id: string;
+  label: string;
+  stage_id: string;
+  nodes: PipelineLaneNode[];
+  edges: PipelineLaneEdge[];
+}
+
+export interface PipelineLaneNode {
+  node_id: string;
+  label: string;
+  kind: string;
+  confidence?: string;
+  stage?: string;
+  file_path?: string;
+  concept?: string;
+  source_type?: string;
+  strength?: string;
+  stages_present?: string[];
+  primary_stage?: string;
+}
+
+export interface PipelineLaneEdge {
+  edge_id: string;
+  from_node_id: string;
+  to_node_id: string;
+  edge_type: string;
+  confidence?: string;
+}
+
+export interface CrossStageEdge {
+  edge_id: string;
+  from_lane: string;
+  to_lane: string;
+  from_node_id: string;
+  to_node_id: string;
+  edge_type: string;
+  confidence: string;
+  notes?: string;
+}
+
+export interface PipelineSummary {
+  concept_count_per_stage: Record<string, number>;
+  evidence_count_per_stage: Record<string, number>;
+  cross_stage_claim_count: number;
+  dataflow_edge_count: number;
+  concepts_with_full_pipeline: string[];
+  concepts_with_gaps: string[];
+  total_nodes: number;
+  total_cross_stage_edges: number;
+  l5_l6_to_rtl_summary?: {
+    concepts_with_cross_stage_mapping: number;
+    concepts_missing_l5_l6: number;
+    concepts_missing_rtl: number;
+    inferred_only_mappings: number;
+  } | null;
+}
+
+export interface PipelineUncertaintyFlag {
+  concept: string;
+  flag: string;
+  reason: string;
 }

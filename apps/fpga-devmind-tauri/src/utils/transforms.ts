@@ -359,6 +359,90 @@ export function buildFocusGraph(
   return { nodes: flowNodes, edges: flowEdges };
 }
 
+/** Pipeline graph: lane-based L5 → L6 → RTL → Tests view (T039/T040) */
+export function buildPipelineGraph(bundle: ProjectBundle): FlowGraph {
+  const pv = bundle.semantic_pipeline_view;
+  if (!pv) {
+    // Fallback to summary graph if no pipeline view data
+    return buildSummaryGraph(bundle, null, false);
+  }
+
+  const flowNodes: Node[] = [];
+  const flowEdges: Edge[] = [];
+
+  // Lane positions (x coordinate for each stage column)
+  const LANE_X: Record<string, number> = {
+    L5_fixedpoint: 80,
+    L6_resource_opt: 320,
+    RTL: 560,
+    tests: 800,
+  };
+  const ROW_GAP = 90;
+
+  // Build a map of all nodes across lanes for edge lookup
+  const allNodeIds = new Set<string>();
+  for (const lane of pv.lanes) {
+    for (const n of lane.nodes) {
+      allNodeIds.add(n.node_id);
+    }
+  }
+
+  // Track placed nodes to compute row positions
+  const laneRowCounts: Record<string, number> = {};
+
+  for (const lane of pv.lanes) {
+    const x = LANE_X[lane.lane_id] ?? 300;
+    for (const n of lane.nodes) {
+      const row = laneRowCounts[lane.lane_id] ?? 0;
+      laneRowCounts[lane.lane_id] = row + 1;
+
+      const kind = n.kind === "evidence" ? "rtl_comment" : n.kind;
+      flowNodes.push({
+        id: n.node_id,
+        type: "custom",
+        position: { x, y: 40 + row * ROW_GAP },
+        data: {
+          label: n.label,
+          kind,
+          confidence: n.confidence ?? "unknown",
+          selected: false,
+        },
+      });
+    }
+
+    // Lane-internal edges
+    for (const e of lane.edges) {
+      if (allNodeIds.has(e.from_node_id) && allNodeIds.has(e.to_node_id)) {
+        flowEdges.push(
+          makeEdge(e.edge_id, e.from_node_id, e.to_node_id, e.edge_type, e.confidence),
+        );
+      }
+    }
+  }
+
+  // Cross-stage edges
+  for (const e of pv.cross_stage_edges) {
+    if (allNodeIds.has(e.from_node_id) && allNodeIds.has(e.to_node_id)) {
+      const isClaimBridge = e.edge_type === "has_claim" || e.edge_type === "realizes";
+      flowEdges.push({
+        id: e.edge_id,
+        source: e.from_node_id,
+        target: e.to_node_id,
+        animated: isClaimBridge,
+        style: {
+          stroke: isClaimBridge ? "#10b981" : "#64748b",
+          strokeWidth: isClaimBridge ? 2 : 1,
+          strokeDasharray: e.confidence === "inferred" ? "6 4" : undefined,
+        },
+        label: isClaimBridge ? e.edge_type : "",
+        labelStyle: { fontSize: 9, fill: isClaimBridge ? "#10b981" : "#64748b" },
+      });
+    }
+  }
+
+  return { nodes: flowNodes, edges: flowEdges };
+}
+
 /* ================================================================== */
 /*  Concept Table (Overview)                                          */
 /* ================================================================== */

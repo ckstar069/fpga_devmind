@@ -271,6 +271,7 @@ def run_p1b_trace_project(
         )
 
     # T038: Generate and write project semantic summary
+    semantic_summary: dict[str, Any] | None = None  # pyright: ignore[reportExplicitAny]
     semantic_summary_status = "ok"
     semantic_summary_error = ""
     try:
@@ -285,6 +286,7 @@ def run_p1b_trace_project(
             eval_result_dict,
             traced_concepts=metadata.get("concepts_processed"),
         )
+        assert semantic_summary is not None
         _write_json(safe_out / "project_semantic_summary.json", semantic_summary)
         metadata["artifacts"].append("project_semantic_summary.json")
         # Add semantic_summary_path to index for cross-reference
@@ -309,6 +311,42 @@ def run_p1b_trace_project(
     metadata["semantic_summary_status"] = semantic_summary_status
     if semantic_summary_error:
         metadata["semantic_summary_error"] = semantic_summary_error
+
+    # T039/T040: Generate and write semantic pipeline view
+    semantic_pipeline_view_status = "ok"
+    semantic_pipeline_view_error = ""
+    try:
+        from .semantic_pipeline_view import build_semantic_pipeline_view
+
+        pipeline_view = build_semantic_pipeline_view(
+            project_root,
+            project_graph,
+            project_index,
+            semantic_summary=semantic_summary,
+        )
+        _write_json(safe_out / "semantic_pipeline_view.json", pipeline_view)
+        metadata["artifacts"].append("semantic_pipeline_view.json")
+        # Add pipeline_view_path to index for cross-reference
+        project_index["semantic_pipeline_view_path"] = "semantic_pipeline_view.json"
+        _write_json(safe_out / "project_understanding_index.json", project_index)
+        semantic_pipeline_view_status = "ok"
+    except Exception as exc:
+        semantic_pipeline_view_status = "failed"
+        semantic_pipeline_view_error = str(exc)
+        diagnostics.append(
+            {
+                "severity": "warning",
+                "concept": "project",
+                "message": f"Semantic pipeline view generation failed: {exc}",
+                "code": "SEMANTIC_PIPELINE_VIEW_FAILED",
+            }
+        )
+        if metadata.get("status") == "ok":
+            metadata["status"] = "partial"
+
+    metadata["semantic_pipeline_view_status"] = semantic_pipeline_view_status
+    if semantic_pipeline_view_error:
+        metadata["semantic_pipeline_view_error"] = semantic_pipeline_view_error
 
     _write_json(safe_out / "run_metadata.json", metadata)
 
