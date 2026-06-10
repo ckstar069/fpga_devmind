@@ -268,7 +268,7 @@ class TestBuildAgentNavigationIndex:
         assert nav["quality_status"]["golden_spec_used"] is True
         assert nav["quality_status"]["selected_precision_like"] == 1.0
         assert "source_provenance" in nav
-        assert "generated_from" in nav["source_provenance"]
+        assert "summary_generated_from" in nav["source_provenance"]
         assert "generation_timestamp" in nav["source_provenance"]
 
     def test_index_without_optional_artifacts(self, tmp_path):
@@ -313,14 +313,21 @@ T041_BUNDLES = [
 ]
 
 
+def _require_bundle(name, bundle_dir):
+    if not bundle_dir.exists():
+        pytest.skip(f"T041 real bundle '{name}' not found at {bundle_dir}; run generation command first")
+
+
 class TestT041RealBundles:
     @pytest.mark.parametrize("name,bundle_dir", T041_BUNDLES)
     def test_agent_navigation_index_exists(self, name, bundle_dir):
+        _require_bundle(name, bundle_dir)
         nav_path = bundle_dir / "agent_navigation_index.json"
         assert nav_path.exists(), f"{name}: agent_navigation_index.json missing"
 
     @pytest.mark.parametrize("name,bundle_dir", T041_BUNDLES)
     def test_navigation_index_schema(self, name, bundle_dir):
+        _require_bundle(name, bundle_dir)
         nav_path = bundle_dir / "agent_navigation_index.json"
         with open(nav_path) as f:
             nav = json.load(f)
@@ -336,6 +343,7 @@ class TestT041RealBundles:
 
     @pytest.mark.parametrize("name,bundle_dir", T041_BUNDLES)
     def test_entrypoints_have_graph_and_evidence(self, name, bundle_dir):
+        _require_bundle(name, bundle_dir)
         nav_path = bundle_dir / "agent_navigation_index.json"
         with open(nav_path) as f:
             nav = json.load(f)
@@ -346,6 +354,7 @@ class TestT041RealBundles:
 
     @pytest.mark.parametrize("name,bundle_dir", T041_BUNDLES)
     def test_quality_status_has_golden_spec(self, name, bundle_dir):
+        _require_bundle(name, bundle_dir)
         nav_path = bundle_dir / "agent_navigation_index.json"
         with open(nav_path) as f:
             nav = json.load(f)
@@ -360,6 +369,7 @@ class TestT041RealBundles:
     @pytest.mark.parametrize("name,bundle_dir", T041_BUNDLES)
     def test_concept_routes_non_empty(self, name, bundle_dir):
         """Concept routes should be non-empty and have valid structure."""
+        _require_bundle(name, bundle_dir)
         nav_path = bundle_dir / "agent_navigation_index.json"
         with open(nav_path) as f:
             nav = json.load(f)
@@ -377,6 +387,7 @@ class TestT041RealBundles:
     @pytest.mark.parametrize("name,bundle_dir", T041_BUNDLES)
     def test_pipeline_view_has_cross_stage_edges(self, name, bundle_dir):
         """Pipeline view should have cross-stage edges that map to edge routes."""
+        _require_bundle(name, bundle_dir)
         pv_path = bundle_dir / "semantic_pipeline_view.json"
         nav_path = bundle_dir / "agent_navigation_index.json"
         with open(pv_path) as f:
@@ -393,6 +404,7 @@ class TestT041RealBundles:
     @pytest.mark.parametrize("name,bundle_dir", T041_BUNDLES)
     def test_all_edge_routes_have_evidence(self, name, bundle_dir):
         """Edge routes should have evidence_ids and source_files arrays."""
+        _require_bundle(name, bundle_dir)
         nav_path = bundle_dir / "agent_navigation_index.json"
         with open(nav_path) as f:
             nav = json.load(f)
@@ -405,6 +417,7 @@ class TestT041RealBundles:
     @pytest.mark.parametrize("name,bundle_dir", T041_BUNDLES)
     def test_limitations_non_empty(self, name, bundle_dir):
         """Should have at least one limitation documented."""
+        _require_bundle(name, bundle_dir)
         nav_path = bundle_dir / "agent_navigation_index.json"
         with open(nav_path) as f:
             nav = json.load(f)
@@ -413,6 +426,7 @@ class TestT041RealBundles:
     @pytest.mark.parametrize("name,bundle_dir", T041_BUNDLES)
     def test_question_routes_cover_navigation(self, name, bundle_dir):
         """Should have navigation_help intent."""
+        _require_bundle(name, bundle_dir)
         nav_path = bundle_dir / "agent_navigation_index.json"
         with open(nav_path) as f:
             nav = json.load(f)

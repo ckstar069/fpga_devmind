@@ -1059,37 +1059,64 @@ function answerTestCoverage(bundle: ProjectBundle, q: string): AgentAnswer {
 }
 
 function answerPrecisionRecall(bundle: ProjectBundle, q: string): AgentAnswer {
+  // T041: Prefer agent_navigation_index.quality_status over raw discovery_eval_result
+  const nav = bundle.agent_navigation_index;
+  const navQs = nav?.quality_status;
   const evalData = (bundle.discovery_eval_result as any) ?? (bundle.index as any).discovery_eval_result;
-  if (!evalData) {
+
+  if (!navQs && !evalData) {
     return makeAnswer({
       question: q,
-      answer: "当前无 discovery eval 数据。请使用 --golden-spec 运行 auto-trace 以生成精确率/召回率指标。",
+      answer: "当前无 golden spec 评估数据。请使用 --golden-spec 运行 auto-trace 以生成精确率/召回率指标。",
       conclusion: "无评估数据",
       strength: "none",
       limitations_summary: "需要 golden spec 基准。",
     });
   }
 
-  const prec = evalData.selected_precision_like ?? 0;
-  const rec = evalData.selected_recall_like ?? 0;
-  const allPrec = evalData.precision_like ?? 0;
-  const allRec = evalData.recall_like ?? 0;
+  // Use nav quality status when available (T041)
+  const prec = navQs?.selected_precision_like ?? evalData?.selected_precision_like ?? 0;
+  const rec = navQs?.selected_recall_like ?? evalData?.selected_recall_like ?? 0;
+  const goldenUsed = navQs?.golden_spec_used ?? (evalData !== null);
+  const excludedTerms = navQs?.excluded_terms_selected ?? evalData?.excluded_terms_selected ?? [];
+  const matchedCore = navQs?.matched_core_count ?? evalData?.matched_core?.length ?? 0;
+  const missedCore = navQs?.missed_core_count ?? evalData?.missed_core?.length ?? 0;
+  const matchedSecondary = navQs?.matched_secondary_count ?? evalData?.matched_secondary?.length ?? 0;
 
   const precGate = prec >= 0.5 ? "✅ 达标" : "❌ 未达标";
   const recGate = rec >= 0.75 ? "✅ 达标" : "❌ 未达标";
 
-  let answer = `Discovery 评估指标：\n\n` +
-    `**Selected Top ${evalData.max_concepts ?? 12}**\n` +
-    `• 精确率 (selected_precision_like): ${(prec * 100).toFixed(1)}% ${precGate}\n` +
-    `• 召回率 (selected_recall_like): ${(rec * 100).toFixed(1)}% ${recGate}\n\n` +
-    `**全部候选**\n` +
-    `• 精确率 (precision_like): ${(allPrec * 100).toFixed(1)}%\n` +
-    `• 召回率 (recall_like): ${(allRec * 100).toFixed(1)}%\n\n`;
+  const source = navQs ? "agent_navigation_index.json" : "discovery_eval_result.json";
 
-  if (evalData.excluded_terms_selected?.length > 0) {
-    answer += `⚠️ 排除项泄漏：${evalData.excluded_terms_selected.join("、")}\n`;
+  let answer = `Discovery 评估指标（来源: ${source}）：\n\n`;
+
+  if (goldenUsed) {
+    answer += `✅ golden spec 已使用\n\n`;
+  } else {
+    answer += `⚠️ 无 golden spec（基于启发式评估）\n\n`;
   }
-  if (evalData.missed_core?.length > 0) {
+
+  answer += `**Selected Top ${evalData?.max_concepts ?? 12}**\n` +
+    `• 精确率 (precision): ${(prec * 100).toFixed(1)}% ${precGate}\n` +
+    `• 召回率 (recall): ${(rec * 100).toFixed(1)}% ${recGate}\n\n`;
+
+  if (evalData) {
+    const allPrec = evalData.precision_like ?? 0;
+    const allRec = evalData.recall_like ?? 0;
+    answer += `**全部候选**\n` +
+      `• 精确率 (all_precision): ${(allPrec * 100).toFixed(1)}%\n` +
+      `• 召回率 (all_recall): ${(allRec * 100).toFixed(1)}%\n\n`;
+  }
+
+  answer += `**匹配统计**\n` +
+    `• 核心概念匹配: ${matchedCore}\n` +
+    `• 核心概念遗漏: ${missedCore}\n` +
+    `• 次要概念匹配: ${matchedSecondary}\n\n`;
+
+  if (excludedTerms.length > 0) {
+    answer += `⚠️ 排除项泄漏：${excludedTerms.join("、")}\n`;
+  }
+  if (evalData?.missed_core?.length > 0) {
     answer += `❌ 遗漏核心概念：${evalData.missed_core.join("、")}\n`;
   }
 
@@ -1104,9 +1131,9 @@ function answerPrecisionRecall(bundle: ProjectBundle, q: string): AgentAnswer {
       "概念类别分布如何？",
       "测试覆盖分析",
     ],
-    conclusion: `Selected 精确率 ${(prec * 100).toFixed(1)}%，召回率 ${(rec * 100).toFixed(1)}%。`,
+    conclusion: `精确率 ${(prec * 100).toFixed(1)}%，召回率 ${(rec * 100).toFixed(1)}%，核心匹配 ${matchedCore} 个。`,
     strength: prec >= 0.5 && rec >= 0.75 ? "supported" : "mixed",
-    limitations_summary: "指标基于 golden spec 基准比对，反映自动发现的准确性和覆盖度。",
+    limitations_summary: `指标基于 golden spec 基准比对（来源: ${source}），反映自动发现的准确性和覆盖度。`,
   });
 }
 
@@ -1204,8 +1231,12 @@ function answerCategoryDistribution(bundle: ProjectBundle, q: string): AgentAnsw
 }
 
 function answerGoldenMatch(bundle: ProjectBundle, q: string): AgentAnswer {
-  const evalData = (bundle.index as any).discovery_eval_result;
-  if (!evalData) {
+  // T041: Prefer agent_navigation_index.quality_status
+  const nav = bundle.agent_navigation_index;
+  const navQs = nav?.quality_status;
+  const evalData = (bundle.discovery_eval_result as any) ?? (bundle.index as any).discovery_eval_result;
+
+  if (!navQs && !evalData) {
     return makeAnswer({
       question: q,
       answer: "无 golden spec 匹配数据。请使用 --golden-spec 运行 auto-trace。",
@@ -1215,24 +1246,43 @@ function answerGoldenMatch(bundle: ProjectBundle, q: string): AgentAnswer {
     });
   }
 
-  let answer = `Golden Spec 匹配分析：\n\n` +
-    `**基准概念**\n` +
-    `• 核心概念：${evalData.golden_core_count ?? "?"} 个\n` +
-    `• 次要概念：${evalData.golden_secondary_count ?? "?"} 个\n\n`;
+  const source = navQs ? "agent_navigation_index.json" : "discovery_eval_result.json";
+  const goldenUsed = navQs?.golden_spec_used ?? (evalData !== null);
 
-  if (evalData.matched_core?.length > 0) {
+  let answer = `Golden Spec 匹配分析（来源: ${source}）：\n\n`;
+
+  if (goldenUsed) {
+    answer += `✅ golden spec 已使用\n\n`;
+  } else {
+    answer += `⚠️ 无 golden spec\n\n`;
+  }
+
+  answer += `**基准概念**\n` +
+    `• 核心概念：${evalData?.golden_core_count ?? "?"} 个\n` +
+    `• 次要概念：${evalData?.golden_secondary_count ?? "?"} 个\n\n`;
+
+  if (navQs) {
+    answer += `**导航索引匹配统计**\n` +
+      `• 核心概念匹配: ${navQs.matched_core_count}\n` +
+      `• 核心概念遗漏: ${navQs.missed_core_count}\n` +
+      `• 次要概念匹配: ${navQs.matched_secondary_count}\n` +
+      `• 精确率: ${(navQs.selected_precision_like * 100).toFixed(1)}%\n` +
+      `• 召回率: ${(navQs.selected_recall_like * 100).toFixed(1)}%\n\n`;
+  }
+
+  if (evalData?.matched_core?.length > 0) {
     answer += `**匹配的核心概念** (${evalData.matched_core.length}/${evalData.golden_core_count})\n`;
     for (const c of evalData.matched_core) {
       answer += `  ✅ ${c}\n`;
     }
   }
-  if (evalData.missed_core?.length > 0) {
+  if (evalData?.missed_core?.length > 0) {
     answer += `\n**遗漏的核心概念**\n`;
     for (const c of evalData.missed_core) {
       answer += `  ❌ ${c}\n`;
     }
   }
-  if (evalData.matched_secondary?.length > 0) {
+  if (evalData?.matched_secondary?.length > 0) {
     answer += `\n**匹配的次要概念** (${evalData.matched_secondary.length}/${evalData.golden_secondary_count})\n`;
     for (const c of evalData.matched_secondary) {
       answer += `  ✅ ${c}\n`;
@@ -1250,9 +1300,11 @@ function answerGoldenMatch(bundle: ProjectBundle, q: string): AgentAnswer {
       "测试覆盖分析",
       "发现质量如何？",
     ],
-    conclusion: `Golden 匹配：核心 ${evalData.matched_core?.length ?? 0}/${evalData.golden_core_count ?? "?"}，次要 ${evalData.matched_secondary?.length ?? 0}/${evalData.golden_secondary_count ?? "?"}。`,
-    strength: (evalData.missed_core?.length ?? 0) === 0 ? "supported" : "mixed",
-    limitations_summary: "匹配基于名称和别名比对，不涉及语义分析。",
+    conclusion: navQs
+      ? `Golden 匹配: 核心 ${navQs.matched_core_count} 个, 次要 ${navQs.matched_secondary_count} 个, P=${(navQs.selected_precision_like * 100).toFixed(0)}% R=${(navQs.selected_recall_like * 100).toFixed(0)}%。`
+      : `Golden 匹配：核心 ${evalData?.matched_core?.length ?? 0}/${evalData?.golden_core_count ?? "?"}，次要 ${evalData?.matched_secondary?.length ?? 0}/${evalData?.golden_secondary_count ?? "?"}。`,
+    strength: (navQs?.missed_core_count ?? evalData?.missed_core?.length ?? 0) === 0 ? "supported" : "mixed",
+    limitations_summary: `匹配基于名称和别名比对（来源: ${source}），不涉及语义分析。`,
   });
 }
 

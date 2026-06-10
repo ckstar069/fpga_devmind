@@ -313,6 +313,7 @@ def run_p1b_trace_project(
         metadata["semantic_summary_error"] = semantic_summary_error
 
     # T039/T040: Generate and write semantic pipeline view
+    pipeline_view: dict[str, Any] | None = None  # pyright: ignore[reportExplicitAny]
     semantic_pipeline_view_status = "ok"
     semantic_pipeline_view_error = ""
     try:

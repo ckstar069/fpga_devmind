@@ -384,3 +384,161 @@ describe("Agent Q&A", () => {
     expect(answer.conclusion).toBeTruthy();
   });
 });
+
+function makeTestBundleWithNavigation(): ProjectBundle {
+  const base = makeTestBundleWithPipeline();
+  return {
+    ...base,
+    agent_navigation_index: {
+      schema_version: "agent-navigation-index-0.1",
+      project_id: "test_project",
+      entrypoints: [
+        { id: "overview", label: "项目整体理解", artifact: "project_semantic_summary.json", available: true, description: "Top-level purpose, core concepts" },
+        { id: "pipeline", label: "Pipeline / Dataflow", artifact: "semantic_pipeline_view.json", available: true, description: "Stage lanes" },
+        { id: "graph", label: "项目理解图", artifact: "project_understanding_graph.json", available: true, description: "Node graph" },
+        { id: "evidence", label: "证据索引", artifact: "project_understanding_index.json", available: true, description: "Evidence chain" },
+        { id: "quality", label: "质量评估", artifact: "discovery_eval_result.json", available: true, description: "Golden spec metrics" },
+      ],
+      question_routes: [
+        { intent: "navigation_help", patterns: ["从哪里开始", "推荐"], primary_artifacts: ["agent_navigation_index.json"], fallback_artifacts: ["project_semantic_summary.json"] },
+        { intent: "quality_metrics", patterns: ["precision", "recall"], primary_artifacts: ["discovery_eval_result.json"], fallback_artifacts: [] },
+      ],
+      concept_routes: [
+        {
+          concept: "peak_idx",
+          node_id: "C_peak",
+          confidence: "supported",
+          mapping_confidence: "supported",
+          mapping_reason: "Strong structural link",
+          evidence_ids: ["ev1", "ev2"],
+          source_files: ["L5/peak.py", "rtl/peak.v"],
+          known_gaps: [],
+          has_l5_l6: true,
+          has_rtl: true,
+          has_test: false,
+          claims: ["CL_peak"],
+        },
+      ],
+      edge_routes: [
+        {
+          edge_id: "E_peak_CL",
+          edge_type: "has_claim",
+          from_lane: "L6_resource_opt",
+          to_lane: "RTL",
+          from_node_id: "C_peak",
+          to_node_id: "CL_peak",
+          confidence: "supported",
+          reason: "Concept mapping",
+          evidence_ids: ["E_L5_001"],
+          source_files: ["src/L5/test.py"],
+        },
+      ],
+      quality_status: {
+        golden_spec_used: true,
+        selected_precision_like: 0.75,
+        selected_recall_like: 0.80,
+        excluded_terms_selected: ["term1"],
+        matched_core_count: 2,
+        missed_core_count: 1,
+        matched_secondary_count: 1,
+      },
+      limitations: [
+        { category: "coverage_gap", item: "missing_test", reason: "Some concepts lack test evidence" },
+      ],
+      source_provenance: {
+        summary_generated_from: ["project_understanding_graph.json", "project_understanding_index.json"],
+        generation_timestamp: "2024-01-01T00:00:00Z",
+        generator: "fpga_devmind.agent_navigator",
+      },
+    },
+    discovery_eval_result: {
+      project_id: "test_project",
+      golden_core_count: 3,
+      golden_secondary_count: 2,
+      matched_core: ["peak_idx", "cfo"],
+      missed_core: ["sync"],
+      matched_secondary: ["threshold"],
+      unexpected_selected: ["lts"],
+      selected_precision_like: 0.75,
+      selected_recall_like: 0.80,
+      precision_like: 0.60,
+      recall_like: 0.70,
+      excluded_terms_selected: ["term1"],
+      max_concepts: 12,
+    },
+  };
+}
+
+describe("T041 Agent Navigation", () => {
+  it("answers '从哪里开始理解这个项目？'", () => {
+    const bundle = makeTestBundleWithNavigation();
+    const answer = answerQuestion(bundle, "从哪里开始理解这个项目？", null);
+    expect(answer.answer).toContain("test_project");
+    expect(answer.answer).toContain("入口");
+    expect(answer.conclusion).toContain("导航索引");
+    expect(answer.strength).toBe("supported");
+  });
+
+  it("answers '推荐我先看哪些内容？'", () => {
+    const bundle = makeTestBundleWithNavigation();
+    const answer = answerQuestion(bundle, "推荐我先看哪些内容？", null);
+    expect(answer.answer).toContain("入口");
+    expect(answer.conclusion).toBeTruthy();
+    expect(answer.follow_up_questions.length).toBeGreaterThan(0);
+  });
+
+  it("answers '当前 bundle 有没有 golden spec 评估？'", () => {
+    const bundle = makeTestBundleWithNavigation();
+    const answer = answerQuestion(bundle, "当前 bundle 有没有 golden spec 评估？", null);
+    expect(answer.answer).toContain("golden spec 已使用");
+    expect(answer.answer).toContain("agent_navigation_index.json");
+    expect(answer.conclusion).toContain("匹配");
+  });
+
+  it("answers 'precision/recall 是多少？'", () => {
+    const bundle = makeTestBundleWithNavigation();
+    const answer = answerQuestion(bundle, "precision/recall 是多少？", null);
+    expect(answer.answer).toContain("75.0%");
+    expect(answer.answer).toContain("80.0%");
+    expect(answer.answer).toContain("agent_navigation_index.json");
+    expect(answer.conclusion).toContain("精确率");
+    expect(answer.conclusion).toContain("召回率");
+  });
+
+  it("answers '哪些概念可能是噪声？'", () => {
+    const bundle = makeTestBundleWithNavigation();
+    const answer = answerQuestion(bundle, "哪些概念可能是噪声？", null);
+    expect(answer.answer).toContain("term1");
+    expect(answer.conclusion).toBeTruthy();
+  });
+
+  it("answers '解释 peak_idx 的完整证据链'", () => {
+    const bundle = makeTestBundleWithNavigation();
+    const answer = answerQuestion(bundle, "解释 peak_idx 的完整证据链", null);
+    expect(answer.answer).toContain("peak_idx");
+    expect(answer.answer).toContain("证据链");
+    expect(answer.conclusion).toContain("peak_idx");
+  });
+
+  it("answers '下一步我应该点哪里看？'", () => {
+    const bundle = makeTestBundleWithNavigation();
+    const answer = answerQuestion(bundle, "下一步我应该点哪里看？", null);
+    expect(answer.answer).toContain("建议");
+    expect(answer.conclusion).toBeTruthy();
+  });
+
+  it("falls back for old bundle without agent_navigation_index", () => {
+    const bundle = makeTestBundleWithPipeline();
+    const answer = answerQuestion(bundle, "从哪里开始理解这个项目？", null);
+    expect(answer.answer).toContain("test_project");
+    expect(answer.strength).toBe("inferred");
+  });
+
+  it("falls back precision/recall without nav to eval data", () => {
+    const bundle = makeTestBundleWithPipeline();
+    // No agent_navigation_index, but has discovery_eval_result via index
+    const answer = answerQuestion(bundle, "precision/recall 是多少？", null);
+    expect(answer.conclusion).toBe("无评估数据");
+    expect(answer.strength).toBe("none");
+  });
+});

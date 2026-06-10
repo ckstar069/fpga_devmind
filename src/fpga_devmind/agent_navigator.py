@@ -120,7 +120,7 @@ def build_agent_navigation_index(
         "quality_status": quality_status,
         "limitations": limitations,
         "source_provenance": {
-            "generated_from": _collect_source_artifacts(
+            "summary_generated_from": _collect_source_artifacts(
                 semantic_summary, pipeline_view, eval_result
             ),
             "generation_timestamp": time.strftime(
