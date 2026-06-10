@@ -58,27 +58,29 @@ class TestDiscoverConcepts:
                           "errors", "signed", "wire", "main", "init"]:
             assert stop_word not in candidate_names, f"Stop word '{stop_word}' found in candidates"
 
-    def test_high_confidence_cross_stage(self):
-        """High confidence candidates should have cross-stage evidence OR be domain terms."""
+    def test_core_like_candidates_are_high_confidence(self):
+        """Core-like candidates should generally have high or medium confidence."""
         result = discover_concepts(PROJECT_ROOT)
-        high = [c for c in result.candidates if c.confidence == "high"]
-        assert len(high) > 0
-        for c in high:
-            is_domain = c.name.lower() in DOMAIN_TERMS
-            has_cross_stage = len(c.source_sections) >= 2
-            assert is_domain or has_cross_stage, (
-                f"{c.name} has high confidence but only {c.source_sections} and is not a domain term"
+        core_like = [c for c in result.candidates if c.category == "core_like"]
+        assert len(core_like) > 0, "No core_like candidates found"
+        for c in core_like:
+            assert c.confidence in ("high", "medium"), (
+                f"{c.name} is core_like but has {c.confidence} confidence"
             )
 
-    def test_sorted_by_confidence_and_count(self):
-        """Candidates should be sorted: high first, then by occurrence count desc."""
+    def test_sorted_by_category_and_score(self):
+        """Candidates should be sorted: category order, then score desc, then count desc."""
         result = discover_concepts(PROJECT_ROOT)
-        conf_order = {"high": 0, "medium": 1, "low": 2}
+        cat_order = {"core_like": 0, "secondary_like": 1, "parameter_like": 2,
+                     "weak_candidate": 3, "test_artifact": 4, "framework_artifact": 5,
+                     "generic_variable": 6}
         for i in range(len(result.candidates) - 1):
             a, b = result.candidates[i], result.candidates[i + 1]
-            assert conf_order[a.confidence] <= conf_order[b.confidence]
-            if a.confidence == b.confidence:
-                assert a.occurrence_count >= b.occurrence_count
+            ca = cat_order.get(a.category, 7)
+            cb = cat_order.get(b.category, 7)
+            assert ca <= cb, f"{a.name}({a.category}) before {b.name}({b.category}) wrong"
+            if ca == cb:
+                assert a.score_breakdown.total >= b.score_breakdown.total
 
     def test_domain_terms_not_filtered(self):
         """Domain terms like 'metric', 'energy', 'angle' should survive."""

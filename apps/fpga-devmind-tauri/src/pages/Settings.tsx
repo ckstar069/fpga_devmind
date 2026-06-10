@@ -222,6 +222,9 @@ function SettingsPage({ currentBundle, onLoad }: Props) {
           {[
             "/tmp/fpga_devmind/t035_coarse_auto",
             "/tmp/fpga_devmind/t035_fft_auto",
+            "/tmp/fpga_devmind/t037_coarse_auto",
+            "/tmp/fpga_devmind/t037_fine_cfo_auto",
+            "/tmp/fpga_devmind/t037_fft_auto",
             "/tmp/fpga_devmind/t034_project_smoke",
           ].map((p) => (
             <button
@@ -361,6 +364,99 @@ function SettingsPage({ currentBundle, onLoad }: Props) {
         {evalError && (
           <div style={{ fontSize: 12, color: "var(--red)", marginTop: 8, whiteSpace: "pre-wrap" }}>
             {evalError}
+          </div>
+        )}
+      </div>
+
+      {/* Golden Spec Auto Trace (T037) */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-title">Golden Spec Auto Trace (T037)</div>
+        <div style={{ fontSize: 12, color: "var(--text2)", marginBottom: 8 }}>
+          使用 Golden Spec 驱动自动概念发现和 trace，生成带评估指标的 bundle。
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Golden Spec JSON</label>
+          <input
+            className="form-input"
+            value={goldenSpecPath}
+            onChange={(e) => setGoldenSpecPath(e.target.value)}
+            placeholder="/path/to/golden-concepts.json"
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Project</label>
+          <select
+            className="form-input"
+            value={selectedProject}
+            onChange={(e) => setSelectedProject(e.target.value)}
+          >
+            <option value="">-- Select Project --</option>
+            {projects.map((p) => (
+              <option key={p.project_id} value={p.path}>
+                {p.project_id}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Output Directory</label>
+          <input
+            className="form-input"
+            value={outputDir}
+            onChange={(e) => setOutputDir(e.target.value)}
+            placeholder="/tmp/fpga_devmind/t037_auto"
+          />
+        </div>
+
+        <button
+          className="btn btn-primary"
+          disabled={loading || !selectedProject || !goldenSpecPath}
+          onClick={async () => {
+            setLoading(true);
+            setError("");
+            setRunStatus("");
+            const projectName = selectedProject.split("/").pop() ?? "project";
+            const out = outputDir || `/tmp/fpga_devmind/t037_${projectName}`;
+            try {
+              setRunStatus("running golden-spec auto-trace...");
+              await invoke<string>("run_project_trace", {
+                project: selectedProject,
+                concepts: "auto",
+                out,
+                goldenSpec: goldenSpecPath,
+                discoveryMode: "auto",
+                maxConcepts: maxConcepts,
+              });
+              setRunStatus("loading bundle...");
+              await onLoad(out);
+              setRunStatus("done");
+            } catch (e) {
+              setError(String(e));
+              setRunStatus("error");
+            } finally {
+              setLoading(false);
+            }
+          }}
+          style={{ marginTop: 4 }}
+        >
+          {loading && runStatus ? runStatus : "Run Golden Auto Trace"}
+        </button>
+
+        {runStatus && !loading && (
+          <div style={{
+            fontSize: 13,
+            marginTop: 8,
+            color: runStatus === "done" ? "var(--green)" : runStatus === "error" ? "var(--red)" : "var(--text2)",
+          }}>
+            {runStatus === "done" ? "✓ Auto trace with golden spec completed" : runStatus}
+          </div>
+        )}
+        {error && (
+          <div style={{ fontSize: 12, color: "var(--red)", marginTop: 8, whiteSpace: "pre-wrap" }}>
+            {error}
           </div>
         )}
       </div>

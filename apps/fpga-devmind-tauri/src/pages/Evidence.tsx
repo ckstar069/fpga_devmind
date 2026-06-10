@@ -517,6 +517,45 @@ function ConceptChainView({
                     Missing evidence: {ch.chain.missing.join(", ")}
                   </div>
                 )}
+                {/* T037: test_evidence_status V2.1 */}
+                {ch.chain.test_evidence_status && (
+                  <div style={{ fontSize: 10, marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{
+                      display: "inline-block",
+                      padding: "1px 5px",
+                      borderRadius: 3,
+                      fontSize: 9,
+                      fontWeight: 600,
+                      backgroundColor:
+                        ch.chain.test_evidence_status === "test_evidence_found" ? "var(--green)" :
+                        ch.chain.test_evidence_status === "test_files_exist_but_no_alias_match" ? "var(--yellow)" :
+                        ch.chain.test_evidence_status === "test_extraction_not_supported" ? "var(--text2)" :
+                        "var(--red)",
+                      color: ch.chain.test_evidence_status === "test_files_exist_but_no_alias_match" ? "#000" : "#fff",
+                    }}>
+                      {ch.chain.test_evidence_status === "test_evidence_found" ? "Test ✓" :
+                       ch.chain.test_evidence_status === "test_files_exist_but_no_alias_match" ? "Test ◌" :
+                       ch.chain.test_evidence_status === "test_extraction_not_supported" ? "Test —" :
+                       ch.chain.test_evidence_status === "no_test_files" ? "No Tests" :
+                       ch.chain.test_evidence_status}
+                    </span>
+                    {ch.chain.test_files_scanned != null && ch.chain.test_files_scanned > 0 && (
+                      <span style={{ color: "var(--text2)" }}>
+                        scanned {ch.chain.test_files_scanned} file(s)
+                      </span>
+                    )}
+                    {ch.chain.matched_test_symbols && ch.chain.matched_test_symbols.length > 0 && (
+                      <span style={{ color: "var(--green)", fontSize: 9 }}>
+                        matched: {ch.chain.matched_test_symbols.join(", ")}
+                      </span>
+                    )}
+                    {ch.chain.missing_reason && (
+                      <span style={{ color: "var(--text2)", fontStyle: "italic" }}>
+                        {ch.chain.missing_reason}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

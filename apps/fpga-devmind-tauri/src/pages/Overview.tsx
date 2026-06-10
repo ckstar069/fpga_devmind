@@ -241,7 +241,7 @@ function Overview({ summary, bundle, onSelectNode, onNavigateGraph }: Props) {
         );
       })()}
 
-      {/* Discovery Quality (T036) */}
+      {/* Discovery Quality (T036/T037) */}
       {(() => {
         // Extract V2 fields from evidence chain
         const chains = Object.entries(bundle.index.evidence_chain || {});
@@ -253,10 +253,47 @@ function Overview({ summary, bundle, onSelectNode, onNavigateGraph }: Props) {
 
         if (withSelectionReason.length === 0) return null;
 
+        // T037: extract eval metrics from discovery_eval_result
+        const evalData = (bundle.index as any).discovery_eval_result;
+        // T037: test evidence status summary
+        const testStatusCounts: Record<string, number> = {};
+        for (const [_, chain] of chains) {
+          const st = (chain as any).test_evidence_status || "unknown";
+          testStatusCounts[st] = (testStatusCounts[st] || 0) + 1;
+        }
+
         return (
           <div className="card" style={{ borderLeft: "3px solid var(--accent)" }}>
             <div className="card-title">Discovery Quality</div>
             <div style={{ fontSize: 13 }}>
+              {/* T037: Eval metrics summary */}
+              {evalData && (
+                <div style={{ marginBottom: 10, padding: "6px 8px", background: "var(--bg2)", borderRadius: 4 }}>
+                  <strong>Selected Metrics (top {evalData.max_concepts ?? 12})</strong>
+                  <div style={{ marginTop: 4 }}>
+                    Precision: <span style={{ color: evalData.selected_precision_like >= 0.5 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
+                      {((evalData.selected_precision_like ?? 0) * 100).toFixed(1)}%
+                    </span>
+                    {" | "}
+                    Recall: <span style={{ color: evalData.selected_recall_like >= 0.75 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
+                      {((evalData.selected_recall_like ?? 0) * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  {evalData.excluded_terms_selected?.length > 0 && (
+                    <div style={{ color: "var(--red)", marginTop: 2, fontSize: 12 }}>
+                      ⚠ Excluded terms leaked: {evalData.excluded_terms_selected.join(", ")}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* T037: Test evidence status summary */}
+              {Object.keys(testStatusCounts).length > 0 && (
+                <div style={{ marginBottom: 10, fontSize: 12, color: "var(--text2)" }}>
+                  Test Status: {Object.entries(testStatusCounts).map(([st, cnt]) => `${st}: ${cnt}`).join(" | ")}
+                </div>
+              )}
+
               {withSelectionReason.map(([concept, chain]: [string, any]) => (
                 <div key={concept} style={{ marginBottom: 8, padding: "4px 0" }}>
                   <strong>{concept}</strong>

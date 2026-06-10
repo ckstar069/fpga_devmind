@@ -16,6 +16,10 @@ export const SUGGESTED_QUESTIONS = [
   "为什么这些概念被选中？",
   "哪些概念缺少测试证据？",
   "发现质量如何？",
+  "测试覆盖分析",
+  "精确率和召回率是多少？",
+  "哪些高分概念被过滤了？",
+  "概念类别分布如何？",
   "画出项目理解图",
   "解释当前选中节点",
 ];
@@ -148,6 +152,31 @@ export function answerQuestion(
   // T036: "发现质量如何？"
   if (q.includes("发现质量") || (q.includes("发现") && q.includes("质量"))) {
     return answerDiscoveryQuality(bundle, q);
+  }
+
+  // T037: "测试覆盖分析"
+  if (q.includes("测试覆盖") || q.includes("测试分析")) {
+    return answerTestCoverage(bundle, q);
+  }
+
+  // T037: "精确率和召回率"
+  if (q.includes("精确率") || q.includes("召回率") || q.includes("precision") || q.includes("recall")) {
+    return answerPrecisionRecall(bundle, q);
+  }
+
+  // T037: "哪些高分概念被过滤了？"
+  if ((q.includes("过滤") || q.includes("排除")) && (q.includes("概念") || q.includes("高分"))) {
+    return answerFilteredConcepts(bundle, q);
+  }
+
+  // T037: "概念类别分布如何？"
+  if (q.includes("类别分布") || (q.includes("概念") && q.includes("类别"))) {
+    return answerCategoryDistribution(bundle, q);
+  }
+
+  // T037: "golden spec 匹配分析"
+  if (q.includes("golden") || q.includes("基准匹配") || q.includes("标准匹配")) {
+    return answerGoldenMatch(bundle, q);
   }
 
   // Generic concept name matching: if any concept name appears in the question
@@ -853,5 +882,263 @@ function answerDiscoveryQuality(bundle: ProjectBundle, q: string): AgentAnswer {
     conclusion: `发现质量：${concepts.length} 个概念，${supported.length}/${claims.length} supported，${bundle.metadata.evidence_items} 条证据。`,
     strength: supported.length >= concepts.length * 0.7 ? "supported" : "mixed",
     limitations_summary: "质量评估基于静态分析，未经仿真或形式验证确认。",
+  });
+}
+
+/* ================================================================== */
+/*  T037: New Q&A patterns                                             */
+/* ================================================================== */
+
+function answerTestCoverage(bundle: ProjectBundle, q: string): AgentAnswer {
+  const chainData = bundle.index.evidence_chain;
+  if (!chainData || Object.keys(chainData).length === 0) {
+    return makeAnswer({
+      question: q,
+      answer: "当前无 evidence chain 数据，无法分析测试覆盖。请运行 auto-trace 生成完整 bundle。",
+      conclusion: "无数据",
+      strength: "none",
+      limitations_summary: "需要运行带 discovery 的 auto-trace。",
+    });
+  }
+
+  const entries = Object.entries(chainData);
+  const statusGroups: Record<string, string[]> = {};
+  for (const [concept, chain] of entries) {
+    const status = (chain as any).test_evidence_status || "unknown";
+    if (!statusGroups[status]) statusGroups[status] = [];
+    statusGroups[status].push(concept);
+  }
+
+  const statusLabels: Record<string, string> = {
+    test_evidence_found: "已找到测试证据",
+    test_extraction_not_supported: "测试提取未覆盖",
+    test_files_exist_but_no_alias_match: "测试文件存在但无匹配",
+    no_test_files: "无测试文件",
+  };
+
+  let answer = `测试覆盖分析（共 ${entries.length} 个概念）：\n\n`;
+  for (const [status, concepts] of Object.entries(statusGroups)) {
+    const label = statusLabels[status] || status;
+    answer += `• ${label} (${concepts.length})：${concepts.slice(0, 6).join("、")}${concepts.length > 6 ? " ..." : ""}\n`;
+  }
+
+  const noExtraction = statusGroups["test_extraction_not_supported"]?.length ?? 0;
+  if (noExtraction > 0) {
+    answer += `\n注：${noExtraction} 个概念的测试提取尚未支持。概念 trace 目前仅扫描 L5/L6/RTL，` +
+      `测试文件通过 discovery pipeline 发现但不纳入 trace evidence。`;
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些概念缺少测试证据？",
+      "发现质量如何？",
+      "精确率和召回率是多少？",
+    ],
+    conclusion: `测试覆盖：${noExtraction} 个概念测试提取未覆盖，${statusGroups["test_evidence_found"]?.length ?? 0} 个已找到测试证据。`,
+    strength: noExtraction === 0 ? "supported" : "mixed",
+    limitations_summary: "测试覆盖分析基于 evidence chain 的 test_evidence_status 字段。",
+  });
+}
+
+function answerPrecisionRecall(bundle: ProjectBundle, q: string): AgentAnswer {
+  const evalData = (bundle.index as any).discovery_eval_result;
+  if (!evalData) {
+    return makeAnswer({
+      question: q,
+      answer: "当前无 discovery eval 数据。请使用 --golden-spec 运行 auto-trace 以生成精确率/召回率指标。",
+      conclusion: "无评估数据",
+      strength: "none",
+      limitations_summary: "需要 golden spec 基准。",
+    });
+  }
+
+  const prec = evalData.selected_precision_like ?? 0;
+  const rec = evalData.selected_recall_like ?? 0;
+  const allPrec = evalData.precision_like ?? 0;
+  const allRec = evalData.recall_like ?? 0;
+
+  const precGate = prec >= 0.5 ? "✅ 达标" : "❌ 未达标";
+  const recGate = rec >= 0.75 ? "✅ 达标" : "❌ 未达标";
+
+  let answer = `Discovery 评估指标：\n\n` +
+    `**Selected Top ${evalData.max_concepts ?? 12}**\n` +
+    `• 精确率 (selected_precision_like): ${(prec * 100).toFixed(1)}% ${precGate}\n` +
+    `• 召回率 (selected_recall_like): ${(rec * 100).toFixed(1)}% ${recGate}\n\n` +
+    `**全部候选**\n` +
+    `• 精确率 (precision_like): ${(allPrec * 100).toFixed(1)}%\n` +
+    `• 召回率 (recall_like): ${(allRec * 100).toFixed(1)}%\n\n`;
+
+  if (evalData.excluded_terms_selected?.length > 0) {
+    answer += `⚠️ 排除项泄漏：${evalData.excluded_terms_selected.join("、")}\n`;
+  }
+  if (evalData.missed_core?.length > 0) {
+    answer += `❌ 遗漏核心概念：${evalData.missed_core.join("、")}\n`;
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些高分概念被过滤了？",
+      "概念类别分布如何？",
+      "测试覆盖分析",
+    ],
+    conclusion: `Selected 精确率 ${(prec * 100).toFixed(1)}%，召回率 ${(rec * 100).toFixed(1)}%。`,
+    strength: prec >= 0.5 && rec >= 0.75 ? "supported" : "mixed",
+    limitations_summary: "指标基于 golden spec 基准比对，反映自动发现的准确性和覆盖度。",
+  });
+}
+
+function answerFilteredConcepts(bundle: ProjectBundle, q: string): AgentAnswer {
+  const evalData = (bundle.index as any).discovery_eval_result;
+  if (!evalData?.rejected_top_terms?.length) {
+    return makeAnswer({
+      question: q,
+      answer: "无被过滤的高分概念数据，或所有高分概念均被选中。",
+      conclusion: "无过滤数据",
+      strength: "supported",
+      limitations_summary: "需要 golden spec eval 数据。",
+    });
+  }
+
+  let answer = `被过滤的高分概念（共 ${evalData.rejected_top_terms.length} 个）：\n\n`;
+  for (const r of evalData.rejected_top_terms.slice(0, 10)) {
+    answer += `• ${r.name}（score=${r.score}，类别=${r.category}）：${r.reason}\n`;
+  }
+
+  answer += `\n这些概念因类别不在 core_like/secondary_like 而被过滤，不影响 auto-trace 选择。`;
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "概念类别分布如何？",
+      "精确率和召回率是多少？",
+      "发现质量如何？",
+    ],
+    conclusion: `${evalData.rejected_top_terms.length} 个高分概念因类别被过滤。`,
+    strength: "supported",
+    limitations_summary: "过滤基于概念类别规则，确保 auto-trace 选取最有意义的概念。",
+  });
+}
+
+function answerCategoryDistribution(bundle: ProjectBundle, q: string): AgentAnswer {
+  const candidates = (bundle.index as any).concept_candidates;
+  if (!candidates?.length) {
+    return makeAnswer({
+      question: q,
+      answer: "无 concept candidates 数据。请运行 auto-discovery 生成候选列表。",
+      conclusion: "无候选数据",
+      strength: "none",
+      limitations_summary: "需要 discovery 数据。",
+    });
+  }
+
+  const catGroups: Record<string, number> = {};
+  for (const c of candidates) {
+    const cat = c.category || "unknown";
+    catGroups[cat] = (catGroups[cat] || 0) + 1;
+  }
+
+  const catOrder = ["core_like", "secondary_like", "parameter_like", "weak_candidate", "test_artifact", "framework_artifact", "generic_variable"];
+  const catLabels: Record<string, string> = {
+    core_like: "核心概念",
+    secondary_like: "次要概念",
+    parameter_like: "参数型",
+    weak_candidate: "弱候选",
+    test_artifact: "测试产物",
+    framework_artifact: "框架产物",
+    generic_variable: "通用变量",
+  };
+
+  let answer = `概念类别分布（共 ${candidates.length} 个候选）：\n\n`;
+  for (const cat of catOrder) {
+    if (catGroups[cat]) {
+      const bar = "█".repeat(Math.round(catGroups[cat] / candidates.length * 20));
+      answer += `• ${catLabels[cat] || cat}: ${catGroups[cat]} ${bar}\n`;
+    }
+  }
+
+  const selectable = (catGroups["core_like"] ?? 0) + (catGroups["secondary_like"] ?? 0);
+  answer += `\n可选概念（core_like + secondary_like）：${selectable} 个`;
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些高分概念被过滤了？",
+      "精确率和召回率是多少？",
+      "为什么这些概念被选中？",
+    ],
+    conclusion: `类别分布：${selectable} 个可选，${candidates.length - selectable} 个被过滤。`,
+    strength: "supported",
+    limitations_summary: "类别由 V2.1 分类规则自动判定。",
+  });
+}
+
+function answerGoldenMatch(bundle: ProjectBundle, q: string): AgentAnswer {
+  const evalData = (bundle.index as any).discovery_eval_result;
+  if (!evalData) {
+    return makeAnswer({
+      question: q,
+      answer: "无 golden spec 匹配数据。请使用 --golden-spec 运行 auto-trace。",
+      conclusion: "无 golden 数据",
+      strength: "none",
+      limitations_summary: "需要 golden spec 基准。",
+    });
+  }
+
+  let answer = `Golden Spec 匹配分析：\n\n` +
+    `**基准概念**\n` +
+    `• 核心概念：${evalData.golden_core_count ?? "?"} 个\n` +
+    `• 次要概念：${evalData.golden_secondary_count ?? "?"} 个\n\n`;
+
+  if (evalData.matched_core?.length > 0) {
+    answer += `**匹配的核心概念** (${evalData.matched_core.length}/${evalData.golden_core_count})\n`;
+    for (const c of evalData.matched_core) {
+      answer += `  ✅ ${c}\n`;
+    }
+  }
+  if (evalData.missed_core?.length > 0) {
+    answer += `\n**遗漏的核心概念**\n`;
+    for (const c of evalData.missed_core) {
+      answer += `  ❌ ${c}\n`;
+    }
+  }
+  if (evalData.matched_secondary?.length > 0) {
+    answer += `\n**匹配的次要概念** (${evalData.matched_secondary.length}/${evalData.golden_secondary_count})\n`;
+    for (const c of evalData.matched_secondary) {
+      answer += `  ✅ ${c}\n`;
+    }
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "精确率和召回率是多少？",
+      "测试覆盖分析",
+      "发现质量如何？",
+    ],
+    conclusion: `Golden 匹配：核心 ${evalData.matched_core?.length ?? 0}/${evalData.golden_core_count ?? "?"}，次要 ${evalData.matched_secondary?.length ?? 0}/${evalData.golden_secondary_count ?? "?"}。`,
+    strength: (evalData.missed_core?.length ?? 0) === 0 ? "supported" : "mixed",
+    limitations_summary: "匹配基于名称和别名比对，不涉及语义分析。",
   });
 }

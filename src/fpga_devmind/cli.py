@@ -87,6 +87,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated concept names, or 'auto' for auto-discovery (T035)",
     )
     p1b_project.add_argument("--out", type=Path, required=True)
+    p1b_project.add_argument(
+        "--golden-spec", type=Path, default=None,
+        help="Golden benchmark spec for guided auto-trace (T037)",
+    )
+    p1b_project.add_argument(
+        "--discovery-mode", default="auto",
+        choices=["auto", "conservative", "balanced", "broad"],
+        help="Discovery mode for auto-trace (default: auto)",
+    )
+    p1b_project.add_argument(
+        "--max-concepts", type=int, default=12,
+        help="Max concepts for auto-discovery (default: 12)",
+    )
 
     p1b_discover = sub.add_parser(
         "p1b-discover-concepts",
@@ -221,7 +234,12 @@ def main(argv: list[str] | None = None) -> int:
 
         concepts = [c.strip() for c in args.concepts.split(",") if c.strip()]
         try:
-            metadata = _run_project(args.project, concepts, args.out)
+            metadata = _run_project(
+                args.project, concepts, args.out,
+                golden_spec=args.golden_spec,
+                discovery_mode=args.discovery_mode,
+                max_concepts=args.max_concepts,
+            )
         except ValueError as exc:
             parser.error(str(exc))
             return 2
@@ -232,6 +250,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Failed: {', '.join(metadata['concepts_failed'])}")
         print(f"Mapping claims: {metadata['mapping_claims']}")
         print(f"Evidence items: {metadata['evidence_items']}")
+        if metadata.get("discovery_used"):
+            print(f"Discovery: {metadata.get('discovered_count', '?')} found, {len(metadata['concepts_processed'])} selected")
+            if metadata.get("golden_spec_used"):
+                em = metadata.get("eval_metrics", {})
+                prec = em.get("selected_precision_like", 0)
+                rec = em.get("selected_recall_like", 0)
+                print(f"Eval: precision={prec:.1%}  recall={rec:.1%}")
         print(f"Elapsed: {metadata['elapsed_seconds']}s")
         return 1 if metadata["status"] == "partial" else 0
     if args.command == "p1b-discover-concepts":

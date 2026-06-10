@@ -52,6 +52,21 @@ GENERIC_STOP_WORDS: frozenset[str] = frozenset({
     "n_fft", "q_z",
     # T036 gate #4 additions
     "expected", "actual", "results", "model",
+    # T037: test infrastructure / generic noise
+    "driver", "monitor", "complex", "real", "float", "short", "full",
+    "load", "send", "round", "delay", "frame", "window", "total", "point",
+    "push", "split", "final", "last",
+    # T037: test quality attribute names (from TestXxxCorrectness etc.)
+    "correctness", "functional", "intrinsic", "properties",
+    "boundary", "conditions", "consistency", "cross",
+    "numerical", "stability", "validation", "contracts",
+    "generation", "detection", "integration",
+    # T037: generic implementation verbs / adjectives
+    "finalize", "resolved", "position",
+    # T037: generic fixed-point parameters
+    "frac_bits", "int_bits",
+    # T037: generic implementation nouns
+    "pipeline",
 })
 
 DOMAIN_TERMS: frozenset[str] = frozenset({
@@ -68,12 +83,22 @@ DOMAIN_TERMS: frozenset[str] = frozenset({
     "conjugate", "multiply", "accumulate", "mac",
     "mapper", "demapper", "encoder", "decoder",
     "scrambler", "descrambler", "interleaver",
+    "lts", "sts", "fpd", "butterfly", "twiddle",
+    "radix", "nfft", "scaling",
 })
 
 _COMPOUND_GENERIC = frozenset({
     "fixed", "stage", "pipeline", "fixedpoint", "fixedp", "module",
     "component", "entity", "block", "unit", "handler", "manager",
     "wrapper", "impl", "base", "abstract", "top", "tb",
+})
+
+# Short domain terms that are too generic as standalone concepts;
+# they need compound forms to be useful (e.g., smooth_detect not just detect)
+_COMPOUND_STANDALONE_GENERIC: frozenset[str] = frozenset({
+    "detect", "noise", "metric", "pipeline", "preamble",
+    "streaming", "coarse", "fine", "channel", "filter",
+    "resource", "performance", "latency", "throughput",
 })
 _RE_CAMEL = re.compile(r"([A-Z]{2,}[0-9]*|[A-Z][a-z0-9]*)")
 _RE_MODULE = re.compile(r"^\s*module\s+(\w+)")
@@ -87,6 +112,7 @@ class ScoreBreakdown:
     cross_stage_bonus: int = 0
     key_position_bonus: int = 0
     domain_term_bonus: int = 0
+    short_domain_bonus: int = 0
     test_presence_bonus: int = 0
     occurrence_score: int = 0
     alias_group_bonus: int = 0
@@ -108,6 +134,7 @@ class ConceptCandidate:
     score_breakdown: ScoreBreakdown = field(default_factory=ScoreBreakdown)
     selection_reason: str = ""
     compound_source: str = ""
+    category: str = "weak_candidate"  # core_like, secondary_like, parameter_like, test_artifact, framework_artifact, generic_variable, weak_candidate
 
 
 @dataclass
@@ -149,8 +176,9 @@ def discover_concepts(project_root: Path, mode: str = "balanced") -> DiscoveryRe
     # Phase 4: alias aggregation
     groups = _build_alias_groups(filt)
 
-    # Phase 5: build candidates
-    for canonical, members in groups.items():
+    # Phase 5: build candidates with canonical preference and category
+    for root, members in groups.items():
+        canonical = _pick_canonical(members)
         merged_sec: dict[str, int] = {}
         merged_files: set[str] = set()
         total = 0
@@ -180,7 +208,6 @@ def discover_concepts(project_root: Path, mode: str = "balanced") -> DiscoveryRe
         conf = "high" if sb.total >= 50 else "medium" if sb.total >= 25 else "low"
         if canonical.lower() in DOMAIN_TERMS and conf == "low":
             conf = "medium"
-            # Boost score to at least the medium threshold so mode filter doesn't drop it
             if sb.total < 25:
                 sb.domain_term_bonus += (25 - sb.total)
                 sb.total = 25
@@ -189,22 +216,49 @@ def discover_concepts(project_root: Path, mode: str = "balanced") -> DiscoveryRe
         stage = "cross_stage" if has_l5l6 and has_rtl else (
             "RTL" if has_rtl else (
                 "L5" if "L5_fixedpoint" in sec_set else "L6") if has_l5l6 else (
-                "test" if "tests" in sec_set else "unknown"))
+            "test" if "tests" in sec_set else "unknown"))
         role = _role(canonical, secs, roles)
         sel = _sel_reason(canonical, secs, total, aliases, compound_src, sb, role)
+        category = _classify_category(canonical, secs, roles, aliases, sb, compound_src)
 
         result.candidates.append(ConceptCandidate(
             name=canonical, source_sections=secs, occurrence_count=total,
             confidence=conf, reason=reason, representative_files=files,
             likely_stage=stage, aliases=aliases, semantic_role=role,
-            score_breakdown=sb, selection_reason=sel, compound_source=compound_src))
+            score_breakdown=sb, selection_reason=sel, compound_source=compound_src,
+            category=category))
 
-    # Phase 6: mode filter + sort
+    # Phase 6: mode filter + category-aware sort
     thresh = {"conservative": 50, "balanced": 25, "broad": 0}.get(mode, 25)
     result.candidates = [c for c in result.candidates if c.score_breakdown.total >= thresh]
-    co = {"high": 0, "medium": 1, "low": 2}
-    result.candidates.sort(key=lambda c: (co.get(c.confidence, 3), -c.occurrence_count))
+    cat_order = {
+        "core_like": 0, "secondary_like": 1, "parameter_like": 2,
+        "weak_candidate": 3, "test_artifact": 4, "framework_artifact": 5,
+        "generic_variable": 6,
+    }
+    result.candidates.sort(key=lambda c: (
+        cat_order.get(c.category, 7),
+        -c.score_breakdown.total,
+        -c.occurrence_count,
+    ))
     return result
+
+
+SELECTABLE_CATEGORIES: frozenset[str] = frozenset({"core_like", "secondary_like"})
+
+
+def select_for_trace(result: DiscoveryResult, max_n: int = 12) -> list[ConceptCandidate]:
+    """Select the best top N concepts for auto-trace.
+
+    Only selects core_like and secondary_like concepts.
+    Falls back to high-scoring parameter_like if not enough core/secondary.
+    """
+    selectable = [c for c in result.candidates if c.category in SELECTABLE_CATEGORIES]
+    if len(selectable) < max_n:
+        fallback = [c for c in result.candidates
+                    if c.category == "parameter_like" and c.score_breakdown.total >= 30]
+        selectable.extend(fallback)
+    return selectable[:max_n]
 
 
 def _extract_compounds(smap: dict[str, dict[str, Any]]) -> None:
@@ -330,6 +384,30 @@ def _are_aliases(a: str, b: str) -> bool:
     return False
 
 
+def _pick_canonical(members: list[str]) -> str:
+    """Pick the best canonical name from alias group members.
+
+    Prefers concise compound domain names over long RTL signal names.
+    Penalises RTL register/wire suffixes (_r, _w, _v, _q, _n, _s),
+    overly long names (>18 chars), and names with too many parts (>2 underscores).
+    """
+    if len(members) <= 1:
+        return members[0] if members else ""
+
+    def _cscore(m: str) -> tuple[int, int]:
+        rtl = -5 if re.match(r".*_[rwvqns]$", m) else 0
+        long_penalty = -3 if len(m) > 18 else 0
+        parts_penalty = -1 if m.count("_") > 2 else 0
+        domain = 3 if m in DOMAIN_TERMS else 0
+        has_domain_part = 2 if "_" in m and any(
+            p in DOMAIN_TERMS for p in m.split("_") if len(p) >= 3
+        ) else 0
+        compound = 1 if "_" in m else 0
+        return (domain + has_domain_part + compound + rtl + long_penalty + parts_penalty, -len(m))
+
+    return max(members, key=_cscore)
+
+
 def _score(name: str, secs: list[str], total: int,
            aliases: list[str], roles: dict[str, int], csrc: str) -> ScoreBreakdown:
     ss = set(secs)
@@ -340,6 +418,8 @@ def _score(name: str, secs: list[str], total: int,
         sb.key_position_bonus = 15
     if name.lower() in DOMAIN_TERMS:
         sb.domain_term_bonus = 10
+        if len(name) <= 4:
+            sb.short_domain_bonus = 10
     if "tests" in ss:
         sb.test_presence_bonus = 5
     sb.occurrence_score = min(20, total * 2)
@@ -348,7 +428,8 @@ def _score(name: str, secs: list[str], total: int,
     if re.match(r"^(top|tb_|test_|src|lib|pkg|utils|helper|common|shared|core|base|main)", name):
         sb.generic_penalty = -30
     sb.total = (sb.cross_stage_bonus + sb.key_position_bonus + sb.domain_term_bonus
-                + sb.test_presence_bonus + sb.occurrence_score + sb.alias_group_bonus + sb.generic_penalty)
+                + sb.short_domain_bonus + sb.test_presence_bonus + sb.occurrence_score
+                + sb.alias_group_bonus + sb.generic_penalty)
     return sb
 
 
@@ -371,6 +452,67 @@ def _role(name: str, secs: list[str], roles: dict[str, int]) -> str:
         if roles.get(tag, 0) > 0:
             return tag
     return "unknown"
+
+
+def _classify_category(name: str, secs: list[str], roles: dict[str, int],
+                       aliases: list[str], sb: ScoreBreakdown,
+                       compound_source: str) -> str:
+    """Classify a concept candidate into a category for selection filtering."""
+    ss = set(secs)
+    has_l5l6 = bool({"L5_fixedpoint", "L6_resource_opt"} & ss)
+    has_rtl = "RTL" in ss
+
+    # test_artifact: only in tests, test-prefixed
+    if ss == {"tests"} and re.search(r"(^test_|testl\d)", name, re.IGNORECASE):
+        return "test_artifact"
+
+    # framework_artifact: config/fixture/driver patterns
+    if re.search(r"(config|fixture|conftest|conftest)", name, re.IGNORECASE):
+        return "framework_artifact"
+
+    # generic_variable: in stop words or very short non-domain
+    if name in GENERIC_STOP_WORDS:
+        return "generic_variable"
+    if len(name) <= 3 and name not in DOMAIN_TERMS:
+        return "generic_variable"
+
+    # Single-letter prefix test variables (x_recon, s_valid, etc.)
+    if re.match(r"^[a-z]_[a-z]", name) and name not in DOMAIN_TERMS:
+        return "generic_variable"
+
+    # RTL register/wire suffix (_r, _w, _v, _q, _n, _s) → generic_variable unless domain term
+    if re.match(r".*_[rwvqns]$", name) and name not in DOMAIN_TERMS:
+        return "generic_variable"
+
+    # parameter_like: implementation parameters (n_xxx, q_xxx, etc.)
+    if re.match(r"^(n_|num_|log2_|inv_|ref_|pre_|post_|max_|min_)", name) and name not in DOMAIN_TERMS:
+        return "parameter_like"
+
+    # Standalone generic domain terms: need compound form to be useful
+    if name in _COMPOUND_STANDALONE_GENERIC and "_" not in name:
+        if has_l5l6 and has_rtl:
+            return "secondary_like"  # cross-stage redeems it
+        return "weak_candidate"
+
+    # core_like: cross-stage evidence, compound from class, or high score
+    if has_l5l6 and has_rtl:
+        return "core_like"
+    if compound_source and sb.total >= 30:
+        return "core_like"
+    if sb.total >= 50 and (has_l5l6 or has_rtl):
+        return "core_like"
+
+    # secondary_like: domain term, multi-section, or has aliases
+    if name in DOMAIN_TERMS:
+        return "secondary_like"
+    if aliases and len(secs) >= 2:
+        return "secondary_like"
+    if has_l5l6 or has_rtl:
+        return "secondary_like"
+    if sb.total >= 35:
+        return "secondary_like"
+
+    return "weak_candidate"
 
 
 def _sel_reason(name: str, secs: list[str], total: int, aliases: list[str],

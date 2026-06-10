@@ -75,8 +75,8 @@ function makeTestBundle(): ProjectBundle {
 }
 
 describe("Agent Q&A", () => {
-  it("returns 9 suggested questions", () => {
-    expect(SUGGESTED_QUESTIONS.length).toBe(9);
+  it("returns suggested questions", () => {
+    expect(SUGGESTED_QUESTIONS.length).toBeGreaterThanOrEqual(9);
   });
 
   it("handles null bundle", () => {

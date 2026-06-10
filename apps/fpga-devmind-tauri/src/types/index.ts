@@ -233,6 +233,11 @@ export interface EvidenceChain {
   selection_reason?: string;
   confidence_explanation?: string;
   why_core_or_secondary?: string;
+  // V2.1 fields (T037)
+  test_evidence_status?: string;
+  test_files_scanned?: number;
+  matched_test_symbols?: string[];
+  missing_reason?: string;
 }
 
 export interface EvidenceChainItem {

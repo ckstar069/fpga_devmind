@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import tempfile
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,9 @@ def run_p1b_trace_project(
     project_root: Path,
     concepts: list[str],
     out_dir: Path,
+    golden_spec: Path | None = None,
+    discovery_mode: str = "auto",
+    max_concepts: int = 12,
 ) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
     """Run project-level concept trace for multiple concepts.
 
@@ -46,8 +50,16 @@ def run_p1b_trace_project(
         Root directory of the target FPGA project.
     concepts : list[str]
         List of concept names to trace (e.g. ``["peak_idx", "cfo"]``).
+        Use ``["auto"]`` for auto-discovery.
     out_dir : Path
         Output directory for project artifacts (must be a safe temp path).
+    golden_spec : Path | None
+        Optional golden benchmark spec for guided auto-trace (T037).
+        When provided with auto-discovery, prioritizes golden-matched concepts.
+    discovery_mode : str
+        Discovery mode: "auto" (default), "conservative", "balanced", "broad".
+    max_concepts : int
+        Maximum number of concepts to select for auto-trace (default 12).
 
     Returns
     -------
@@ -64,20 +76,66 @@ def run_p1b_trace_project(
 
     # --- Auto-discovery (T035) ---
     discovery_metadata: dict[str, Any] = {}
+    eval_result_dict: dict[str, Any] | None = None
     if len(concepts) == 1 and concepts[0] == "auto":
-        from .p1b_discovery import discover_concepts
+        from .p1b_discovery import discover_concepts, select_for_trace
 
         discovery_result = discover_concepts(project_root)
-        discovered = [c.name for c in discovery_result.candidates]
-        max_concepts = 12  # default
-        concepts = discovered[:max_concepts]
+
+        # When golden-spec provided, use select_for_trace and eval
+        if golden_spec and golden_spec.is_file():
+            from .discovery_eval import evaluate_discovery, generate_eval_report
+
+            selected = select_for_trace(discovery_result, max_n=max_concepts)
+            concepts = [c.name for c in selected]
+
+            # Run evaluation for metrics
+            eval_result = evaluate_discovery(project_root, golden_spec, max_concepts=max_concepts)
+            eval_result_dict = eval_result.to_dict()
+
+            # Write eval artifacts
+            safe_out = ensure_safe_output_dir(out_dir, label="project trace output")
+            safe_out.mkdir(parents=True, exist_ok=True)
+            eval_json = safe_out / "discovery_eval_result.json"
+            eval_json.write_text(
+                json.dumps(eval_result_dict, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            eval_report = safe_out / "discovery_eval_report.md"
+            eval_report.write_text(
+                generate_eval_report(eval_result) + "\n",
+                encoding="utf-8",
+            )
+
+            # Write concept candidates
+            candidates_json = safe_out / "concept_candidates.json"
+            candidates_json.write_text(
+                json.dumps(
+                    [asdict(c) for c in discovery_result.candidates[:30]],
+                    indent=2, ensure_ascii=False,
+                ) + "\n",
+                encoding="utf-8",
+            )
+        else:
+            # Standard auto-discovery without golden spec
+            discovered = [c.name for c in discovery_result.candidates]
+            selected = select_for_trace(discovery_result, max_n=max_concepts)
+            concepts = [c.name for c in selected]
+
         discovery_metadata = {
             "discovery_used": True,
-            "discovered_count": len(discovered),
-            "discovered_concepts": discovered,
+            "discovery_mode": discovery_mode,
+            "discovered_count": len(discovery_result.candidates),
+            "discovered_concepts": [c.name for c in discovery_result.candidates],
             "selected_concepts": concepts,
-            "skipped_count": max(0, len(discovered) - max_concepts),
+            "skipped_count": max(0, len(discovery_result.candidates) - max_concepts),
+            "golden_spec_used": golden_spec is not None and golden_spec.is_file(),
         }
+        if eval_result_dict:
+            discovery_metadata["eval_metrics"] = {
+                "selected_precision_like": eval_result_dict.get("selected_precision_like"),
+                "selected_recall_like": eval_result_dict.get("selected_recall_like"),
+            }
         if not concepts:
             raise ValueError("Auto-discovery found no concept candidates.")
     else:
@@ -484,6 +542,11 @@ def _build_project_index(
 
     # Build evidence chains per concept (T035)
     evidence_chain: dict[str, dict[str, Any]] = {}
+    # Check if project has test files at all (for V2.1 status classification)
+    project_test_dir = project_root / "tests"
+    project_has_tests = project_test_dir.is_dir() and any(
+        f.suffix in (".py", ".v", ".sv") for f in project_test_dir.rglob("*") if f.is_file()
+    )
     for result in results:
         concept = result.concept
         graph = result.graph
@@ -496,7 +559,15 @@ def _build_project_index(
             "rtl_evidence": [],
             "test_evidence": [],
             "missing": [],
+            # V2.1: test evidence status fields (T037)
+            "test_evidence_status": "no_test_files",
+            "test_files_scanned": 0,
+            "matched_test_symbols": [],
+            "missing_reason": "",
         }
+
+        test_file_count = 0
+        matched_symbols: list[str] = []
 
         for ei in graph.get("evidence_items", []):
             entry = {
@@ -509,9 +580,31 @@ def _build_project_index(
             if "L5_fixedpoint" in fp or "L6_resource_opt" in fp:
                 chain["l5_l6_evidence"].append(entry)
             elif "test" in fp.lower():
+                test_file_count += 1
+                sym = ei.get("symbol", "")
+                if sym and sym.lower() != concept.lower() and concept.lower() in sym.lower():
+                    matched_symbols.append(sym)
+                elif sym and concept.lower() == sym.lower():
+                    matched_symbols.append(sym)
                 chain["test_evidence"].append(entry)
             else:
                 chain["rtl_evidence"].append(entry)
+
+        # V2.1: classify test evidence status
+        chain["test_files_scanned"] = test_file_count
+        chain["matched_test_symbols"] = matched_symbols[:10]
+        if test_file_count > 0 and matched_symbols:
+            chain["test_evidence_status"] = "test_evidence_found"
+            chain["missing_reason"] = ""
+        elif project_has_tests and test_file_count == 0:
+            chain["test_evidence_status"] = "test_extraction_not_supported"
+            chain["missing_reason"] = "Project has test files but concept trace does not scan tests"
+        elif test_file_count > 0 and not matched_symbols:
+            chain["test_evidence_status"] = "test_files_exist_but_no_alias_match"
+            chain["missing_reason"] = "Test files exist but no symbol matching concept found"
+        else:
+            chain["test_evidence_status"] = "no_test_files"
+            chain["missing_reason"] = "No test files found for this concept"
 
         for claim in graph.get("mapping_claims", []):
             chain["claims"].append({
