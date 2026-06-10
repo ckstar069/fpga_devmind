@@ -94,3 +94,38 @@ export function buildNotConfiguredResult(requestId: string): RealProviderInvocat
     "Provider not configured. Please enter endpoint URL, model name, and API key in the T047 panel."
   );
 }
+
+const UI_ERROR_PREVIEW_MAX_CHARS = 1000;
+
+/** Redact a frontend error preview to ensure no API key or sensitive data leaks.
+ *
+ *  Covers: sk-, ghp_, xoxb-, Bearer, Authorization, api_key, token, password
+ */
+export function redactUiErrorPreview(err: unknown): string {
+  let raw = String(err);
+
+  // Redact after known secret prefixes / patterns
+  const patterns = [
+    /sk-[a-zA-Z0-9_-]{10,}/g,
+    /ghp_[a-zA-Z0-9]{10,}/g,
+    /github_pat_[a-zA-Z0-9_]{20,}/g,
+    /xoxb-[a-zA-Z0-9]{10,}/g,
+    /Bearer\s+[a-zA-Z0-9_\-\.]{10,}/g,
+    /Authorization:\s*\S+/g,
+    /api_key=\S+/g,
+    /apiKey=\S+/g,
+    /token=\S+/g,
+    /password=\S+/g,
+  ];
+
+  for (const re of patterns) {
+    raw = raw.replace(re, "***REDACTED***");
+  }
+
+  // Length cap
+  if (raw.length > UI_ERROR_PREVIEW_MAX_CHARS) {
+    raw = raw.slice(0, UI_ERROR_PREVIEW_MAX_CHARS) + "...(truncated)";
+  }
+
+  return raw;
+}

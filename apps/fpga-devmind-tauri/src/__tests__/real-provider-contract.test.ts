@@ -4,6 +4,7 @@ import {
   buildRealProviderInvocationRequest,
   buildBlockedRealProviderResult,
   buildNotConfiguredResult,
+  redactUiErrorPreview,
 } from "../agent/realProviderContract";
 import { buildExternalRequestPackage } from "../agent/externalRequestPackage";
 import type { ProjectBundle } from "../types";
@@ -171,5 +172,66 @@ describe("T047 Real Provider Contract", () => {
   it("result created_at is valid ISO string", () => {
     const result = buildBlockedRealProviderResult("req-test", "Error");
     expect(new Date(result.created_at).toISOString()).toBe(result.created_at);
+  });
+
+  it("redactUiErrorPreview removes sk- prefix", () => {
+    const input = "Error: invalid key sk-abc123def456";
+    const result = redactUiErrorPreview(new Error(input));
+    expect(result).not.toContain("sk-abc123def456");
+    expect(result).toContain("REDACTED");
+  });
+
+  it("redactUiErrorPreview removes ghp_ token", () => {
+    const input = "Error: token is ghp_abcdef1234567890";
+    const result = redactUiErrorPreview(input);
+    expect(result).not.toContain("ghp_abcdef1234567890");
+    expect(result).toContain("REDACTED");
+  });
+
+  it("redactUiErrorPreview removes xoxb- token", () => {
+    const input = "Error: xoxb-token1234567890abcdef";
+    const result = redactUiErrorPreview(input);
+    expect(result).not.toContain("xoxb-token1234567890abcdef");
+    expect(result).toContain("REDACTED");
+  });
+
+  it("redactUiErrorPreview removes Bearer token", () => {
+    const input = "Authorization: Bearer abc-secret-token-123";
+    const result = redactUiErrorPreview(input);
+    expect(result).not.toContain("abc-secret-token-123");
+    expect(result).toContain("REDACTED");
+  });
+
+  it("redactUiErrorPreview removes api_key parameter", () => {
+    const input = "body contains api_key=sk-live-12345";
+    const result = redactUiErrorPreview(input);
+    expect(result).not.toContain("sk-live-12345");
+    expect(result).toContain("REDACTED");
+  });
+
+  it("redactUiErrorPreview removes token parameter", () => {
+    const input = "query: token=my-secret-value";
+    const result = redactUiErrorPreview(input);
+    expect(result).not.toContain("my-secret-value");
+    expect(result).toContain("REDACTED");
+  });
+
+  it("redactUiErrorPreview removes password parameter", () => {
+    const input = "form: password=hunter2isbad";
+    const result = redactUiErrorPreview(input);
+    expect(result).not.toContain("hunter2isbad");
+    expect(result).toContain("REDACTED");
+  });
+
+  it("redactUiErrorPreview caps length", () => {
+    const longError = "a".repeat(2000);
+    const result = redactUiErrorPreview(longError);
+    expect(result.length).toBeLessThanOrEqual(1020); // 1000 + "...(truncated)"
+    expect(result).toContain("...(truncated)");
+  });
+
+  it("redactUiErrorPreview handles unknown error type", () => {
+    const result = redactUiErrorPreview({ some: "object" });
+    expect(typeof result).toBe("string");
   });
 });

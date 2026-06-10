@@ -109,6 +109,7 @@ export interface RealSendGateDecision {
   request_id: string;
   checked_at: string;
   conditions_met: {
+    provider_allowed: boolean;
     session_configured: boolean;
     key_present: boolean;
     endpoint_https: boolean;
@@ -132,6 +133,7 @@ export interface RealSendGateDecision {
 export function evaluateRealSendGate(input: RealSendGateInput): RealSendGateDecision {
   const now = new Date().toISOString();
   const conditions = {
+    provider_allowed: input.provider_id === "openai_compatible_ephemeral",
     session_configured: input.session?.configured === true,
     key_present: input.session?.key_present === true,
     endpoint_https: input.endpoint_url.trim().startsWith("https://"),
@@ -140,6 +142,7 @@ export function evaluateRealSendGate(input: RealSendGateInput): RealSendGateDeci
   };
 
   const allMet =
+    conditions.provider_allowed &&
     conditions.session_configured &&
     conditions.key_present &&
     conditions.endpoint_https &&
@@ -152,7 +155,7 @@ export function evaluateRealSendGate(input: RealSendGateInput): RealSendGateDeci
       allowed: true,
       reason:
         "T047 real send gate: all conditions met. " +
-        "Session configured, key present, HTTPS endpoint, approved, user consent given. " +
+        "Provider is openai_compatible_ephemeral, session configured, key present, HTTPS endpoint, approved, user consent given. " +
         "Network call will proceed via Tauri backend command.",
       network_allowed: true,
       external_calls_allowed: true,
@@ -165,6 +168,7 @@ export function evaluateRealSendGate(input: RealSendGateInput): RealSendGateDeci
 
   // Build reason listing which conditions failed
   const failures: string[] = [];
+  if (!conditions.provider_allowed) failures.push("provider is not openai_compatible_ephemeral");
   if (!conditions.session_configured) failures.push("session not configured");
   if (!conditions.key_present) failures.push("API key not present");
   if (!conditions.endpoint_https) failures.push("endpoint is not HTTPS");

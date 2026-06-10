@@ -135,6 +135,41 @@ npm run build
 # → success (tsc + vite build clean)
 ```
 
+## T047.1 Security Hardening (PR #4 patch)
+
+### Rust Backend
+- **`build_provider_error_preview()`**: Non-2xx responses no longer return raw provider body. Error preview is redacted then truncated to 500 chars max.
+- **Enhanced `redact_error()`**: Covers sk-/sk_live_/sk_test_/ghp_/github_pat_/xoxb-/Bearer/Authorization/api_key=/apiKey=/token=/password=/JWT eyJ... patterns. Falls back to blanket redaction if any suspicious pattern remains.
+- **Char-safe `truncate_chars()`**: Uses Unicode char iteration instead of byte slicing — safe for Chinese text and emoji. Max 4000 chars for answer preview, 1000 chars for error preview.
+- **Backend pre-flight gate `validate_backend_gate()`**: Receives `provider_id`, `approval_state`, `send_allowed_by_user` as Tauri command params. Blocks before network if: provider_id != "openai_compatible_ephemeral", approval_state != "approved_but_blocked", send_allowed_by_user == false, or api_key is empty.
+- **Endpoint hardening**: `validate_endpoint_url()` uses `url::Url` parsing. Rejects private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 0.0.0.0), localhost, ::1. Rejects query params containing api_key/key/token/password/secret.
+- **`blocked_before_network()`**: Unified helper for gate/endpoint failures — returns safe result with redacted error, never calls reqwest.
+
+### TypeScript Frontend
+- **`provider_allowed` condition**: `evaluateRealSendGate()` now has 6 conditions (was 5). `provider_id` must be exactly `"openai_compatible_ephemeral"`.
+- **UI consent fix**: `evaluateT047SendGate(session, sendAllowedByUser)` — session config and panel open pass `false`. Only the "确认发送一次" button handler passes `true` after confirmation dialog. The consent condition shows ✗ until user explicitly confirms.
+- **`redactUiErrorPreview()`**: Frontend catch block uses this instead of `String(err)`. Covers sk-/ghp_/xoxb-/Bearer/Authorization/api_key=/apiKey=/token=/password= with 1000-char cap.
+
+### Verification (T047.1)
+
+```bash
+# TypeScript tests
+cd apps/fpga-devmind-tauri
+npm test -- --run
+# → 289 tests passed (17 test files)
+
+# Rust tests
+cd src-tauri
+cargo test
+# → 47 tests passed (12 artifact_loader + 35 provider_runtime)
+
+cargo check
+# → clean
+
+npm run build
+# → clean (tsc + vite)
+```
+
 ## Limitations
 
 - T047 only supports single-shot send (non-streaming).

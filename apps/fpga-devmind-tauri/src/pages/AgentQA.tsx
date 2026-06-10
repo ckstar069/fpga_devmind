@@ -21,6 +21,7 @@ import {
   evaluateRealSendGate,
   buildRealProviderAuditSummary,
   appendRealProviderAudit,
+  redactUiErrorPreview,
 } from "../agent";
 import type { AgentRunResult, AgentProviderKind } from "../agent";
 import type { ExternalRequestPlan, ExternalRequestPackage, ApprovalDecision } from "../agent";
@@ -361,8 +362,8 @@ function AgentQAResultCard({
         model_name: t047ModelName,
       });
       setT047Session(session);
-      // Evaluate send gate immediately after config
-      evaluateT047SendGate(session);
+      // Evaluate send gate immediately after config (consent=false)
+      evaluateT047SendGate(session, false);
     }
   };
 
@@ -374,14 +375,14 @@ function AgentQAResultCard({
     setT047ShowConfirm(false);
   };
 
-  const evaluateT047SendGate = (session: EphemeralProviderSessionState) => {
+  const evaluateT047SendGate = (session: EphemeralProviderSessionState, sendAllowedByUser: boolean) => {
     const pkg = buildExternalRequestPackage(bundle, a.question, selectedNodeId);
     const decision = approveExternalRequest(pkg);
     const gate = evaluateRealSendGate({
       provider_id: "openai_compatible_ephemeral",
       request_id: pkg.request_id,
       approval_state: decision.state,
-      send_allowed_by_user: true,
+      send_allowed_by_user: sendAllowedByUser,
       session,
       endpoint_url: t047EndpointUrl,
     });
@@ -389,7 +390,37 @@ function AgentQAResultCard({
   };
 
   const handleT047RealSend = async () => {
-    if (!t047SendGate?.allowed) return;
+    // Re-evaluate gate with explicit consent=true before sending
+    evaluateT047SendGate(t047Session, true);
+
+    // Check gate again — must be allowed after consent
+    const currentGate = evaluateRealSendGate({
+      provider_id: "openai_compatible_ephemeral",
+      request_id: "req-t047-" + Date.now(),
+      approval_state: "approved_but_blocked",
+      send_allowed_by_user: true,
+      session: t047Session,
+      endpoint_url: t047EndpointUrl,
+    });
+
+    if (!currentGate.allowed) {
+      setT047RealResult({
+        schema_version: "real-provider-contract-0.1",
+        request_id: currentGate.request_id,
+        provider_id: "openai_compatible_ephemeral",
+        sent: false,
+        blocked: true,
+        status: "blocked",
+        answer_text_preview: "",
+        error_preview: currentGate.reason,
+        raw_response_stored: false,
+        audit_redacted: true,
+        created_at: new Date().toISOString(),
+      });
+      setT047ShowConfirm(false);
+      return;
+    }
+
     setT047Loading(true);
     setT047ShowConfirm(false);
 
@@ -404,7 +435,7 @@ function AgentQAResultCard({
       const userPrompt =
         pkg.request_plan.hypothetical_request_preview.user_prompt_preview;
 
-      // Invoke Tauri backend command
+      // Invoke Tauri backend command with secondary gate params
       const result: RealProviderInvocationResult = await (window as any).__TAURI__.core.invoke(
         "invoke_openai_compatible_ephemeral",
         {
@@ -414,6 +445,9 @@ function AgentQAResultCard({
           system_prompt: systemPrompt,
           user_prompt: userPrompt,
           request_id: pkg.request_id,
+          provider_id: "openai_compatible_ephemeral",
+          approval_state: "approved_but_blocked",
+          send_allowed_by_user: true,
         }
       );
 
@@ -440,7 +474,7 @@ function AgentQAResultCard({
         blocked: true,
         status: "network_error",
         answer_text_preview: "",
-        error_preview: String(err),
+        error_preview: redactUiErrorPreview(err),
         raw_response_stored: false,
         audit_redacted: true,
         created_at: new Date().toISOString(),
@@ -454,7 +488,7 @@ function AgentQAResultCard({
     if (!showT047Adapter) {
       // Evaluate gate on first open if session exists
       if (t047Session.configured) {
-        evaluateT047SendGate(t047Session);
+        evaluateT047SendGate(t047Session, false);
       }
     }
     setShowT047Adapter((s) => !s);
@@ -1047,7 +1081,8 @@ function AgentQAResultCard({
               </div>
               <div style={{ color: "var(--text2)", marginTop: 2 }}>{t047SendGate.reason}</div>
               <div style={{ marginTop: 4, fontSize: 10 }}>
-                Conditions: session={t047SendGate.conditions_met.session_configured ? "✓" : "✗"} |{" "}
+                Conditions: provider={t047SendGate.conditions_met.provider_allowed ? "✓" : "✗"} |{" "}
+                session={t047SendGate.conditions_met.session_configured ? "✓" : "✗"} |{" "}
                 key={t047SendGate.conditions_met.key_present ? "✓" : "✗"} |{" "}
                 https={t047SendGate.conditions_met.endpoint_https ? "✓" : "✗"} |{" "}
                 approval={t047SendGate.conditions_met.approval_adequate ? "✓" : "✗"} |{" "}
@@ -1093,7 +1128,7 @@ function AgentQAResultCard({
                 className="btn btn-primary"
                 style={{ fontSize: 10, padding: "2px 8px" }}
                 onClick={() => {
-                  evaluateT047SendGate(t047Session);
+                  evaluateT047SendGate(t047Session, false);
                   setT047ShowConfirm(true);
                 }}
                 disabled={t047Loading}

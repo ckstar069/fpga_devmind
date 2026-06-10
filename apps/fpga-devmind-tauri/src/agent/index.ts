@@ -144,6 +144,7 @@ export {
   buildRealProviderInvocationRequest,
   buildBlockedRealProviderResult,
   buildNotConfiguredResult,
+  redactUiErrorPreview,
 } from "./realProviderContract";
 
 export type { RealProviderAuditSummary } from "./realProviderAudit";
