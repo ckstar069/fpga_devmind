@@ -1,4 +1,5 @@
 mod artifact_loader;
+mod provider_runtime;
 
 use artifact_loader::{self as loader};
 use std::sync::Mutex;
@@ -298,6 +299,7 @@ pub fn run() {
             run_concept_discovery,
             read_file_content,
             evaluate_discovery,
+            provider_runtime::invoke_openai_compatible_ephemeral,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

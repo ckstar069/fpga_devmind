@@ -14,10 +14,22 @@ import {
   getSelectableExternalProviderIds,
   getExternalProviderDescriptor,
   executeExternalProviderPipeline,
+  createEmptyEphemeralProviderSession,
+  createEphemeralProviderSession,
+  clearEphemeralProviderSession,
+  touchEphemeralProviderSession,
+  evaluateRealSendGate,
+  buildRealProviderAuditSummary,
+  appendRealProviderAudit,
 } from "../agent";
 import type { AgentRunResult, AgentProviderKind } from "../agent";
 import type { ExternalRequestPlan, ExternalRequestPackage, ApprovalDecision } from "../agent";
 import type { ExternalExecutionResult, ExternalProviderId, ExternalTransportKind } from "../agent";
+import type {
+  EphemeralProviderSessionState,
+  RealProviderInvocationResult,
+  RealSendGateDecision,
+} from "../agent";
 
 interface Props {
   bundle: ProjectBundle | null;
@@ -276,6 +288,19 @@ function AgentQAResultCard({
   const [t046ProviderId, setT046ProviderId] = useState<ExternalProviderId>("mock_external_llm");
   const [t046TransportKind, setT046TransportKind] = useState<ExternalTransportKind>("mock");
 
+  // T047: Ephemeral real provider adapter
+  const [showT047Adapter, setShowT047Adapter] = useState(false);
+  const [t047Session, setT047Session] = useState<EphemeralProviderSessionState>(
+    createEmptyEphemeralProviderSession()
+  );
+  const [t047EndpointUrl, setT047EndpointUrl] = useState("");
+  const [t047ModelName, setT047ModelName] = useState("gpt-4o-mini");
+  const [t047ApiKey, setT047ApiKey] = useState("");
+  const [t047SendGate, setT047SendGate] = useState<RealSendGateDecision | null>(null);
+  const [t047RealResult, setT047RealResult] = useState<RealProviderInvocationResult | null>(null);
+  const [t047ShowConfirm, setT047ShowConfirm] = useState(false);
+  const [t047Loading, setT047Loading] = useState(false);
+
   const handleShowContextPreview = () => {
     if (!showContextPreview) {
       // Build dry-run plan on first open
@@ -325,6 +350,114 @@ function AgentQAResultCard({
       runT046Execution("preview_only");
     }
     setShowT046Execution((s) => !s);
+  };
+
+  // T047: Ephemeral provider handlers
+  const handleConfigureT047Session = () => {
+    if (t047ApiKey.trim() && t047EndpointUrl.trim()) {
+      const session = createEphemeralProviderSession({
+        api_key: t047ApiKey,
+        endpoint_url: t047EndpointUrl,
+        model_name: t047ModelName,
+      });
+      setT047Session(session);
+      // Evaluate send gate immediately after config
+      evaluateT047SendGate(session);
+    }
+  };
+
+  const handleClearT047Session = () => {
+    setT047Session(clearEphemeralProviderSession(t047Session));
+    setT047ApiKey("");
+    setT047SendGate(null);
+    setT047RealResult(null);
+    setT047ShowConfirm(false);
+  };
+
+  const evaluateT047SendGate = (session: EphemeralProviderSessionState) => {
+    const pkg = buildExternalRequestPackage(bundle, a.question, selectedNodeId);
+    const decision = approveExternalRequest(pkg);
+    const gate = evaluateRealSendGate({
+      provider_id: "openai_compatible_ephemeral",
+      request_id: pkg.request_id,
+      approval_state: decision.state,
+      send_allowed_by_user: true,
+      session,
+      endpoint_url: t047EndpointUrl,
+    });
+    setT047SendGate(gate);
+  };
+
+  const handleT047RealSend = async () => {
+    if (!t047SendGate?.allowed) return;
+    setT047Loading(true);
+    setT047ShowConfirm(false);
+
+    try {
+      const pkg = buildExternalRequestPackage(bundle, a.question, selectedNodeId);
+      const touchedSession = touchEphemeralProviderSession(t047Session);
+      setT047Session(touchedSession);
+
+      // Extract prompt previews from request package
+      const systemPrompt =
+        pkg.request_plan.hypothetical_request_preview.system_prompt_preview;
+      const userPrompt =
+        pkg.request_plan.hypothetical_request_preview.user_prompt_preview;
+
+      // Invoke Tauri backend command
+      const result: RealProviderInvocationResult = await (window as any).__TAURI__.core.invoke(
+        "invoke_openai_compatible_ephemeral",
+        {
+          endpoint_url: t047EndpointUrl,
+          model_name: t047ModelName,
+          api_key: t047ApiKey,
+          system_prompt: systemPrompt,
+          user_prompt: userPrompt,
+          request_id: pkg.request_id,
+        }
+      );
+
+      setT047RealResult(result);
+
+      // Record redacted audit
+      const audit = buildRealProviderAuditSummary(
+        pkg.request_id,
+        "openai_compatible_ephemeral",
+        t047ModelName,
+        t047Session.endpoint_origin_preview,
+        t047Session.key_fingerprint,
+        result.sent,
+        result.status,
+        result.answer_text_preview
+      );
+      appendRealProviderAudit(audit);
+    } catch (err: any) {
+      setT047RealResult({
+        schema_version: "real-provider-contract-0.1",
+        request_id: "req-error",
+        provider_id: "openai_compatible_ephemeral",
+        sent: false,
+        blocked: true,
+        status: "network_error",
+        answer_text_preview: "",
+        error_preview: String(err),
+        raw_response_stored: false,
+        audit_redacted: true,
+        created_at: new Date().toISOString(),
+      } as RealProviderInvocationResult);
+    } finally {
+      setT047Loading(false);
+    }
+  };
+
+  const handleShowT047Adapter = () => {
+    if (!showT047Adapter) {
+      // Evaluate gate on first open if session exists
+      if (t047Session.configured) {
+        evaluateT047SendGate(t047Session);
+      }
+    }
+    setShowT047Adapter((s) => !s);
   };
 
   return (
@@ -391,6 +524,13 @@ function AgentQAResultCard({
           onClick={handleShowT046Execution}
         >
           {showT046Execution ? "隐藏 T046 执行" : "T046 执行管线"}
+        </button>
+        <button
+          className="btn btn-secondary"
+          style={{ fontSize: 10, padding: "2px 8px" }}
+          onClick={handleShowT047Adapter}
+        >
+          {showT047Adapter ? "隐藏 T047 真实 Provider" : "T047 真实 Provider"}
         </button>
       </div>
 
@@ -798,6 +938,212 @@ function AgentQAResultCard({
             >
               Deny
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* T047: Ephemeral Real Provider Adapter */}
+      {showT047Adapter && (
+        <div
+          className="card"
+          style={{
+            marginTop: 10,
+            padding: 10,
+            background: "rgba(0,0,0,0.2)",
+            fontSize: 11,
+          }}
+        >
+          <div style={{ fontWeight: "bold", marginBottom: 6, fontSize: 12 }}>
+            T047 真实 Provider 适配器（Ephemeral）
+          </div>
+
+          {/* Safety banner */}
+          <div style={{ color: "var(--red)", marginBottom: 6, fontWeight: "bold" }}>
+            ⚠️ 真实网络请求 — 仅用于明确了解风险的用户
+          </div>
+          <div style={{ color: "var(--text2)", marginBottom: 6, fontSize: 10 }}>
+            API key 仅在内存中存在，不会写入磁盘、localStorage 或任何日志
+          </div>
+          <div style={{ color: "var(--text2)", marginBottom: 6, fontSize: 10 }}>
+            Raw key 永远不会写入项目文件或审计日志
+          </div>
+
+          {/* Session configuration */}
+          {!t047Session.configured ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: "bold", marginBottom: 4 }}>配置 Ephemeral Session:</div>
+              <div style={{ marginBottom: 4 }}>
+                <label style={{ display: "block", fontSize: 10, marginBottom: 2 }}>Endpoint URL (HTTPS only):</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ fontSize: 11, padding: "3px 6px", width: "100%" }}
+                  placeholder="https://api.openai.com/v1/chat/completions"
+                  value={t047EndpointUrl}
+                  onChange={(e) => setT047EndpointUrl(e.target.value)}
+                />
+              </div>
+              <div style={{ marginBottom: 4 }}>
+                <label style={{ display: "block", fontSize: 10, marginBottom: 2 }}>Model name:</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ fontSize: 11, padding: "3px 6px", width: "100%" }}
+                  placeholder="gpt-4o-mini"
+                  value={t047ModelName}
+                  onChange={(e) => setT047ModelName(e.target.value)}
+                />
+              </div>
+              <div style={{ marginBottom: 6 }}>
+                <label style={{ display: "block", fontSize: 10, marginBottom: 2 }}>API Key (仅内存，不保存):</label>
+                <input
+                  type="password"
+                  className="form-input"
+                  style={{ fontSize: 11, padding: "3px 6px", width: "100%" }}
+                  placeholder="sk-..."
+                  value={t047ApiKey}
+                  onChange={(e) => setT047ApiKey(e.target.value)}
+                />
+              </div>
+              <button
+                className="btn btn-primary"
+                style={{ fontSize: 10, padding: "2px 8px" }}
+                onClick={handleConfigureT047Session}
+                disabled={!t047EndpointUrl.trim() || !t047ApiKey.trim()}
+              >
+                配置 Session
+              </button>
+            </div>
+          ) : (
+            <div style={{ marginBottom: 8, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 4 }}>
+              <div style={{ fontWeight: "bold", marginBottom: 2 }}>Session Status:</div>
+              <div>Provider: {t047Session.provider_id}</div>
+              <div>Model: {t047Session.model_name}</div>
+              <div>Endpoint: {t047Session.endpoint_origin_preview}</div>
+              <div>Key fingerprint: {t047Session.key_fingerprint}</div>
+              <div>Storage: <strong>{t047Session.storage}</strong></div>
+              <div>Configured: {t047Session.configured ? "Yes" : "No"}</div>
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: 10, padding: "2px 8px", marginTop: 6 }}
+                onClick={handleClearT047Session}
+              >
+                清除 Session
+              </button>
+            </div>
+          )}
+
+          {/* Real send gate */}
+          {t047SendGate && (
+            <div style={{ marginBottom: 8, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 4 }}>
+              <div style={{ fontWeight: "bold", marginBottom: 2 }}>
+                Real Send Gate ({t047SendGate.schema_version}):
+              </div>
+              <div>
+                Allowed:{" "}
+                <strong style={{ color: t047SendGate.allowed ? "var(--green)" : "var(--red)" }}>
+                  {t047SendGate.allowed ? "Yes" : "No"}
+                </strong>
+              </div>
+              <div style={{ color: "var(--text2)", marginTop: 2 }}>{t047SendGate.reason}</div>
+              <div style={{ marginTop: 4, fontSize: 10 }}>
+                Conditions: session={t047SendGate.conditions_met.session_configured ? "✓" : "✗"} |{" "}
+                key={t047SendGate.conditions_met.key_present ? "✓" : "✗"} |{" "}
+                https={t047SendGate.conditions_met.endpoint_https ? "✓" : "✗"} |{" "}
+                approval={t047SendGate.conditions_met.approval_adequate ? "✓" : "✗"} |{" "}
+                consent={t047SendGate.conditions_met.user_explicit_consent ? "✓" : "✗"}
+              </div>
+            </div>
+          )}
+
+          {/* Confirmation dialog */}
+          {t047ShowConfirm && (
+            <div style={{ marginBottom: 8, padding: 6, background: "rgba(255,0,0,0.1)", borderRadius: 4, border: "1px solid var(--red)" }}>
+              <div style={{ fontWeight: "bold", color: "var(--red)", marginBottom: 4 }}>
+                确认真实发送
+              </div>
+              <div style={{ marginBottom: 6 }}>
+                我了解这将使用我的临时 API key 发起真实外部网络请求。
+                此操作不可撤销，可能产生费用。
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="btn btn-primary"
+                  style={{ fontSize: 10, padding: "2px 8px" }}
+                  onClick={handleT047RealSend}
+                  disabled={t047Loading}
+                >
+                  {t047Loading ? "发送中..." : "确认发送一次"}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: 10, padding: "2px 8px" }}
+                  onClick={() => setT047ShowConfirm(false)}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Real send button */}
+          {!t047ShowConfirm && t047Session.configured && (
+            <div style={{ marginBottom: 8 }}>
+              <button
+                className="btn btn-primary"
+                style={{ fontSize: 10, padding: "2px 8px" }}
+                onClick={() => {
+                  evaluateT047SendGate(t047Session);
+                  setT047ShowConfirm(true);
+                }}
+                disabled={t047Loading}
+              >
+                {t047Loading ? "发送中..." : "发起真实发送"}
+              </button>
+            </div>
+          )}
+
+          {/* Real result */}
+          {t047RealResult && (
+            <div style={{ marginBottom: 8, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 4 }}>
+              <div style={{ fontWeight: "bold", marginBottom: 4 }}>
+                Provider Result ({t047RealResult.schema_version}):
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <span>Sent: <strong>{t047RealResult.sent ? "Yes" : "No"}</strong></span>
+                <span>Blocked: <strong>{t047RealResult.blocked ? "Yes" : "No"}</strong></span>
+                <span>Status: <strong>{t047RealResult.status}</strong></span>
+              </div>
+              {t047RealResult.answer_text_preview && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ fontWeight: "bold", marginBottom: 2 }}>Answer Preview:</div>
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: 6,
+                      background: "rgba(0,0,0,0.3)",
+                      borderRadius: 4,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      fontSize: 10,
+                    }}
+                  >
+                    {t047RealResult.answer_text_preview}
+                  </pre>
+                </div>
+              )}
+              {t047RealResult.error_preview && (
+                <div style={{ marginTop: 6, color: "var(--red)" }}>
+                  <span style={{ fontWeight: "bold" }}>Error:</span> {t047RealResult.error_preview}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Limitations */}
+          <div style={{ color: "var(--yellow)", fontSize: 10 }}>
+            <span style={{ fontWeight: "bold" }}>Limitations:</span>{" "}
+            T047 只支持单次发送，不支持 streaming。默认仍使用 mock/blocked transport。
           </div>
         </div>
       )}
