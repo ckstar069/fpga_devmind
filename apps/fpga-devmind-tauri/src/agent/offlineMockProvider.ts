@@ -4,7 +4,7 @@
 /*  No network, no API key, no external LLM calls                     */
 /* ------------------------------------------------------------------ */
 
-import type { AgentProvider, AgentRunRequest, AgentRunResult, AgentTraceStep } from "./providers";
+import type { AgentProvider, AgentRunRequest, AgentRunResult, AgentTraceStep, AgentRunPolicyResult, AgentRunAuditEvent } from "./providers";
 import type { AgentAnswer } from "../types";
 import { generateTraceId, collectArtifactsUsed, PROVIDER_CAPABILITIES } from "./providers";
 import { SUGGESTED_QUESTIONS } from "../utils/agent";
@@ -79,7 +79,21 @@ export const offlineMockProvider: AgentProvider = {
       generated_at: new Date(startTime).toISOString(),
     };
 
-    return {
+    const policy_result: AgentRunPolicyResult = {
+      allowed: true,
+      provider_kind: "offline_mock",
+      reason: "Offline Mock provider 仅读取本地 artifacts，不调用外部 API，允许运行",
+      network_allowed: false,
+      requires_api_key: false,
+      external_calls_allowed: false,
+      secret_storage_allowed: false,
+      policy_version: "t043.0",
+      limitations: [
+        "Offline Mock 回答由预定义模板和本地数据拼接生成，不执行语义推理",
+      ],
+    };
+
+    const base: Omit<AgentRunResult, "policy_result" | "audit_event"> = {
       answer,
       provider: "offline_mock",
       trace,
@@ -88,6 +102,23 @@ export const offlineMockProvider: AgentProvider = {
       limitations: trace.limitations,
       external_calls_made: false,
     };
+
+    const audit_event: AgentRunAuditEvent = {
+      event_id: `audit-${Date.now()}-${Math.floor(Math.random() * 10000).toString(16).padStart(4, "0")}`,
+      timestamp: new Date().toISOString(),
+      provider_kind: "offline_mock",
+      question_preview: question.length <= 80 ? question : question.slice(0, 77) + "...",
+      policy_allowed: policy_result.allowed,
+      policy_reason: policy_result.reason,
+      external_calls_made: false,
+      network_allowed: false,
+      artifacts_used: artifactsUsed,
+      trace_id: trace.trace_id,
+      limitations: [...base.limitations, ...policy_result.limitations],
+      policy_version: policy_result.policy_version,
+    };
+
+    return { ...base, policy_result, audit_event };
   },
 };
 

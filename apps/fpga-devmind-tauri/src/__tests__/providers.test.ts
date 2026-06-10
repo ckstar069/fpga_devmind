@@ -343,7 +343,7 @@ describe("T042 Provider Boundary", () => {
       expect(result.external_calls_made).toBe(false);
     });
 
-    it("falls back to deterministic for unknown provider", () => {
+    it("policy denies unknown provider and returns external_disabled", () => {
       const bundle = makeTestBundle();
       const result = runAgent({
         question: "test",
@@ -351,8 +351,12 @@ describe("T042 Provider Boundary", () => {
         bundle,
         providerKind: "unknown" as any,
       });
-      expect(result.provider).toBe("deterministic");
+      // T043: unknown provider is denied by policy → external_disabledProvider result
+      expect(result.provider).toBe("external_disabled");
       expect(result.external_calls_made).toBe(false);
+      expect(result.policy_result.allowed).toBe(false);
+      expect(result.policy_result.provider_kind).toBe("external_disabled");
+      expect(result.audit_event.policy_allowed).toBe(false);
     });
   });
 });

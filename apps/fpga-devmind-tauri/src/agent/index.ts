@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  T042: Agent Provider Boundary — entry point                       */
+/*  T042/T043: Agent Provider Boundary — entry point                  */
 /* ------------------------------------------------------------------ */
 
 export type {
@@ -10,6 +10,8 @@ export type {
   AgentRunTrace,
   AgentTraceStep,
   AgentProvider,
+  AgentRunPolicyResult,
+  AgentRunAuditEvent,
 } from "./providers";
 
 export {
@@ -22,22 +24,87 @@ export { deterministicProvider } from "./deterministicProvider";
 export { offlineMockProvider } from "./offlineMockProvider";
 export { externalDisabledProvider } from "./externalDisabledProvider";
 
+// T043 policy + audit
+export type {
+  ProviderPolicyInput,
+  ProviderPolicyResult,
+} from "./policy";
+
+export {
+  PROVIDER_POLICY_VERSION,
+  evaluateProviderPolicy,
+  isExternalCallsAllowed,
+  isProviderAllowed,
+} from "./policy";
+
+export type { ProviderRunAuditEvent } from "./audit";
+
+export {
+  buildProviderRunAuditEvent,
+  buildQuestionPreview,
+  appendAuditEvent,
+  getAuditEvents,
+  getRecentAuditEvents,
+  getAuditStats,
+  clearAuditLog,
+} from "./audit";
+
+// T043 config
+export type { ProviderConfig } from "./config";
+
+export {
+  DEFAULT_PROVIDER_CONFIGS,
+  FORBIDDEN_CONFIG_FIELDS,
+  validateProviderConfig,
+  containsSecretKeys,
+} from "./config";
+
 import type { AgentRunRequest, AgentRunResult, AgentProviderKind } from "./providers";
 import { deterministicProvider } from "./deterministicProvider";
 import { offlineMockProvider } from "./offlineMockProvider";
 import { externalDisabledProvider } from "./externalDisabledProvider";
+import { evaluateProviderPolicy } from "./policy";
+import { buildProviderRunAuditEvent, appendAuditEvent } from "./audit";
 
-/** Dispatch request to the appropriate provider */
+/** Dispatch request to the appropriate provider with policy gating (T043) */
 export function runAgent(request: AgentRunRequest): AgentRunResult {
-  switch (request.providerKind) {
-    case "offline_mock":
-      return offlineMockProvider.run(request);
-    case "external_disabled":
-      return externalDisabledProvider.run(request);
-    case "deterministic":
-    default:
-      return deterministicProvider.run(request);
+  // T043: Evaluate policy BEFORE running any provider
+  const policyResult = evaluateProviderPolicy({
+    provider_kind: request.providerKind,
+    question: request.question,
+  });
+
+  let result: AgentRunResult;
+
+  if (!policyResult.allowed) {
+    // Policy denied — route to externalDisabledProvider regardless of requested kind
+    result = externalDisabledProvider.run(request);
+  } else {
+    switch (request.providerKind) {
+      case "offline_mock":
+        result = offlineMockProvider.run(request);
+        break;
+      case "external_disabled":
+        // Should not reach here because policy denies external_disabled,
+        // but handle defensively
+        result = externalDisabledProvider.run(request);
+        break;
+      case "deterministic":
+      default:
+        result = deterministicProvider.run(request);
+        break;
+    }
   }
+
+  // T043: Build and record audit event
+  const auditEvent = buildProviderRunAuditEvent(
+    result,
+    result.policy_result,
+    request.question
+  );
+  appendAuditEvent(auditEvent);
+
+  return result;
 }
 
 /** Get a list of available provider kinds for UI selection */

@@ -48,6 +48,35 @@ export interface AgentRunTrace {
   generated_at: string;
 }
 
+/** Minimal policy result reference (imported lazily to avoid cycles) */
+export interface AgentRunPolicyResult {
+  allowed: boolean;
+  provider_kind: AgentProviderKind;
+  reason: string;
+  network_allowed: boolean;
+  requires_api_key: boolean;
+  external_calls_allowed: boolean;
+  secret_storage_allowed: boolean;
+  policy_version: string;
+  limitations: string[];
+}
+
+/** Minimal audit event reference (imported lazily to avoid cycles) */
+export interface AgentRunAuditEvent {
+  event_id: string;
+  timestamp: string;
+  provider_kind: AgentProviderKind;
+  question_preview: string;
+  policy_allowed: boolean;
+  policy_reason: string;
+  external_calls_made: boolean;
+  network_allowed: boolean;
+  artifacts_used: string[];
+  trace_id: string;
+  limitations: string[];
+  policy_version: string;
+}
+
 /** Result of an agent run */
 export interface AgentRunResult {
   answer: AgentAnswer;
@@ -57,6 +86,8 @@ export interface AgentRunResult {
   evidence_ids: string[];
   limitations: string[];
   external_calls_made: boolean;
+  policy_result: AgentRunPolicyResult;
+  audit_event: AgentRunAuditEvent;
 }
 
 /** Provider interface */

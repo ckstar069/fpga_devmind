@@ -5,6 +5,7 @@ import {
   runAgent,
   PROVIDER_CAPABILITIES,
   getAvailableProviderKinds,
+  evaluateProviderPolicy,
 } from "../agent";
 import type { AgentRunResult, AgentProviderKind } from "../agent";
 
@@ -68,7 +69,7 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
         确定性问答系统（不调用外部 LLM），基于当前 bundle 数据回答
       </div>
 
-      {/* T042: Provider selection */}
+      {/* T042/T043: Provider selection + Policy status */}
       <div className="card" style={{ padding: "10px 14px", marginBottom: 12 }}>
         <div style={{ fontSize: 12, color: "var(--text2)", marginBottom: 6 }}>
           Provider 选择（T042）
@@ -94,6 +95,31 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
         <div style={{ fontSize: 11, color: "var(--text2)", marginTop: 6 }}>
           {PROVIDER_CAPABILITIES[providerKind].description}
         </div>
+        {/* T043: Policy status line */}
+        {(() => {
+          const policy = evaluateProviderPolicy({ provider_kind: providerKind, question: "" });
+          return (
+            <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11 }}>
+              <span className={`badge badge-${policy.allowed ? "supported" : "unknown"}`} style={{ fontSize: 10 }}>
+                策略: {policy.allowed ? "允许" : "拒绝"}
+              </span>
+              <span style={{ color: "var(--text2)" }}>
+                联网: {policy.network_allowed ? "允许" : "禁止"}
+              </span>
+              <span style={{ color: "var(--text2)" }}>
+                外部调用: {policy.external_calls_allowed ? "允许" : "禁止"}
+              </span>
+              <span style={{ color: "var(--text2)" }}>
+                Secret 存储: {policy.secret_storage_allowed ? "允许" : "禁止"}
+              </span>
+              {!policy.allowed && (
+                <span style={{ color: "var(--red)", fontWeight: "bold" }}>
+                  {policy.reason}
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* T041: Navigation index status banner */}
@@ -225,7 +251,7 @@ function AgentQAResultCard({
     <div className="card qa-answer-card">
       <div className="qa-question">{a.question}</div>
 
-      {/* Provider badge */}
+      {/* Provider badge + T043 policy/audit */}
       <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <span
           className={`badge badge-${
@@ -243,6 +269,13 @@ function AgentQAResultCard({
             ? "Offline Mock"
             : "External Disabled"}
         </span>
+        {/* T043: Policy decision badge */}
+        <span
+          className={`badge badge-${result.policy_result.allowed ? "supported" : "unknown"}`}
+          style={{ fontSize: 10 }}
+        >
+          策略: {result.policy_result.allowed ? "允许" : "拒绝"}
+        </span>
         <span style={{ fontSize: 11, color: "var(--text2)" }}>
           外部调用: {result.external_calls_made ? "是" : "否"}
         </span>
@@ -258,6 +291,13 @@ function AgentQAResultCard({
         >
           {showTrace ? "隐藏 Trace" : "查看 Trace"}
         </button>
+      </div>
+
+      {/* T043: Audit event summary */}
+      <div style={{ marginBottom: 8, fontSize: 10, color: "var(--text2)", display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <span>Audit: {result.audit_event.event_id}</span>
+        <span>预览: {result.audit_event.question_preview}</span>
+        <span>策略原因: {result.audit_event.policy_reason.slice(0, 60)}{result.audit_event.policy_reason.length > 60 ? "..." : ""}</span>
       </div>
 
       <div className="qa-answer">{a.answer}</div>
@@ -302,7 +342,7 @@ function AgentQAResultCard({
           }}
         >
           <div style={{ fontWeight: "bold", marginBottom: 6, fontSize: 12 }}>
-            Run Trace ({trace.trace_id})
+            Run Trace ({trace.trace_id}) | Policy v{result.policy_result.policy_version}
           </div>
           <div style={{ color: "var(--text2)", marginBottom: 4 }}>
             Provider: {trace.provider_kind} | Intent: {trace.matched_intent}
