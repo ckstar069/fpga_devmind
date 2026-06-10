@@ -118,6 +118,51 @@ export {
   executeExternalProviderPipeline,
 } from "./externalExecution";
 
+// T047: Ephemeral Real Provider Adapter
+export type {
+  EphemeralProviderSessionState,
+  EphemeralProviderSessionInput,
+  RuntimeProviderId,
+} from "./ephemeralProviderSession";
+export {
+  EPHEMERAL_PROVIDER_SESSION_VERSION,
+  createEmptyEphemeralProviderSession,
+  createEphemeralProviderSession,
+  clearEphemeralProviderSession,
+  touchEphemeralProviderSession,
+  buildKeyFingerprint,
+  buildEndpointOriginPreview,
+} from "./ephemeralProviderSession";
+
+export type {
+  RealProviderInvocationRequest,
+  RealProviderInvocationResult,
+  RealProviderStatus,
+} from "./realProviderContract";
+export {
+  REAL_PROVIDER_CONTRACT_VERSION,
+  buildRealProviderInvocationRequest,
+  buildBlockedRealProviderResult,
+  buildNotConfiguredResult,
+  redactUiErrorPreview,
+} from "./realProviderContract";
+
+export type { RealProviderAuditSummary } from "./realProviderAudit";
+export {
+  REAL_PROVIDER_AUDIT_VERSION,
+  buildRealProviderAuditSummary,
+  appendRealProviderAudit,
+  getRealProviderAudits,
+  clearRealProviderAudits,
+} from "./realProviderAudit";
+
+// T047: Real Send Gate
+export type { RealSendGateInput, RealSendGateDecision } from "./egressGuard";
+export {
+  REAL_SEND_GATE_VERSION,
+  evaluateRealSendGate,
+} from "./egressGuard";
+
 import type { AgentRunRequest, AgentRunResult, AgentProviderKind } from "./providers";
 import { deterministicProvider } from "./deterministicProvider";
 import { offlineMockProvider } from "./offlineMockProvider";

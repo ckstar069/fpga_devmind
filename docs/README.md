@@ -1,68 +1,124 @@
-# fpga_devmind 文档索引
+# fpga_devmind 文档总索引
 
-`fpga_devmind` 的方向是 FPGA 开发-理解一体 Agent 的理解层原型。当前阶段仍以总体架构和方向护栏为主，但已经落地 P1a V0.1 候选：一个只读、确定性、无 LLM 的单阶段理解层原型，用来验证 read / graph / explain / trace / query / freshness 基线。
+`fpga_devmind` 的方向是 FPGA 开发-理解一体 Agent 的理解层原型。它不是传统静态分析器、审计检查器、报告生成器，也不是只会打开 JSON artifact 的普通 UI。当前主线是：先可靠读懂 FPGA 阶段实现，建立语义图、证据链和可视化解释，再逐步扩展到真实模型辅助、开发伴随、验证辅助和审计分析。
 
-## 核心文档
+## 0. 新会话 / 新 Agent 必读顺序
 
-- [Direction guardrails](direction-guardrails.md)：短版方向护栏，后续实现不能偏离。
-- [Product target](product-target.md)：最终产品形态：桌面端 FPGA 开发-理解一体 Agent 软件，CLI 是阶段性基础设施。
-- [Agent-first architecture](agent-first-architecture.md)：总体定位、Agent 机制、普通软件底座的职责边界。
-- [Agent runtime](agent-runtime.md)：Agent 运行时组件、任务生命周期和最小可行运行时。
-- [Runtime contracts](runtime-contracts.md)：TaskPlan、ToolObservation、Claim、GroundingDiagnostic、ReflectionDecision 等最小可执行契约。
-- [Agent workflows](agent-workflows.md)：第一批核心 Agent 工作流，包括项目理解、阶段理解、概念追踪、L6 到 RTL 映射和验证解释。
-- [Evidence grounding policy](evidence-grounding-policy.md)：证据强度、结论置信、映射规则和冲突处理。
-- [Domain semantics](domain-semantics.md)：StageContract、FixedPointSpec、StreamInterfaceSpec、PipelineTimingSpec、RTLSignalSpec、TestObservation、SourceLineage 等 FPGA 领域对象。
-- [Memory and interaction](memory-and-interaction.md)：程序性记忆、语义记忆、情节记忆和多轮交互机制。
-- [Phase 1 scope](phase1-scope.md)：Phase 1a / 1b / 1c 收窄切片、样例项目和验收指标。
-- [Phase 1a single stage understanding](phase1a-single-stage-understanding.md)：`coarse_sync_glm` 主样例和 `fine_cfo` smoke 样例的 L6 单阶段 Understanding Agent 规格。
-- [Phase 1a schema](phase1a-schema.md)：P1a 的最小 JSON schema、artifact layout、summary/visual grounding contract。
-- [P1a V0.1 quickstart](p1a-v0.1-quickstart.md)：当前可试用原型的 smoke、单项目运行、query、freshness 和边界说明。
-- [P1a V0.1 acceptance](p1a-v0.1-acceptance.md)：P1a V0.1 的验收标准、已知限制和进入下一阶段的判定规则。
-- [P1a+ Semantic Agent Layer](p1a-plus-semantic-agent.md)：P1a V0.1 后的 LLM/ReAct 语义 Agent 层设计。
-- [P1b Implementation Plan](implementation-plan-p1b.md)：P1b 单概念 L5/L6-to-RTL trace 的受控实施计划。
-- [UI Prototype Plan](ui-prototype-plan.md)：桌面端图形界面原型计划，用于浏览结构化 artifact、图、证据和不确定项，并承载后续 Agent 交互。
-- [Agent Handoff: Claude + Kimi Implementation](agent-handoff-claude-kimi.md)：交给外部编码 Agent 的约束、验证命令和任务执行规则。
-- [P1a implementation prep](p1a-implementation-prep.md)：P1a 实现前清单、代码切片顺序和最小 grounding 检查。
-- [Implementation status](implementation-status.md)：当前 P1a 最小代码骨架状态和验证命令。
-- [Review process](review-process.md)：独立 Review Agent 的角色、审核视角、流程和 prompt 模板。
-- [Review response 0001](review-response-0001.md)：第一次独立 Review Agent 评审的处理决定。
-- [Review response 0002](review-response-0002.md)：P1a 专项评审的处理决定。
-- [Review response 0003](review-response-0003.md)：P1a V0.1 readiness 评审的处理决定。
-- [Review response 0004](review-response-0004.md)：P1a+ provider contract 评审的处理决定。
-- [Review response 0005](review-response-0005.md)：P1a+ graph write safety 评审的处理决定。
-- [Review response 0006](review-response-0006.md)：P1b handoff readiness 评审的处理决定。
-- [Semantic graph model](semantic-graph-model.md)：ProjectGraph / StageGraph / ConceptGraph / EvidenceGraph / VisualizationSpec 的对象模型草案。
-- [Toolbox](toolbox.md)：未来 Agent 可调用的确定性工具箱边界。
-- [Tool contracts](tool-contracts.md)：第一批确定性工具的输入输出、evidence id、错误模式和片段边界规则。
-- [Roadmap](roadmap.md)：从 Understanding Agent 到 Develop-Understand-Verify Agent 的演进路线。
+后续 Web GPT 或本地 Agent 进入项目时，先按这个顺序读：
 
-## 实施任务卡
+1. [`../PROJECT_CONTEXT.md`](../PROJECT_CONTEXT.md)：原始项目背景、用户问题、当前阶段成功标准。
+2. [`current-position-and-drift.md`](current-position-and-drift.md)：T047/T047.1 后的当前定位和偏差分析。
+3. [`documentation-map.md`](documentation-map.md)：完整文档分组和阅读路线。
+4. [`product-target.md`](product-target.md)：最终产品形态和不可偏离方向。
+5. [`roadmap.md`](roadmap.md)：长期阶段路线。
+6. [`implementation-status.md`](implementation-status.md)：当前实现状态和未完成事项。
 
-- [T001: P1b Schema And Artifact Contract](tasks/T001-p1b-schema-artifact-contract.md)
-- [T002: P1b Read-Only Source Collector](tasks/T002-p1b-readonly-source-collector.md)
-- [T003: P1b Concept Evidence Collector](tasks/T003-p1b-concept-evidence-collector.md)
-- [T004: P1b RTL Evidence Collector](tasks/T004-p1b-rtl-evidence-collector.md)
-- [T005: P1b Mapping Claim Builder](tasks/T005-p1b-mapping-claim-builder.md)
-- [T006: P1b Grounding Checker And Report](tasks/T006-p1b-grounding-report.md)
-- [T007: P1b CLI, Rendering And Smoke](tasks/T007-p1b-cli-render-smoke.md)
-- [T008: Desktop Artifact Viewer Contract](tasks/T008-desktop-artifact-viewer-contract.md)
-- [T009: Desktop App Prototype](tasks/T009-desktop-app-prototype.md)
-- [T010: Desktop P1b Concept Trace View](tasks/T010-desktop-p1b-concept-trace-view.md)
+如果时间有限，至少阅读前 3 个。
 
-## 评审记录
+## 1. 当前关键判断
 
-- [Review 0001: Agent Architecture and Grounding](reviews/0001-agent-architecture-review.md)
-- [Review 0002: Phase 1a Single Stage Understanding](reviews/0002-phase1a-review.md)
-- [Review 0003: P1a V0.1 Readiness](reviews/0003-p1a-v0.1-review.md)
-- [Review 0004: P1a+ Provider Contract Readiness](reviews/0004-p1a-plus-provider-contract-review.md)
-- [Review 0005: P1a+ Graph Write Safety](reviews/0005-p1a-plus-graph-write-safety-review.md)
-- [Review 0006: P1b Handoff Readiness](reviews/0006-p1b-handoff-readiness-review.md)
+当前实现已经在 CLI、Tauri 桌面端、artifact viewer、Agent Q&A、安全 provider boundary、dry-run request package、approval gate、blocked/mock transport、real provider adapter 方面推进较快。
 
-## 约束
+但项目的核心目标仍然是：
+
+```text
+源码证据
+  -> LLM/Agent 工程语义理解
+  -> 结构化 claim / evidence / uncertainty
+  -> 语义图与可视化规划
+  -> 用户可读流程图 / 数据流图 / 信号表 / 公式解释
+  -> 可追问、可追证据、可标注不确定
+```
+
+T047/T047.1 解决的是“真实模型可安全进入系统”的基础问题，不是最终产品目标。T047.1 之后优先做真实项目 dogfood 和语义理解闭环，不要继续堆 provider 功能。
+
+推荐下一阶段：
+
+```text
+T048: Real Project Dogfood Against Original Understanding Goals
+```
+
+## 2. 文档分组
+
+完整分组见 [`documentation-map.md`](documentation-map.md)。这里保留快速入口。
+
+### 2.1 方向 / 架构 / 约束
+
+- [`direction-guardrails.md`](direction-guardrails.md)：短版方向护栏。
+- [`product-target.md`](product-target.md)：最终产品形态。
+- [`agent-first-architecture.md`](agent-first-architecture.md)：Agent-first 架构。
+- [`agent-runtime.md`](agent-runtime.md)：Agent 运行时。
+- [`runtime-contracts.md`](runtime-contracts.md)：TaskPlan、ToolObservation、Claim、GroundingDiagnostic、ReflectionDecision 等契约。
+- [`agent-workflows.md`](agent-workflows.md)：UnderstandProject、UnderstandStage、TraceConcept、MapL6ToRTL、ExplainVerification。
+- [`evidence-grounding-policy.md`](evidence-grounding-policy.md)：证据强度、置信、映射规则、冲突处理。
+- [`domain-semantics.md`](domain-semantics.md)：FPGA 领域对象。
+- [`semantic-graph-model.md`](semantic-graph-model.md)：语义图模型。
+- [`toolbox.md`](toolbox.md)：未来 Agent 工具箱。
+- [`tool-contracts.md`](tool-contracts.md)：确定性工具契约。
+- [`memory-and-interaction.md`](memory-and-interaction.md)：记忆和交互。
+
+### 2.2 阶段规划
+
+- [`phase1-scope.md`](phase1-scope.md)：P1a/P1b/P1c 范围。
+- [`phase1a-single-stage-understanding.md`](phase1a-single-stage-understanding.md)：P1a 单阶段理解规格。
+- [`phase1a-schema.md`](phase1a-schema.md)：P1a artifact schema。
+- [`p1a-implementation-prep.md`](p1a-implementation-prep.md)：P1a 实施准备。
+- [`p1a-v0.1-quickstart.md`](p1a-v0.1-quickstart.md)：P1a V0.1 快速使用。
+- [`p1a-v0.1-acceptance.md`](p1a-v0.1-acceptance.md)：P1a V0.1 验收。
+- [`p1a-plus-semantic-agent.md`](p1a-plus-semantic-agent.md)：P1a+ 语义 Agent 层。
+- [`implementation-plan-p1b.md`](implementation-plan-p1b.md)：P1b 单概念 L5/L6-to-RTL trace。
+- [`ui-prototype-plan.md`](ui-prototype-plan.md)：桌面端 artifact viewer / Agent interaction shell。
+
+### 2.3 当前状态 / 偏差记录 / 总览
+
+- [`implementation-status.md`](implementation-status.md)：当前累计实现状态。
+- [`current-position-and-drift.md`](current-position-and-drift.md)：当前定位、偏差和后续路线建议。
+- [`documentation-map.md`](documentation-map.md)：文档地图。
+
+### 2.4 实施任务卡
+
+早期 P1b / 桌面任务：
+
+- [`tasks/T001-p1b-schema-artifact-contract.md`](tasks/T001-p1b-schema-artifact-contract.md)
+- [`tasks/T002-p1b-readonly-source-collector.md`](tasks/T002-p1b-readonly-source-collector.md)
+- [`tasks/T003-p1b-concept-evidence-collector.md`](tasks/T003-p1b-concept-evidence-collector.md)
+- [`tasks/T004-p1b-rtl-evidence-collector.md`](tasks/T004-p1b-rtl-evidence-collector.md)
+- [`tasks/T005-p1b-mapping-claim-builder.md`](tasks/T005-p1b-mapping-claim-builder.md)
+- [`tasks/T006-p1b-grounding-report.md`](tasks/T006-p1b-grounding-report.md)
+- [`tasks/T007-p1b-cli-render-smoke.md`](tasks/T007-p1b-cli-render-smoke.md)
+- [`tasks/T008-desktop-artifact-viewer-contract.md`](tasks/T008-desktop-artifact-viewer-contract.md)
+- [`tasks/T009-desktop-app-prototype.md`](tasks/T009-desktop-app-prototype.md)
+- [`tasks/T010-desktop-p1b-concept-trace-view.md`](tasks/T010-desktop-p1b-concept-trace-view.md)
+
+近期 Agent Q&A / Provider 任务：
+
+- [`tasks/T044-llm-context-builder-dry-run.md`](tasks/T044-llm-context-builder-dry-run.md)
+- [`tasks/T045-approval-gated-external-runtime.md`](tasks/T045-approval-gated-external-runtime.md)
+- [`tasks/T046-external-execution-pipeline.md`](tasks/T046-external-execution-pipeline.md)
+- [`tasks/T047-ephemeral-real-provider-adapter.md`](tasks/T047-ephemeral-real-provider-adapter.md)
+
+### 2.5 评审记录
+
+- [`review-process.md`](review-process.md)：独立 Review Agent 流程。
+- [`reviews/0001-agent-architecture-review.md`](reviews/0001-agent-architecture-review.md)
+- [`reviews/0002-phase1a-review.md`](reviews/0002-phase1a-review.md)
+- [`reviews/0003-p1a-v0.1-review.md`](reviews/0003-p1a-v0.1-review.md)
+- [`reviews/0004-p1a-plus-provider-contract-review.md`](reviews/0004-p1a-plus-provider-contract-review.md)
+- [`reviews/0005-p1a-plus-graph-write-safety-review.md`](reviews/0005-p1a-plus-graph-write-safety-review.md)
+- [`reviews/0006-p1b-handoff-readiness-review.md`](reviews/0006-p1b-handoff-readiness-review.md)
+- [`review-response-0001.md`](review-response-0001.md)
+- [`review-response-0002.md`](review-response-0002.md)
+- [`review-response-0003.md`](review-response-0003.md)
+- [`review-response-0004.md`](review-response-0004.md)
+- [`review-response-0005.md`](review-response-0005.md)
+- [`review-response-0006.md`](review-response-0006.md)
+
+## 3. 硬约束
 
 - 不修改任何 `fpga_project_*` 目标项目。
 - 不运行 Vivado。
 - 不运行 synthesis / implementation / bitstream。
-- 不泄露 API key。
-- API key 不写入日志、报告或提交。
+- 不把敏感凭据写入日志、报告或提交。
 - 默认输出写入 `/tmp` 或 `/private/tmp`。
+- 不把审计 / PASS-HOLD / finding dashboard 提前作为主线。
+- 不让 provider/UI 功能扩展替代证据约束的 FPGA 语义理解闭环。

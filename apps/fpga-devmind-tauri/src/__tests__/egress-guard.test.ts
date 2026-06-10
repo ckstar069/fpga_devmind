@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   evaluateEgressGuard,
+  evaluateRealSendGate,
   EGRESS_GUARD_VERSION,
 } from "../agent/egressGuard";
 
@@ -135,5 +136,124 @@ describe("T046 Egress Guard", () => {
     expect(serialized).not.toContain("token");
     expect(serialized).not.toContain("bearer");
     expect(serialized).not.toContain("password");
+  });
+});
+
+describe("T047 Real Send Gate", () => {
+  const makeSession = (configured: boolean): any => ({
+    configured,
+    key_present: configured,
+    key_fingerprint: configured ? "sk-a...wxyz" : null,
+    endpoint_origin_preview: configured ? "https://api.openai.com" : "",
+  });
+
+  it("rejects future_openai provider_id", () => {
+    const gate = evaluateRealSendGate({
+      provider_id: "future_openai",
+      request_id: "req-test",
+      approval_state: "approved_but_blocked",
+      send_allowed_by_user: true,
+      session: makeSession(true),
+      endpoint_url: "https://api.openai.com/v1",
+    });
+    expect(gate.allowed).toBe(false);
+    expect(gate.reason).toContain("provider is not openai_compatible_ephemeral");
+    expect(gate.conditions_met.provider_allowed).toBe(false);
+  });
+
+  it("rejects mock_external_llm provider_id", () => {
+    const gate = evaluateRealSendGate({
+      provider_id: "mock_external_llm",
+      request_id: "req-test",
+      approval_state: "approved_but_blocked",
+      send_allowed_by_user: true,
+      session: makeSession(true),
+      endpoint_url: "https://api.openai.com/v1",
+    });
+    expect(gate.allowed).toBe(false);
+    expect(gate.conditions_met.provider_allowed).toBe(false);
+  });
+
+  it("rejects send_allowed_by_user=false", () => {
+    const gate = evaluateRealSendGate({
+      provider_id: "openai_compatible_ephemeral",
+      request_id: "req-test",
+      approval_state: "approved_but_blocked",
+      send_allowed_by_user: false,
+      session: makeSession(true),
+      endpoint_url: "https://api.openai.com/v1",
+    });
+    expect(gate.allowed).toBe(false);
+    expect(gate.reason).toContain("user did not explicitly allow send");
+  });
+
+  it("allows only when all 6 conditions are met", () => {
+    const gate = evaluateRealSendGate({
+      provider_id: "openai_compatible_ephemeral",
+      request_id: "req-test",
+      approval_state: "approved_but_blocked",
+      send_allowed_by_user: true,
+      session: makeSession(true),
+      endpoint_url: "https://api.openai.com/v1",
+    });
+    expect(gate.allowed).toBe(true);
+    expect(gate.conditions_met.provider_allowed).toBe(true);
+    expect(gate.conditions_met.session_configured).toBe(true);
+    expect(gate.conditions_met.key_present).toBe(true);
+    expect(gate.conditions_met.endpoint_https).toBe(true);
+    expect(gate.conditions_met.approval_adequate).toBe(true);
+    expect(gate.conditions_met.user_explicit_consent).toBe(true);
+  });
+
+  it("conditions_met contains provider_allowed field", () => {
+    const gate = evaluateRealSendGate({
+      provider_id: "openai_compatible_ephemeral",
+      request_id: "req-test",
+      approval_state: "approved_but_blocked",
+      send_allowed_by_user: false,
+      session: makeSession(true),
+      endpoint_url: "https://api.openai.com/v1",
+    });
+    expect(gate.conditions_met).toHaveProperty("provider_allowed");
+  });
+
+  it("rejects missing session", () => {
+    const gate = evaluateRealSendGate({
+      provider_id: "openai_compatible_ephemeral",
+      request_id: "req-test",
+      approval_state: "approved_but_blocked",
+      send_allowed_by_user: true,
+      session: null,
+      endpoint_url: "https://api.openai.com/v1",
+    });
+    expect(gate.allowed).toBe(false);
+    expect(gate.conditions_met.session_configured).toBe(false);
+    expect(gate.conditions_met.key_present).toBe(false);
+  });
+
+  it("rejects non-HTTPS endpoint", () => {
+    const gate = evaluateRealSendGate({
+      provider_id: "openai_compatible_ephemeral",
+      request_id: "req-test",
+      approval_state: "approved_but_blocked",
+      send_allowed_by_user: true,
+      session: makeSession(true),
+      endpoint_url: "http://api.openai.com/v1",
+    });
+    expect(gate.allowed).toBe(false);
+    expect(gate.conditions_met.endpoint_https).toBe(false);
+  });
+
+  it("rejects non-approved approval_state", () => {
+    const gate = evaluateRealSendGate({
+      provider_id: "openai_compatible_ephemeral",
+      request_id: "req-test",
+      approval_state: "previewed",
+      send_allowed_by_user: true,
+      session: makeSession(true),
+      endpoint_url: "https://api.openai.com/v1",
+    });
+    expect(gate.allowed).toBe(false);
+    expect(gate.conditions_met.approval_adequate).toBe(false);
   });
 });
