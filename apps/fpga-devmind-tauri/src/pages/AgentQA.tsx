@@ -7,9 +7,13 @@ import {
   getAvailableProviderKinds,
   evaluateProviderPolicy,
   buildDryRunExternalRequestPlan,
+  buildExternalRequestPackage,
+  createPreviewDecision,
+  approveExternalRequest,
+  denyExternalRequest,
 } from "../agent";
 import type { AgentRunResult, AgentProviderKind } from "../agent";
-import type { ExternalRequestPlan } from "../agent";
+import type { ExternalRequestPlan, ExternalRequestPackage, ApprovalDecision } from "../agent";
 
 interface Props {
   bundle: ProjectBundle | null;
@@ -257,6 +261,11 @@ function AgentQAResultCard({
   const [showContextPreview, setShowContextPreview] = useState(false);
   const [dryRunPlan, setDryRunPlan] = useState<ExternalRequestPlan | null>(null);
 
+  // T045: External request package preview + approval gate
+  const [showT045Preview, setShowT045Preview] = useState(false);
+  const [extPkg, setExtPkg] = useState<ExternalRequestPackage | null>(null);
+  const [approvalDecision, setApprovalDecision] = useState<ApprovalDecision | null>(null);
+
   const handleShowContextPreview = () => {
     if (!showContextPreview) {
       // Build dry-run plan on first open
@@ -264,6 +273,27 @@ function AgentQAResultCard({
       setDryRunPlan(plan);
     }
     setShowContextPreview((s) => !s);
+  };
+
+  const handleShowT045Preview = () => {
+    if (!showT045Preview) {
+      const pkg = buildExternalRequestPackage(bundle, a.question, selectedNodeId);
+      setExtPkg(pkg);
+      setApprovalDecision(createPreviewDecision(pkg));
+    }
+    setShowT045Preview((s) => !s);
+  };
+
+  const handleSimulateApprove = () => {
+    if (extPkg) {
+      setApprovalDecision(approveExternalRequest(extPkg));
+    }
+  };
+
+  const handleDeny = () => {
+    if (extPkg) {
+      setApprovalDecision(denyExternalRequest(extPkg, "User denied this request."));
+    }
   };
 
   return (
@@ -316,6 +346,13 @@ function AgentQAResultCard({
           onClick={handleShowContextPreview}
         >
           {showContextPreview ? "隐藏上下文预览" : "上下文预览 (Dry-run)"}
+        </button>
+        <button
+          className="btn btn-secondary"
+          style={{ fontSize: 10, padding: "2px 8px" }}
+          onClick={handleShowT045Preview}
+        >
+          {showT045Preview ? "隐藏 T045 预览" : "T045 请求包预览"}
         </button>
       </div>
 
@@ -475,6 +512,109 @@ function AgentQAResultCard({
               {dryRunPlan.limitations.join("; ")}
             </div>
           )}
+        </div>
+      )}
+
+      {/* T045: External Request Package Preview + Approval Gate */}
+      {showT045Preview && extPkg && (
+        <div
+          className="card"
+          style={{
+            marginTop: 10,
+            padding: 10,
+            background: "rgba(0,0,0,0.2)",
+            fontSize: 11,
+          }}
+        >
+          <div style={{ fontWeight: "bold", marginBottom: 6, fontSize: 12 }}>
+            T045 外部请求包预览 ({extPkg.schema_version})
+          </div>
+          <div style={{ color: "var(--red)", marginBottom: 6, fontWeight: "bold" }}>
+            ⚠️ Network send remains blocked in T045
+          </div>
+
+          {/* Request metadata */}
+          <div style={{ marginBottom: 6, display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <span><strong>Request ID:</strong> {extPkg.request_id}</span>
+            <span><strong>State:</strong> {approvalDecision?.state || "not_requested"}</span>
+            <span><strong>Send Allowed:</strong> {extPkg.send_allowed ? "Yes" : "No"}</span>
+            <span><strong>Provider:</strong> {extPkg.provider_kind}</span>
+            <span><strong>Policy:</strong> v{extPkg.policy_version}</span>
+            <span><strong>Tokens:</strong> {extPkg.request_body_preview.total_tokens_estimate}</span>
+            <span><strong>Items:</strong> {extPkg.request_body_preview.context_items_count}</span>
+          </div>
+
+          {/* Risk summary */}
+          <div style={{ marginBottom: 6, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 4 }}>
+            <div style={{ fontWeight: "bold", marginBottom: 2 }}>Risk Summary:</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <span>Sensitive: {extPkg.risk_summary.contains_sensitive_question ? "Yes" : "No"}</span>
+              <span>Raw question: {extPkg.risk_summary.raw_question_included ? "Included" : "Excluded"}</span>
+              <span>API key: {extPkg.risk_summary.api_key_required ? "Required" : "Not required"}</span>
+              <span>Network: {extPkg.risk_summary.network_call_planned ? "Planned" : "Blocked"}</span>
+              <span>Secret storage: {extPkg.risk_summary.secret_storage_planned ? "Planned" : "Blocked"}</span>
+              <span>Policy block: {extPkg.risk_summary.external_call_blocked_by_policy ? "Yes" : "No"}</span>
+            </div>
+          </div>
+
+          {/* Artifacts used */}
+          {extPkg.artifacts_used.length > 0 && (
+            <div style={{ marginBottom: 6 }}>
+              <span style={{ fontWeight: "bold" }}>使用 Artifacts:</span>{" "}
+              {extPkg.artifacts_used.join(", ")}
+            </div>
+          )}
+
+          {/* Messages preview */}
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ fontWeight: "bold", marginBottom: 2 }}>Messages Preview:</div>
+            {extPkg.request_body_preview.messages_preview.map((msg, idx) => (
+              <div key={idx} style={{ marginBottom: 4 }}>
+                <div style={{ fontWeight: "bold", fontSize: 10 }}>[{msg.role}]</div>
+                <pre style={{ margin: 0, padding: 4, background: "rgba(0,0,0,0.3)", borderRadius: 4, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10 }}>
+                  {msg.content_preview}
+                </pre>
+              </div>
+            ))}
+          </div>
+
+          {/* Limitations */}
+          {extPkg.limitations.length > 0 && (
+            <div style={{ marginBottom: 6, color: "var(--yellow)" }}>
+              <span style={{ fontWeight: "bold" }}>Limitations:</span>{" "}
+              {extPkg.limitations.join("; ")}
+            </div>
+          )}
+
+          {/* Approval decision display */}
+          {approvalDecision && (
+            <div style={{ marginBottom: 6, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 4 }}>
+              <div style={{ fontWeight: "bold", marginBottom: 2 }}>Approval Decision ({approvalDecision.schema_version}):</div>
+              <div>State: <span style={{ fontWeight: "bold", color: approvalDecision.state === "approved_but_blocked" ? "var(--green)" : approvalDecision.state === "denied" ? "var(--red)" : "var(--text2)" }}>{approvalDecision.state}</span></div>
+              <div>Send allowed: {approvalDecision.send_allowed ? "Yes" : "No"}</div>
+              <div style={{ color: "var(--text2)", marginTop: 2 }}>{approvalDecision.reason}</div>
+            </div>
+          )}
+
+          {/* Approval gate buttons */}
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button
+              className="btn btn-primary"
+              style={{ fontSize: 10, padding: "2px 8px" }}
+              onClick={handleSimulateApprove}
+              disabled={!extPkg || approvalDecision?.state === "approved_but_blocked"}
+            >
+              Simulate Manual Approval
+            </button>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: 10, padding: "2px 8px" }}
+              onClick={handleDeny}
+              disabled={!extPkg || approvalDecision?.state === "denied"}
+            >
+              Deny
+            </button>
+          </div>
         </div>
       )}
 
