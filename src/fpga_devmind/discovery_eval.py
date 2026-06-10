@@ -215,7 +215,7 @@ def evaluate_discovery(
         else:
             selected_unexpected.append(c.name)
 
-    sel_prec = selected_golden_count / max_concepts if max_concepts > 0 else 0.0
+    sel_prec = selected_golden_count / len(selected) if selected else 0.0
 
     # selected recall: how many golden core concepts appear in selected?
     selected_core_matched = 0

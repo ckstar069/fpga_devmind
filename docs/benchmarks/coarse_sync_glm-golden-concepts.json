@@ -54,7 +54,7 @@
     },
     {
       "concept": "coarse_sync",
-      "aliases": ["coarse_sync_pipeline", "coarse_sync_top"],
+      "aliases": ["coarse_sync_pipeline", "coarse_sync_top", "sync"],
       "why_core": "Top-level pipeline integrating all stages",
       "expected_l5_l6_files": ["coarse_sync_pipeline_l5.py"],
       "expected_rtl_files": ["coarse_sync_top.v"],
@@ -107,6 +107,9 @@
     {"term": "last", "reason": "generic index"},
     {"term": "metric", "reason": "too generic without context — should be autocorr_metric or corr_metric"},
     {"term": "angle", "reason": "should be part of cfo/cordic concept, not standalone"},
-    {"term": "pipeline", "reason": "too generic — should be coarse_sync_pipeline or specific stage"}
+    {"term": "pipeline", "reason": "too generic — should be coarse_sync_pipeline or specific stage"},
+    {"term": "lts", "reason": "Long Training Symbol — belongs to fine_cfo, not coarse_sync"},
+    {"term": "sts", "reason": "Short Training Symbol — belongs to fine_cfo, not coarse_sync"},
+    {"term": "detect", "reason": "too generic — should be smooth_detect or peak_idx"}
   ]
 }

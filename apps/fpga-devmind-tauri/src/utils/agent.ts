@@ -22,6 +22,9 @@ export const SUGGESTED_QUESTIONS = [
   "概念类别分布如何？",
   "画出项目理解图",
   "解释当前选中节点",
+  "pipeline 有哪些阶段？",
+  "实现细节有哪些？",
+  "数据来源是什么？",
 ];
 
 /** Helper to build a standard AgentAnswer with evidence-chain fields */
@@ -177,6 +180,32 @@ export function answerQuestion(
   // T037: "golden spec 匹配分析"
   if (q.includes("golden") || q.includes("基准匹配") || q.includes("标准匹配")) {
     return answerGoldenMatch(bundle, q);
+  }
+
+  // T038: Semantic summary driven Q&A
+  if (q.includes("pipeline") || q.includes("阶段") || q.includes("stage")) {
+    return answerPipelineStages(bundle, q);
+  }
+
+  if (q.includes("实现细节") || q.includes("implementation")) {
+    return answerImplementationDetails(bundle, q);
+  }
+
+  if (q.includes("inferred") || q.includes("推断") || q.includes("不确定性")) {
+    return answerInferredAreas(bundle, q);
+  }
+
+  if (q.includes("数据来源") || q.includes("data from") || q.includes("provenance")) {
+    return answerDataProvenance(bundle, q);
+  }
+
+  // T038: "why.*selected" per concept
+  if (q.includes("为什么") && q.includes("选中") && bundle.semantic_summary) {
+    for (const c of bundle.semantic_summary.core_concepts) {
+      if (q.includes(c.canonical_name) || q.includes(c.display_name)) {
+        return answerWhySelected(bundle, c.canonical_name, q);
+      }
+    }
   }
 
   // Generic concept name matching: if any concept name appears in the question
@@ -1140,5 +1169,219 @@ function answerGoldenMatch(bundle: ProjectBundle, q: string): AgentAnswer {
     conclusion: `Golden 匹配：核心 ${evalData.matched_core?.length ?? 0}/${evalData.golden_core_count ?? "?"}，次要 ${evalData.matched_secondary?.length ?? 0}/${evalData.golden_secondary_count ?? "?"}。`,
     strength: (evalData.missed_core?.length ?? 0) === 0 ? "supported" : "mixed",
     limitations_summary: "匹配基于名称和别名比对，不涉及语义分析。",
+  });
+}
+
+/* ================================================================== */
+/*  T038: Semantic Summary driven Agent Q&A                           */
+/* ================================================================== */
+
+function answerPipelineStages(bundle: ProjectBundle, q: string): AgentAnswer {
+  const ss = bundle.semantic_summary;
+  if (!ss || ss.pipeline_stages.length === 0) {
+    return makeAnswer({
+      question: q,
+      answer: "当前 bundle 没有 pipeline stages 数据。请加载 T038 semantic summary bundle。",
+      conclusion: "无 pipeline 数据",
+      strength: "none",
+      limitations_summary: "需要 T038 semantic summary。",
+    });
+  }
+
+  let answer = `项目 "${ss.project_id}" 的 Pipeline Stages（${ss.pipeline_stages.length} 个）：\n\n`;
+  for (const stage of ss.pipeline_stages) {
+    answer += `• ${stage.label}\n`;
+    answer += `  ID: ${stage.stage_id} | 源文件: ${stage.source_files.length} 个\n`;
+    answer += `  相关概念: ${stage.related_concepts.slice(0, 5).join("、")}${stage.related_concepts.length > 5 ? " ..." : ""}\n`;
+    answer += `  相关 RTL: ${stage.related_rtl_modules.slice(0, 5).join("、")}${stage.related_rtl_modules.length > 5 ? " ..." : ""}\n`;
+    answer += `  置信度: ${stage.confidence}\n\n`;
+  }
+
+  answer += `项目目的: ${ss.top_level_purpose}`;
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: ss.pipeline_stages.map((s) => s.stage_id),
+    referenced_claims: [],
+    referenced_evidence: ss.pipeline_stages.flatMap((s) => s.evidence_ids).slice(0, 10),
+    follow_up_questions: [
+      "哪些概念是核心概念？",
+      "测试覆盖分析",
+      "项目的不确定性有哪些？",
+    ],
+    conclusion: `${ss.pipeline_stages.length} 个 pipeline stages，项目类型: ${ss.project_kind_hint}。`,
+    strength: "supported",
+    limitations_summary: "Pipeline stages 基于文件结构推断。",
+  });
+}
+
+function answerImplementationDetails(bundle: ProjectBundle, q: string): AgentAnswer {
+  const ss = bundle.semantic_summary;
+  if (!ss || ss.implementation_modules.length === 0) {
+    return makeAnswer({
+      question: q,
+      answer: "当前无 implementation modules 数据。",
+      conclusion: "无实现细节数据",
+      strength: "none",
+      limitations_summary: "需要 T038 semantic summary。",
+    });
+  }
+
+  let answer = `Implementation Modules（${ss.implementation_modules.length} 个）：\n\n`;
+  for (const mod of ss.implementation_modules.slice(0, 10)) {
+    answer += `• ${mod.module_or_file}\n`;
+    answer += `  角色: ${mod.role_hint}\n`;
+    answer += `  实现概念: ${mod.concepts_realized.join("、") || "无"}\n`;
+    answer += `  证据强度: strong=${mod.strong_evidence_count}, medium=${mod.medium_evidence_count}, weak=${mod.weak_evidence_count}\n`;
+    if (mod.is_shared_by_multiple_concepts) {
+      answer += `  [共享模块] 被多个概念共用\n`;
+    }
+    answer += `\n`;
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些 RTL 文件承载了多个概念？",
+      "pipeline 有哪些阶段？",
+      "项目的不确定性有哪些？",
+    ],
+    conclusion: `${ss.implementation_modules.length} 个 implementation modules。`,
+    strength: "supported",
+    limitations_summary: "模块聚合基于文件路径和 claim 映射。",
+  });
+}
+
+function answerInferredAreas(bundle: ProjectBundle, q: string): AgentAnswer {
+  const ss = bundle.semantic_summary;
+  if (!ss) {
+    return answerUncertainty(bundle, q);
+  }
+
+  const unc = ss.uncertainty_summary;
+  const items = [
+    ...(unc.inferred_claims?.length ? [`推断 Claims: ${unc.inferred_claims.join("、")}`] : []),
+    ...(unc.weak_only_links?.length ? [`弱链接: ${unc.weak_only_links.join("、")}`] : []),
+    ...(unc.naming_only_links?.length ? [`仅命名链接: ${unc.naming_only_links.join("、")}`] : []),
+    ...(unc.missing_l5_l6?.length ? [`缺失 L5/L6: ${unc.missing_l5_l6.join("、")}`] : []),
+    ...(unc.missing_rtl?.length ? [`缺失 RTL: ${unc.missing_rtl.join("、")}`] : []),
+    ...(unc.missing_test_evidence?.length ? [`缺失测试证据: ${unc.missing_test_evidence.join("、")}`] : []),
+  ];
+
+  const answer = items.length > 0
+    ? `不确定性 / 推断区域分析：\n\n${items.map((s) => `• ${s}`).join("\n")}`
+    : "当前无显著不确定性或推断区域。所有概念均有充分证据支持。";
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些概念达到了 supported 置信度？",
+      "测试覆盖分析",
+      "pipeline 有哪些阶段？",
+    ],
+    conclusion: items.length > 0 ? `发现 ${items.length} 类不确定性。` : "无显著不确定性。",
+    strength: items.length > 0 ? "inferred" : "supported",
+    limitations_summary: "不确定性基于证据质量静态分析。",
+  });
+}
+
+function answerDataProvenance(bundle: ProjectBundle, q: string): AgentAnswer {
+  const ss = bundle.semantic_summary;
+  if (!ss) {
+    return makeAnswer({
+      question: q,
+      answer: `数据来源说明：\n\n` +
+        `• project_understanding_graph.json — 节点和边结构\n` +
+        `• project_understanding_index.json — 概念/claim/证据索引\n` +
+        `• run_metadata.json — 运行元数据\n` +
+        `• concept_candidates.json — 自动发现的概念候选（T037）\n` +
+        `• discovery_eval_result.json — Golden spec 评估结果（T037）\n\n` +
+        `加载 T038 semantic summary 可获取更详细的数据来源信息。`,
+      conclusion: "数据来源基于 T037 artifacts。",
+      strength: "supported",
+      limitations_summary: "证据来自静态代码分析，未经仿真验证。",
+    });
+  }
+
+  const prov = ss.source_provenance;
+  const answer = `Semantic Summary 数据来源：\n\n` +
+    `• 生成时间: ${prov.generation_timestamp}\n` +
+    `• 生成器: ${prov.generator}\n` +
+    `• 来源文件:\n` +
+    prov.summary_generated_from.map((f) => `  - ${f}`).join("\n") +
+    `\n\n所有结论均基于上述静态分析产物，未经仿真或形式验证确认。`;
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "pipeline 有哪些阶段？",
+      "项目的不确定性有哪些？",
+      "测试覆盖分析",
+    ],
+    conclusion: `数据来源于 ${prov.summary_generated_from.length} 个 artifact 文件。`,
+    strength: "supported",
+    limitations_summary: "所有数据来自静态分析，未经仿真验证。",
+  });
+}
+
+function answerWhySelected(bundle: ProjectBundle, conceptName: string, q: string): AgentAnswer {
+  const ss = bundle.semantic_summary;
+  if (!ss) {
+    return makeAnswer({
+      question: q,
+      answer: `未加载 semantic summary，无法提供选择原因。`,
+      conclusion: "无 semantic summary 数据",
+      strength: "none",
+      limitations_summary: "需要 T038 semantic summary。",
+    });
+  }
+
+  const cc = ss.core_concepts.find((c) => c.canonical_name === conceptName);
+  if (!cc) {
+    return makeAnswer({
+      question: q,
+      answer: `概念 "${conceptName}" 不在 core concepts 列表中。`,
+      conclusion: `"${conceptName}" 不是核心概念。`,
+      strength: "none",
+      limitations_summary: "该概念可能未被选中或已被过滤。",
+    });
+  }
+
+  const answer = `概念 "${cc.display_name}" (${cc.canonical_name}) 被选中的原因：\n\n` +
+    `• 类别: ${cc.category}\n` +
+    `• 项目角色: ${cc.role_in_project}\n` +
+    `• 选择原因: ${cc.why_selected}\n` +
+    `• 别名: ${cc.aliases.join("、") || "无"}\n` +
+    `• 证据分布: L5/L6=${cc.l5_l6_evidence_count}, RTL=${cc.rtl_evidence_count}, Test=${cc.test_evidence_count}\n` +
+    `• 置信度: ${cc.confidence}\n` +
+    (cc.limitations.length > 0 ? `• 局限: ${cc.limitations.join("；")}\n` : "");
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "pipeline 有哪些阶段？",
+      "项目的不确定性有哪些？",
+      "测试覆盖分析",
+    ],
+    conclusion: `"${cc.display_name}" 因 ${cc.why_selected} 被选中，置信度 ${cc.confidence}。`,
+    strength: cc.confidence,
+    limitations_summary: cc.limitations.length > 0 ? cc.limitations.join("；") : "无已知局限。",
   });
 }

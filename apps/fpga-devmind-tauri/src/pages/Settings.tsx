@@ -220,8 +220,9 @@ function SettingsPage({ currentBundle, onLoad }: Props) {
         <div className="card-title">Quick Load</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {[
-            "/tmp/fpga_devmind/t035_coarse_auto",
-            "/tmp/fpga_devmind/t035_fft_auto",
+            "/tmp/fpga_devmind/t038_coarse_semantic",
+            "/tmp/fpga_devmind/t038_fine_cfo_semantic",
+            "/tmp/fpga_devmind/t038_fft_semantic",
             "/tmp/fpga_devmind/t037_coarse_auto",
             "/tmp/fpga_devmind/t037_fine_cfo_auto",
             "/tmp/fpga_devmind/t037_fft_auto",

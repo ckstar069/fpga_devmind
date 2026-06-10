@@ -123,6 +123,7 @@ class ScoreBreakdown:
 @dataclass
 class ConceptCandidate:
     name: str
+    canonical_name: str = ""
     source_sections: list[str] = field(default_factory=list)
     occurrence_count: int = 0
     confidence: str = "low"
@@ -132,9 +133,13 @@ class ConceptCandidate:
     aliases: list[str] = field(default_factory=list)
     semantic_role: str = "unknown"
     score_breakdown: ScoreBreakdown = field(default_factory=ScoreBreakdown)
+    score: int = 0
     selection_reason: str = ""
     compound_source: str = ""
     category: str = "weak_candidate"  # core_like, secondary_like, parameter_like, test_artifact, framework_artifact, generic_variable, weak_candidate
+    is_selected: bool = False
+    rejection_reason: str = ""
+    evidence_counts_by_stage: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -222,11 +227,12 @@ def discover_concepts(project_root: Path, mode: str = "balanced") -> DiscoveryRe
         category = _classify_category(canonical, secs, roles, aliases, sb, compound_src)
 
         result.candidates.append(ConceptCandidate(
-            name=canonical, source_sections=secs, occurrence_count=total,
-            confidence=conf, reason=reason, representative_files=files,
-            likely_stage=stage, aliases=aliases, semantic_role=role,
-            score_breakdown=sb, selection_reason=sel, compound_source=compound_src,
-            category=category))
+            name=canonical, canonical_name=canonical, source_sections=secs,
+            occurrence_count=total, confidence=conf, reason=reason,
+            representative_files=files, likely_stage=stage, aliases=aliases,
+            semantic_role=role, score_breakdown=sb, score=sb.total,
+            selection_reason=sel, compound_source=compound_src,
+            category=category, evidence_counts_by_stage=dict(merged_sec)))
 
     # Phase 6: mode filter + category-aware sort
     thresh = {"conservative": 50, "balanced": 25, "broad": 0}.get(mode, 25)
@@ -244,21 +250,71 @@ def discover_concepts(project_root: Path, mode: str = "balanced") -> DiscoveryRe
     return result
 
 
+# Parameter-like patterns that should not be selectable even with high scores.
+# NOTE: Do NOT include golden-core concepts (lts, sts, fpd, first_path, atan2, etc.)
+_PARAMETER_PATTERNS = frozenset({
+    "nfft", "n_samples", "pipe_depth", "denom_bits", "energy_cnt",
+    "cfo_hz", "cfo_rad", "fifo", "fifo2", "buffer", "rom_addr",
+    "dropped_bit", "core_l4", "cmpy_dsp48", "estimate_s3",
+    "n_samples_py", "q_scale", "q_z", "q_total_bits", "re_q", "im_q",
+    "budget_val", "total_latency", "noise_max", "chain_res",
+    "search_lhs", "pipeline_latency", "params", "estimator",
+    "estimate_s3_cfo", "sig_im", "sig_re", "stage_id",
+    "s2_valid", "s3_valid", "s_valid", "x_recon", "phase",
+})
+
 SELECTABLE_CATEGORIES: frozenset[str] = frozenset({"core_like", "secondary_like"})
+
+
+def _is_likely_parameter(c: ConceptCandidate) -> bool:
+    """Check if a candidate is likely a parameter or implementation detail."""
+    name = c.name.lower()
+    if name in _PARAMETER_PATTERNS:
+        return True
+    if c.category == "parameter_like":
+        return True
+    if c.category == "generic_variable":
+        return True
+    # Unit suffix patterns (xxx_hz, xxx_rad, xxx_bits, xxx_cnt)
+    if re.search(r'_(hz|rad|bits|cnt|addr|depth|buffer)$', name):
+        return True
+    return False
 
 
 def select_for_trace(result: DiscoveryResult, max_n: int = 12) -> list[ConceptCandidate]:
     """Select the best top N concepts for auto-trace.
 
     Only selects core_like and secondary_like concepts.
-    Falls back to high-scoring parameter_like if not enough core/secondary.
+    Excludes parameter-like and implementation-detail concepts.
+    Falls back to high-scoring parameter_like only if truly needed.
+    Sets is_selected and rejection_reason on all candidates.
     """
-    selectable = [c for c in result.candidates if c.category in SELECTABLE_CATEGORIES]
+    selectable = [c for c in result.candidates
+                  if c.category in SELECTABLE_CATEGORIES and not _is_likely_parameter(c)]
     if len(selectable) < max_n:
+        # Only fallback to parameter_like if score is very high (>= 50)
         fallback = [c for c in result.candidates
-                    if c.category == "parameter_like" and c.score_breakdown.total >= 30]
+                    if c.category == "parameter_like"
+                    and c.score_breakdown.total >= 50
+                    and not _is_likely_parameter(c)]
         selectable.extend(fallback)
-    return selectable[:max_n]
+    selected = selectable[:max_n]
+    selected_names = {c.name for c in selected}
+    for c in result.candidates:
+        if c.name in selected_names:
+            c.is_selected = True
+            c.rejection_reason = ""
+        else:
+            c.is_selected = False
+            if _is_likely_parameter(c):
+                c.rejection_reason = "Likely parameter or implementation detail"
+            elif c.category not in SELECTABLE_CATEGORIES:
+                c.rejection_reason = f"Category '{c.category}' not selectable"
+            elif c.score_breakdown.total < 25:
+                c.rejection_reason = "Score too low (< 25)"
+            else:
+                c.rejection_reason = "Not in top N"
+    return selected
 
 
 def _extract_compounds(smap: dict[str, dict[str, Any]]) -> None:

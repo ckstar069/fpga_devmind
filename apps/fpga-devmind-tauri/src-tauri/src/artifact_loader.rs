@@ -125,6 +125,8 @@ pub struct ProjectBundle {
     pub graph: ProjectGraph,
     pub index: ProjectIndex,
     pub metadata: RunMetadata,
+    #[serde(default)]
+    pub semantic_summary: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,11 +186,32 @@ pub fn load_bundle(dir: &Path) -> Result<ProjectBundle, String> {
     )
     .map_err(|e| format!("metadata parse error: {e}"))?;
 
+    // T038: Load semantic summary if present
+    let semantic_summary_path = dir.join("project_semantic_summary.json");
+    let semantic_summary = if semantic_summary_path.exists() {
+        match fs::read_to_string(&semantic_summary_path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(val) => Some(val),
+                Err(e) => {
+                    eprintln!("Warning: failed to parse project_semantic_summary.json: {e}");
+                    None
+                }
+            },
+            Err(e) => {
+                eprintln!("Warning: failed to read project_semantic_summary.json: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     Ok(ProjectBundle {
         path: dir.to_string_lossy().to_string(),
         graph,
         index,
         metadata,
+        semantic_summary,
     })
 }
 
@@ -414,6 +437,9 @@ pub struct SourceContext {
 
 pub fn find_default_bundle() -> Option<PathBuf> {
     let candidates = [
+        "/tmp/fpga_devmind/t038_coarse_semantic",
+        "/tmp/fpga_devmind/t038_fine_cfo_semantic",
+        "/tmp/fpga_devmind/t038_fft_semantic",
         "/tmp/fpga_devmind/t034_project_smoke",
         "/tmp/fpga_devmind/t033_project_smoke",
         "/tmp/fpga_devmind/t025_project_smoke",

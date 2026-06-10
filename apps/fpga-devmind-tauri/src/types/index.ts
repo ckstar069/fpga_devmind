@@ -90,6 +90,8 @@ export interface ProjectBundle {
   graph: ProjectGraph;
   index: ProjectIndex;
   metadata: RunMetadata;
+  /** T038: Optional semantic summary */
+  semantic_summary?: ProjectSemanticSummary;
 }
 
 export interface ProjectBundleSummary {
@@ -348,4 +350,117 @@ export interface EvidenceChainV2 {
   selection_reason: string;
   confidence_explanation: string;
   why_core_or_secondary: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  T038: Project Semantic Summary                                    */
+/* ------------------------------------------------------------------ */
+
+export interface ProjectSemanticSummary {
+  schema_version: string;
+  project_id: string;
+  project_root: string;
+  project_kind_hint: string;
+  top_level_purpose: string;
+  pipeline_stages: PipelineStage[];
+  core_concepts: CoreConcept[];
+  implementation_modules: ImplementationModule[];
+  dataflow_summary: DataflowSummary;
+  evidence_quality_summary: EvidenceQualitySummary;
+  uncertainty_summary: UncertaintySummary;
+  test_coverage_summary: TestCoverageSummary;
+  source_provenance: SourceProvenance;
+}
+
+export interface PipelineStage {
+  stage_id: string;
+  label: string;
+  role: string;
+  source_files: string[];
+  related_concepts: string[];
+  related_rtl_modules: string[];
+  confidence: string;
+  evidence_ids: string[];
+}
+
+export interface CoreConcept {
+  canonical_name: string;
+  display_name: string;
+  category: string;
+  role_in_project: string;
+  why_selected: string;
+  aliases: string[];
+  l5_l6_evidence_count: number;
+  rtl_evidence_count: number;
+  test_evidence_count: number;
+  confidence: string;
+  limitations: string[];
+}
+
+export interface ImplementationModule {
+  module_or_file: string;
+  role_hint: string;
+  concepts_realized: string[];
+  claims: string[];
+  strong_evidence_count: number;
+  medium_evidence_count: number;
+  weak_evidence_count: number;
+  is_shared_by_multiple_concepts: boolean;
+}
+
+export interface DataflowSummary {
+  nodes: DataflowNode[];
+  edges: DataflowEdge[];
+}
+
+export interface DataflowNode {
+  id: string;
+  label: string;
+  kind: string;
+}
+
+export interface DataflowEdge {
+  from: string;
+  to: string;
+  type: string;
+  confidence: string;
+  inferred: boolean;
+}
+
+export interface EvidenceQualitySummary {
+  strong_direct: number;
+  medium_structural: number;
+  weak_name_only: number;
+  inferred: number;
+}
+
+export interface UncertaintySummary {
+  inferred_claims: string[];
+  weak_only_links: string[];
+  naming_only_links: string[];
+  missing_l5_l6: string[];
+  missing_rtl: string[];
+  missing_test_evidence: string[];
+}
+
+export interface TestCoverageSummary {
+  test_files_present: boolean;
+  total_test_files: number;
+  concepts_with_test_match: number;
+  concepts_without_test_match: number;
+  per_concept: PerConceptTestCoverage[];
+}
+
+export interface PerConceptTestCoverage {
+  concept: string;
+  test_files_present: boolean;
+  matched_test_symbols: string[];
+  matched_test_names: string[];
+  test_evidence_status: string;
+}
+
+export interface SourceProvenance {
+  summary_generated_from: string[];
+  generation_timestamp: string;
+  generator: string;
 }

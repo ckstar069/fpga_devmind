@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import tempfile
 import time
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -77,10 +76,12 @@ def run_p1b_trace_project(
     # --- Auto-discovery (T035) ---
     discovery_metadata: dict[str, Any] = {}
     eval_result_dict: dict[str, Any] | None = None
+    discovery_result_for_candidates = None
     if len(concepts) == 1 and concepts[0] == "auto":
         from .p1b_discovery import discover_concepts, select_for_trace
 
         discovery_result = discover_concepts(project_root)
+        discovery_result_for_candidates = discovery_result
 
         # When golden-spec provided, use select_for_trace and eval
         if golden_spec and golden_spec.is_file():
@@ -88,6 +89,9 @@ def run_p1b_trace_project(
 
             selected = select_for_trace(discovery_result, max_n=max_concepts)
             concepts = [c.name for c in selected]
+
+            # T038: Golden-aware canonicalization and filtering
+            concepts = _canonicalize_with_golden(concepts, golden_spec)
 
             # Run evaluation for metrics
             eval_result = evaluate_discovery(project_root, golden_spec, max_concepts=max_concepts)
@@ -107,18 +111,17 @@ def run_p1b_trace_project(
                 encoding="utf-8",
             )
 
-            # Write concept candidates
+            # Write concept candidates (T038: all candidates with new fields)
             candidates_json = safe_out / "concept_candidates.json"
             candidates_json.write_text(
                 json.dumps(
-                    [asdict(c) for c in discovery_result.candidates[:30]],
+                    [_candidate_to_dict(c) for c in discovery_result.candidates],
                     indent=2, ensure_ascii=False,
                 ) + "\n",
                 encoding="utf-8",
             )
         else:
             # Standard auto-discovery without golden spec
-            discovered = [c.name for c in discovery_result.candidates]
             selected = select_for_trace(discovery_result, max_n=max_concepts)
             concepts = [c.name for c in selected]
 
@@ -231,6 +234,7 @@ def run_p1b_trace_project(
     metadata: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
         "schema_version": "p1b-project-run-metadata-0.1",
         "command": "p1b-trace-project",
+        "project_id": project_root.name or "project",
         "project_root": str(project_root),
         "output_dir": str(safe_out),
         "concepts_requested": concepts,
@@ -250,6 +254,50 @@ def run_p1b_trace_project(
         ],
     }
     metadata.update(discovery_metadata)
+    # T038: ensure selected_canonical_concepts and selected_concept_count
+    if metadata.get("selected_concepts"):
+        metadata["selected_canonical_concepts"] = metadata["selected_concepts"]
+        metadata["selected_concept_count"] = len(metadata["selected_concepts"])
+
+    # T038: Write concept candidates (all paths)
+    if discovery_result_for_candidates is not None:
+        candidates_json = safe_out / "concept_candidates.json"
+        candidates_json.write_text(
+            json.dumps(
+                [_candidate_to_dict(c) for c in discovery_result_for_candidates.candidates],
+                indent=2, ensure_ascii=False,
+            ) + "\n",
+            encoding="utf-8",
+        )
+
+    # T038: Generate and write project semantic summary
+    try:
+        from .project_semantic_summary import build_semantic_summary
+
+        semantic_summary = build_semantic_summary(
+            project_root,
+            project_graph,
+            project_index,
+            metadata,
+            discovery_result_for_candidates.candidates if discovery_result_for_candidates else [],
+            eval_result_dict,
+            traced_concepts=metadata.get("concepts_processed"),
+        )
+        _write_json(safe_out / "project_semantic_summary.json", semantic_summary)
+        metadata["artifacts"].append("project_semantic_summary.json")
+        # Add semantic_summary_path to index for cross-reference
+        project_index["semantic_summary_path"] = "project_semantic_summary.json"
+        _write_json(safe_out / "project_understanding_index.json", project_index)
+    except Exception as exc:
+        diagnostics.append(
+            {
+                "severity": "warning",
+                "concept": "project",
+                "message": f"Semantic summary generation failed: {exc}",
+                "code": "SEMANTIC_SUMMARY_FAILED",
+            }
+        )
+
     _write_json(safe_out / "run_metadata.json", metadata)
 
     return metadata
@@ -1043,6 +1091,74 @@ def _sanitize_mermaid_id(node_id: str) -> str:
         .replace("-", "_")
         .replace(".", "_")
     )
+
+
+def _canonicalize_with_golden(concepts: list[str], golden_spec: Path) -> list[str]:
+    """Canonicalize selected concepts using golden spec aliases and filter excluded terms."""
+    try:
+        spec = json.loads(golden_spec.read_text(encoding="utf-8"))
+    except Exception:
+        return concepts
+
+    # Build alias -> canonical mapping from golden spec
+    alias_to_canonical: dict[str, str] = {}
+    for gc in spec.get("expected_core_concepts", []) + spec.get("expected_secondary_concepts", []):
+        canonical = gc.get("concept", "")
+        if canonical:
+            alias_to_canonical[canonical.lower()] = canonical
+            for alias in gc.get("aliases", []):
+                alias_to_canonical[alias.lower()] = canonical
+
+    # Build excluded terms set
+    excluded = {item.get("term", "").lower() for item in spec.get("excluded_terms", [])}
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for c in concepts:
+        # Skip excluded terms
+        if c.lower() in excluded:
+            continue
+        # Canonicalize via golden alias map
+        canonical = alias_to_canonical.get(c.lower(), c)
+        if canonical not in seen:
+            seen.add(canonical)
+            result.append(canonical)
+
+    return result
+
+
+def _candidate_to_dict(c) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
+    """Serialize a ConceptCandidate to dict with all T038 fields."""
+    return {
+        "name": c.name,
+        "canonical_name": c.canonical_name,
+        "aliases": c.aliases,
+        "source_sections": c.source_sections,
+        "occurrence_count": c.occurrence_count,
+        "confidence": c.confidence,
+        "reason": c.reason,
+        "representative_files": c.representative_files,
+        "likely_stage": c.likely_stage,
+        "semantic_role": c.semantic_role,
+        "score": c.score,
+        "score_breakdown": {
+            "cross_stage_bonus": c.score_breakdown.cross_stage_bonus,
+            "key_position_bonus": c.score_breakdown.key_position_bonus,
+            "domain_term_bonus": c.score_breakdown.domain_term_bonus,
+            "short_domain_bonus": c.score_breakdown.short_domain_bonus,
+            "test_presence_bonus": c.score_breakdown.test_presence_bonus,
+            "occurrence_score": c.score_breakdown.occurrence_score,
+            "alias_group_bonus": c.score_breakdown.alias_group_bonus,
+            "generic_penalty": c.score_breakdown.generic_penalty,
+            "total": c.score_breakdown.total,
+        },
+        "selection_reason": c.selection_reason,
+        "compound_source": c.compound_source,
+        "category": c.category,
+        "is_selected": c.is_selected,
+        "rejection_reason": c.rejection_reason,
+        "evidence_counts_by_stage": c.evidence_counts_by_stage,
+    }
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:  # pyright: ignore[reportExplicitAny]

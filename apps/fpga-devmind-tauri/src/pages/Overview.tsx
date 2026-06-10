@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { ProjectBundle, ProjectBundleSummary } from "../types";
+import type { ProjectBundle, ProjectBundleSummary, ProjectSemanticSummary } from "../types";
 import { buildConceptTable, aggregateRtl } from "../utils/transforms";
 
 interface Props {
@@ -74,6 +74,14 @@ function Overview({ summary, bundle, onSelectNode, onNavigateGraph }: Props) {
       <div className="page-subtitle">
         项目 <strong>{summary.project_id}</strong> 的整体理解
       </div>
+
+      {/* T038: Semantic Summary — top section */}
+      {bundle.semantic_summary && (
+        <SemanticSummarySection
+          summary={bundle.semantic_summary}
+          onSelectNode={onSelectNode}
+        />
+      )}
 
       {/* Stats */}
       <div className="card">
@@ -336,6 +344,178 @@ function Overview({ summary, bundle, onSelectNode, onNavigateGraph }: Props) {
             <li>点击上表中的概念名跳转到 Understanding Card</li>
           </ul>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  T038: Semantic Summary Section                                    */
+/* ------------------------------------------------------------------ */
+
+interface SemanticSummaryProps {
+  summary: ProjectSemanticSummary;
+  onSelectNode: (id: string) => void;
+}
+
+function SemanticSummarySection({ summary, onSelectNode }: SemanticSummaryProps) {
+  const ev = summary.evidence_quality_summary;
+  const evTotal = ev.strong_direct + ev.medium_structural + ev.weak_name_only + ev.inferred;
+  const unc = summary.uncertainty_summary;
+  const tc = summary.test_coverage_summary;
+
+  const bar = (label: string, count: number, color: string) => {
+    const pct = evTotal > 0 ? (count / evTotal) * 100 : 0;
+    return (
+      <div style={{ marginBottom: 4, display: "flex", alignItems: "center" }}>
+        <span style={{ width: 80, fontSize: 12, color: "var(--text2)" }}>{label}</span>
+        <div style={{ flex: 1, height: 16, background: "var(--bg2)", borderRadius: 3, overflow: "hidden" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 3 }} />
+        </div>
+        <span style={{ width: 40, textAlign: "right", fontSize: 12, fontWeight: 600 }}>{count}</span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="card" style={{ borderLeft: "3px solid var(--accent)" }}>
+      <div className="card-title">
+        {summary.project_kind_hint} — {summary.top_level_purpose}
+      </div>
+
+      {/* Pipeline stages */}
+      {summary.pipeline_stages.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "var(--text2)" }}>
+            Pipeline Stages
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {summary.pipeline_stages.map((stage) => (
+              <div key={stage.stage_id} style={{
+                padding: "6px 10px",
+                background: "var(--bg2)",
+                borderRadius: 4,
+                fontSize: 12,
+              }}>
+                <strong>{stage.label}</strong>
+                <span style={{ color: "var(--text2)", marginLeft: 6 }}>
+                  {stage.source_files.length} files
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Evidence quality bar chart */}
+      {evTotal > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "var(--text2)" }}>
+            Evidence Quality ({evTotal} total)
+          </div>
+          {bar("Strong", ev.strong_direct, "var(--green)")}
+          {bar("Medium", ev.medium_structural, "var(--yellow)")}
+          {bar("Weak", ev.weak_name_only, "var(--orange)")}
+          {bar("Inferred", ev.inferred, "var(--red)")}
+        </div>
+      )}
+
+      {/* Core concepts mini-table */}
+      {summary.core_concepts.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "var(--text2)" }}>
+            Core Concepts ({summary.core_concepts.length})
+          </div>
+          <div className="concept-table-wrapper">
+            <table className="concept-table" style={{ fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th>Concept</th>
+                  <th>Category</th>
+                  <th>Role</th>
+                  <th>L5/L6</th>
+                  <th>RTL</th>
+                  <th>Test</th>
+                  <th>Confidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.core_concepts.map((c) => (
+                  <tr key={c.canonical_name}>
+                    <td>
+                      <button
+                        className="table-link"
+                        onClick={() => onSelectNode(`PUG_CONCEPT_${c.canonical_name}`)}
+                      >
+                        {c.display_name}
+                      </button>
+                    </td>
+                    <td>{c.category}</td>
+                    <td>{c.role_in_project}</td>
+                    <td className="td-num">{c.l5_l6_evidence_count}</td>
+                    <td className="td-num">{c.rtl_evidence_count}</td>
+                    <td className="td-num">{c.test_evidence_count}</td>
+                    <td>
+                      <span className={`badge badge-${
+                        c.confidence === "supported" ? "supported"
+                        : c.confidence === "inferred" ? "inferred"
+                        : "unknown"
+                      }`}>
+                        {c.confidence}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Uncertainty summary */}
+      {(() => {
+        const items = [
+          ...(unc.inferred_claims?.length ? [{ label: "Inferred claims", list: unc.inferred_claims, color: "var(--red)" }] : []),
+          ...(unc.weak_only_links?.length ? [{ label: "Weak-only links", list: unc.weak_only_links, color: "var(--orange)" }] : []),
+          ...(unc.naming_only_links?.length ? [{ label: "Naming-only links", list: unc.naming_only_links, color: "var(--yellow)" }] : []),
+          ...(unc.missing_l5_l6?.length ? [{ label: "Missing L5/L6", list: unc.missing_l5_l6, color: "var(--text2)" }] : []),
+          ...(unc.missing_rtl?.length ? [{ label: "Missing RTL", list: unc.missing_rtl, color: "var(--text2)" }] : []),
+          ...(unc.missing_test_evidence?.length ? [{ label: "Missing test evidence", list: unc.missing_test_evidence, color: "var(--text2)" }] : []),
+        ];
+        if (items.length === 0) return null;
+        return (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "var(--text2)" }}>
+              Uncertainty / Gaps
+            </div>
+            {items.map((item) => (
+              <div key={item.label} style={{ marginBottom: 4, fontSize: 12 }}>
+                <span style={{ color: item.color, fontWeight: 600 }}>{item.label}:</span>{" "}
+                <span style={{ color: "var(--text2)" }}>{item.list.join(", ")}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Test coverage */}
+      {tc.total_test_files > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--text2)" }}>
+            Test Coverage
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text2)" }}>
+            {tc.total_test_files} test files |{" "}
+            <span style={{ color: "var(--green)" }}>{tc.concepts_with_test_match} concepts matched</span>{" "}
+            | <span style={{ color: "var(--red)" }}>{tc.concepts_without_test_match} unmatched</span>
+          </div>
+        </div>
+      )}
+
+      {/* Provenance */}
+      <div style={{ fontSize: 11, color: "var(--text2)", marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 6 }}>
+        Generated from: {summary.source_provenance.summary_generated_from.join(", ")} at{" "}
+        {summary.source_provenance.generation_timestamp}
       </div>
     </div>
   );
