@@ -6,8 +6,10 @@ import {
   PROVIDER_CAPABILITIES,
   getAvailableProviderKinds,
   evaluateProviderPolicy,
+  buildDryRunExternalRequestPlan,
 } from "../agent";
 import type { AgentRunResult, AgentProviderKind } from "../agent";
+import type { ExternalRequestPlan } from "../agent";
 
 interface Props {
   bundle: ProjectBundle | null;
@@ -210,6 +212,8 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
           isLatest={idx === 0}
           onNavigateNode={onNavigateNode}
           onSuggested={handleSuggested}
+          bundle={bundle}
+          selectedNodeId={selectedNodeId}
         />
       ))}
 
@@ -237,15 +241,30 @@ function AgentQAResultCard({
   isLatest,
   onNavigateNode,
   onSuggested,
+  bundle,
+  selectedNodeId,
 }: {
   result: AgentRunResult;
   isLatest: boolean;
   onNavigateNode: (id: string) => void;
   onSuggested: (q: string) => void;
+  bundle: ProjectBundle | null;
+  selectedNodeId: string | null;
 }) {
   const a = result.answer;
   const trace = result.trace;
   const [showTrace, setShowTrace] = useState(false);
+  const [showContextPreview, setShowContextPreview] = useState(false);
+  const [dryRunPlan, setDryRunPlan] = useState<ExternalRequestPlan | null>(null);
+
+  const handleShowContextPreview = () => {
+    if (!showContextPreview) {
+      // Build dry-run plan on first open
+      const plan = buildDryRunExternalRequestPlan(bundle, a.question, selectedNodeId);
+      setDryRunPlan(plan);
+    }
+    setShowContextPreview((s) => !s);
+  };
 
   return (
     <div className="card qa-answer-card">
@@ -290,6 +309,13 @@ function AgentQAResultCard({
           onClick={() => setShowTrace((s) => !s)}
         >
           {showTrace ? "隐藏 Trace" : "查看 Trace"}
+        </button>
+        <button
+          className="btn btn-secondary"
+          style={{ fontSize: 10, padding: "2px 8px" }}
+          onClick={handleShowContextPreview}
+        >
+          {showContextPreview ? "隐藏上下文预览" : "上下文预览 (Dry-run)"}
         </button>
       </div>
 
@@ -380,6 +406,73 @@ function AgentQAResultCard({
             <div style={{ marginTop: 4, color: "var(--yellow)" }}>
               <span style={{ fontWeight: "bold" }}>Limitations:</span>{" "}
               {trace.limitations.join("; ")}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* T044: Dry-run Context Preview */}
+      {showContextPreview && dryRunPlan && (
+        <div
+          className="card"
+          style={{
+            marginTop: 10,
+            padding: 10,
+            background: "rgba(0,0,0,0.2)",
+            fontSize: 11,
+          }}
+        >
+          <div style={{ fontWeight: "bold", marginBottom: 6, fontSize: 12 }}>
+            Dry-run 外部请求上下文预览 ({dryRunPlan.schema_version})
+          </div>
+          <div style={{ color: "var(--red)", marginBottom: 6, fontWeight: "bold" }}>
+            ⚠️ {dryRunPlan.blocked_reason}
+          </div>
+          <div style={{ color: "var(--text2)", marginBottom: 4 }}>
+            策略版本: {dryRunPlan.policy_version} | 预估 Token: {dryRunPlan.context_bundle.token_estimate_rough}
+          </div>
+
+          {/* Artifacts used */}
+          {dryRunPlan.artifacts_used.length > 0 && (
+            <div style={{ marginBottom: 6 }}>
+              <span style={{ fontWeight: "bold" }}>使用 Artifacts:</span>{" "}
+              {dryRunPlan.artifacts_used.join(", ")}
+            </div>
+          )}
+
+          {/* Context items summary */}
+          {dryRunPlan.hypothetical_request_preview.context_items_summary.length > 0 && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ fontWeight: "bold", marginBottom: 2 }}>上下文项 ({dryRunPlan.context_bundle.context_items.length}):</div>
+              {dryRunPlan.hypothetical_request_preview.context_items_summary.map((summary, idx) => (
+                <div key={idx} style={{ paddingLeft: 8, color: "var(--text2)" }}>
+                  • {summary}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* System prompt preview */}
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ fontWeight: "bold", marginBottom: 2 }}>System Prompt 预览:</div>
+            <pre style={{ margin: 0, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {dryRunPlan.hypothetical_request_preview.system_prompt_preview}
+            </pre>
+          </div>
+
+          {/* User prompt preview */}
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ fontWeight: "bold", marginBottom: 2 }}>User Prompt 预览:</div>
+            <pre style={{ margin: 0, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {dryRunPlan.hypothetical_request_preview.user_prompt_preview}
+            </pre>
+          </div>
+
+          {/* Limitations */}
+          {dryRunPlan.limitations.length > 0 && (
+            <div style={{ marginTop: 6, color: "var(--yellow)" }}>
+              <span style={{ fontWeight: "bold" }}>局限:</span>{" "}
+              {dryRunPlan.limitations.join("; ")}
             </div>
           )}
         </div>

@@ -59,6 +59,16 @@ export {
   containsSecretKeys,
 } from "./config";
 
+// T044: Context Builder + Source Evidence Pack + Dry-run Request Plan
+export type { SourceEvidencePack, SourceEvidenceItem } from "./sourcePack";
+export { buildSourceEvidencePack, SOURCE_EVIDENCE_PACK_VERSION } from "./sourcePack";
+
+export type { LlmContextBundle, LlmContextItem } from "./contextBuilder";
+export { buildLlmContext, LLM_CONTEXT_VERSION } from "./contextBuilder";
+
+export type { ExternalRequestPlan } from "./requestPlan";
+export { buildDryRunExternalRequestPlan, REQUEST_PLAN_VERSION } from "./requestPlan";
+
 import type { AgentRunRequest, AgentRunResult, AgentProviderKind } from "./providers";
 import { deterministicProvider } from "./deterministicProvider";
 import { offlineMockProvider } from "./offlineMockProvider";
