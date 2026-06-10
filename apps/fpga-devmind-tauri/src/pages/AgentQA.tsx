@@ -11,9 +11,13 @@ import {
   createPreviewDecision,
   approveExternalRequest,
   denyExternalRequest,
+  getSelectableExternalProviderIds,
+  getExternalProviderDescriptor,
+  executeExternalProviderPipeline,
 } from "../agent";
 import type { AgentRunResult, AgentProviderKind } from "../agent";
 import type { ExternalRequestPlan, ExternalRequestPackage, ApprovalDecision } from "../agent";
+import type { ExternalExecutionResult, ExternalProviderId, ExternalTransportKind } from "../agent";
 
 interface Props {
   bundle: ProjectBundle | null;
@@ -266,6 +270,12 @@ function AgentQAResultCard({
   const [extPkg, setExtPkg] = useState<ExternalRequestPackage | null>(null);
   const [approvalDecision, setApprovalDecision] = useState<ApprovalDecision | null>(null);
 
+  // T046: External execution pipeline preview
+  const [showT046Execution, setShowT046Execution] = useState(false);
+  const [t046ExecResult, setT046ExecResult] = useState<ExternalExecutionResult | null>(null);
+  const [t046ProviderId, setT046ProviderId] = useState<ExternalProviderId>("mock_external_llm");
+  const [t046TransportKind, setT046TransportKind] = useState<ExternalTransportKind>("mock");
+
   const handleShowContextPreview = () => {
     if (!showContextPreview) {
       // Build dry-run plan on first open
@@ -294,6 +304,27 @@ function AgentQAResultCard({
     if (extPkg) {
       setApprovalDecision(denyExternalRequest(extPkg, "User denied this request."));
     }
+  };
+
+  // T046: Run execution pipeline
+  const runT046Execution = (approvalAction: "preview_only" | "simulate_approve" | "deny") => {
+    const execResult = executeExternalProviderPipeline({
+      bundle,
+      question: a.question,
+      selectedNodeId,
+      provider_id: t046ProviderId,
+      transport_kind: t046TransportKind,
+      approval_action: approvalAction,
+    });
+    setT046ExecResult(execResult);
+  };
+
+  const handleShowT046Execution = () => {
+    if (!showT046Execution) {
+      // Run initial preview on first open
+      runT046Execution("preview_only");
+    }
+    setShowT046Execution((s) => !s);
   };
 
   return (
@@ -353,6 +384,13 @@ function AgentQAResultCard({
           onClick={handleShowT045Preview}
         >
           {showT045Preview ? "隐藏 T045 预览" : "T045 请求包预览"}
+        </button>
+        <button
+          className="btn btn-secondary"
+          style={{ fontSize: 10, padding: "2px 8px" }}
+          onClick={handleShowT046Execution}
+        >
+          {showT046Execution ? "隐藏 T046 执行" : "T046 执行管线"}
         </button>
       </div>
 
@@ -611,6 +649,152 @@ function AgentQAResultCard({
               style={{ fontSize: 10, padding: "2px 8px" }}
               onClick={handleDeny}
               disabled={!extPkg || approvalDecision?.state === "denied"}
+            >
+              Deny
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* T046: External Execution Pipeline Preview */}
+      {showT046Execution && t046ExecResult && (
+        <div
+          className="card"
+          style={{
+            marginTop: 10,
+            padding: 10,
+            background: "rgba(0,0,0,0.2)",
+            fontSize: 11,
+          }}
+        >
+          <div style={{ fontWeight: "bold", marginBottom: 6, fontSize: 12 }}>
+            T046 外部执行管线预览 ({t046ExecResult.schema_version})
+          </div>
+
+          {/* Safety banner */}
+          <div style={{ color: "var(--red)", marginBottom: 6, fontWeight: "bold" }}>
+            ⚠️ No real network call is available in T046
+          </div>
+          <div style={{ color: "var(--text2)", marginBottom: 6, fontSize: 10 }}>
+            Mock transport is deterministic and offline only
+          </div>
+
+          {/* Provider selector */}
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontWeight: "bold", marginBottom: 4, fontSize: 11 }}>Provider:</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {getSelectableExternalProviderIds().map((id) => {
+                const desc = getExternalProviderDescriptor(id);
+                return (
+                  <button
+                    key={id}
+                    className={`btn ${t046ProviderId === id ? "btn-primary" : "btn-secondary"}`}
+                    style={{ fontSize: 10, padding: "2px 8px" }}
+                    onClick={() => setT046ProviderId(id)}
+                    title={desc?.description || ""}
+                  >
+                    {desc?.label || id}
+                    {desc?.status === "future" && " (Future)"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Transport kind selector */}
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontWeight: "bold", marginBottom: 4, fontSize: 11 }}>Transport:</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                className={`btn ${t046TransportKind === "blocked" ? "btn-primary" : "btn-secondary"}`}
+                style={{ fontSize: 10, padding: "2px 8px" }}
+                onClick={() => setT046TransportKind("blocked")}
+              >
+                Blocked
+              </button>
+              <button
+                className={`btn ${t046TransportKind === "mock" ? "btn-primary" : "btn-secondary"}`}
+                style={{ fontSize: 10, padding: "2px 8px" }}
+                onClick={() => setT046TransportKind("mock")}
+              >
+                Mock
+              </button>
+            </div>
+          </div>
+
+          {/* Execution result */}
+          <div style={{ marginBottom: 8, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 4 }}>
+            <div style={{ fontWeight: "bold", marginBottom: 4 }}>Execution Result:</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <span>Sent: <strong>{t046ExecResult.sent ? "Yes" : "No"}</strong></span>
+              <span>Blocked: <strong>{t046ExecResult.blocked ? "Yes" : "No"}</strong></span>
+              <span>Mock: <strong>{t046ExecResult.mock_response ? "Yes" : "No"}</strong></span>
+              <span>Send allowed: <strong>{t046ExecResult.send_allowed ? "Yes" : "No"}</strong></span>
+              <span>Approval: <strong>{t046ExecResult.approval_state}</strong></span>
+              <span>Provider: <strong>{t046ExecResult.provider_id}</strong></span>
+            </div>
+          </div>
+
+          {/* Egress guard */}
+          <div style={{ marginBottom: 8, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 4 }}>
+            <div style={{ fontWeight: "bold", marginBottom: 2 }}>Egress Guard ({t046ExecResult.egress_guard.schema_version}):</div>
+            <div>Allowed: <strong>{t046ExecResult.egress_guard.allowed ? "Yes" : "No"}</strong></div>
+            <div style={{ color: "var(--text2)", marginTop: 2 }}>{t046ExecResult.egress_guard.reason}</div>
+          </div>
+
+          {/* Mock answer preview */}
+          {t046ExecResult.mock_response && t046ExecResult.answer_preview && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: "bold", marginBottom: 2 }}>Mock Answer Preview:</div>
+              <pre style={{ margin: 0, padding: 6, background: "rgba(0,0,0,0.3)", borderRadius: 4, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10 }}>
+                {t046ExecResult.answer_preview}
+              </pre>
+            </div>
+          )}
+
+          {/* Artifacts & evidence */}
+          {t046ExecResult.artifacts_used.length > 0 && (
+            <div style={{ marginBottom: 6 }}>
+              <span style={{ fontWeight: "bold" }}>Artifacts:</span>{" "}
+              {t046ExecResult.artifacts_used.join(", ")}
+            </div>
+          )}
+          {t046ExecResult.evidence_ids.length > 0 && (
+            <div style={{ marginBottom: 6 }}>
+              <span style={{ fontWeight: "bold" }}>Evidence:</span>{" "}
+              {t046ExecResult.evidence_ids.slice(0, 5).join(", ")}
+              {t046ExecResult.evidence_ids.length > 5 && ` +${t046ExecResult.evidence_ids.length - 5} more`}
+            </div>
+          )}
+
+          {/* Limitations */}
+          {t046ExecResult.limitations.length > 0 && (
+            <div style={{ marginBottom: 6, color: "var(--yellow)" }}>
+              <span style={{ fontWeight: "bold" }}>Limitations:</span>{" "}
+              {t046ExecResult.limitations.join("; ")}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+            <button
+              className="btn btn-primary"
+              style={{ fontSize: 10, padding: "2px 8px" }}
+              onClick={() => runT046Execution("preview_only")}
+            >
+              Preview only
+            </button>
+            <button
+              className="btn btn-primary"
+              style={{ fontSize: 10, padding: "2px 8px" }}
+              onClick={() => runT046Execution("simulate_approve")}
+            >
+              Simulate approval + {t046TransportKind}
+            </button>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: 10, padding: "2px 8px" }}
+              onClick={() => runT046Execution("deny")}
             >
               Deny
             </button>
