@@ -17,14 +17,18 @@ Read these in order:
    - Current Web GPT drift analysis after T047/T047.1.
    - Explains what has been built, where the project has drifted, and what should happen next.
 
-3. [`product-target.md`](product-target.md)
+3. [`architecture/tauri-rust-python-boundary.md`](architecture/tauri-rust-python-boundary.md)
+   - Current technical-stack boundary decision.
+   - Defines Tauri/React as primary UI, Rust as backend/safety/runtime boundary, Python as retained analysis engine, and PySide6 as legacy shell.
+
+4. [`product-target.md`](product-target.md)
    - Final product form: desktop FPGA Develop-Understand Agent.
    - Clarifies what the project must not become.
 
-4. [`roadmap.md`](roadmap.md)
+5. [`roadmap.md`](roadmap.md)
    - Long-term phases: Understanding Agent -> Development Companion Agent -> Review/Audit Agent -> Develop-Understand-Verify Platform.
 
-5. [`implementation-status.md`](implementation-status.md)
+6. [`implementation-status.md`](implementation-status.md)
    - Current accumulated implementation status.
    - Useful for knowing what has already been completed and what remains explicit.
 
@@ -64,6 +68,9 @@ These define the product/architecture direction. They should be treated as highe
 
 - [`memory-and-interaction.md`](memory-and-interaction.md)
   - Procedural, semantic, episodic memory and interaction concepts.
+
+- [`architecture/tauri-rust-python-boundary.md`](architecture/tauri-rust-python-boundary.md)
+  - Tauri/Rust/Python responsibility boundary and migration policy.
 
 ## 3. Phase planning documents
 
@@ -144,10 +151,11 @@ For implementation tasks:
 
 1. Read `PROJECT_CONTEXT.md`.
 2. Read `docs/current-position-and-drift.md`.
-3. Read this `docs/documentation-map.md`.
-4. Read `docs/implementation-status.md`.
-5. Read only the specific task/design docs relevant to the planned change.
-6. Confirm the task still advances evidence-grounded FPGA understanding.
+3. Read `docs/documentation-map.md`.
+4. Read `docs/architecture/tauri-rust-python-boundary.md`.
+5. Read `docs/implementation-status.md`.
+6. Read only the specific task/design docs relevant to the planned change.
+7. Confirm the task still advances evidence-grounded FPGA understanding and respects the Tauri/Rust/Python boundary.
 
 For Web GPT reviews:
 
@@ -155,6 +163,7 @@ For Web GPT reviews:
 2. Check whether changes preserve the read-only target project boundary.
 3. Check whether the task moves toward semantic understanding, evidence, diagrams, uncertainty, or usable FPGA explanations.
 4. Challenge tasks that only add UI/provider surface area without improving the understanding loop.
+5. Challenge tasks that add new product UI to PySide6 or blur the current Tauri/Rust/Python boundary.
 
 ## 7. Current recommended next work
 
