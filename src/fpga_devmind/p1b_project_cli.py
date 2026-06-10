@@ -271,6 +271,8 @@ def run_p1b_trace_project(
         )
 
     # T038: Generate and write project semantic summary
+    semantic_summary_status = "ok"
+    semantic_summary_error = ""
     try:
         from .project_semantic_summary import build_semantic_summary
 
@@ -288,7 +290,10 @@ def run_p1b_trace_project(
         # Add semantic_summary_path to index for cross-reference
         project_index["semantic_summary_path"] = "project_semantic_summary.json"
         _write_json(safe_out / "project_understanding_index.json", project_index)
+        semantic_summary_status = "ok"
     except Exception as exc:
+        semantic_summary_status = "failed"
+        semantic_summary_error = str(exc)
         diagnostics.append(
             {
                 "severity": "warning",
@@ -297,6 +302,13 @@ def run_p1b_trace_project(
                 "code": "SEMANTIC_SUMMARY_FAILED",
             }
         )
+        # If semantic summary fails, downgrade overall status from ok to partial
+        if metadata.get("status") == "ok":
+            metadata["status"] = "partial"
+
+    metadata["semantic_summary_status"] = semantic_summary_status
+    if semantic_summary_error:
+        metadata["semantic_summary_error"] = semantic_summary_error
 
     _write_json(safe_out / "run_metadata.json", metadata)
 

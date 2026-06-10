@@ -92,6 +92,10 @@ export interface ProjectBundle {
   metadata: RunMetadata;
   /** T038: Optional semantic summary */
   semantic_summary?: ProjectSemanticSummary;
+  /** T038.1: Discovery eval result loaded from JSON */
+  discovery_eval_result?: EvalResult | unknown;
+  /** T038.1: Concept candidates loaded from JSON */
+  concept_candidates?: ConceptCandidateV2[] | unknown;
 }
 
 export interface ProjectBundleSummary {
@@ -366,6 +370,7 @@ export interface ProjectSemanticSummary {
   core_concepts: CoreConcept[];
   implementation_modules: ImplementationModule[];
   dataflow_summary: DataflowSummary;
+  l5_l6_to_rtl_summary: L5L6ToRtlSummary;
   evidence_quality_summary: EvidenceQualitySummary;
   uncertainty_summary: UncertaintySummary;
   test_coverage_summary: TestCoverageSummary;
@@ -457,6 +462,40 @@ export interface PerConceptTestCoverage {
   matched_test_symbols: string[];
   matched_test_names: string[];
   test_evidence_status: string;
+}
+
+export interface L5L6ToRtlSummary {
+  concept_mappings: ConceptMapping[];
+  summary: {
+    concepts_with_cross_stage_mapping: number;
+    concepts_missing_l5_l6: number;
+    concepts_missing_rtl: number;
+    inferred_only_mappings: number;
+  };
+}
+
+export interface ConceptMapping {
+  concept: string;
+  l5_l6_sources: EvidenceSource[];
+  rtl_targets: RtlTarget[];
+  claims: string[];
+  mapping_confidence: string;
+  mapping_reason: string;
+  gaps: string[];
+}
+
+export interface EvidenceSource {
+  file_path: string;
+  symbol: string;
+  evidence_id: string;
+  strength: string;
+}
+
+export interface RtlTarget {
+  module_or_file: string;
+  symbol: string;
+  evidence_id: string;
+  strength: string;
 }
 
 export interface SourceProvenance {

@@ -10,6 +10,29 @@ interface Props {
 }
 
 function buildImplementationStory(bundle: ProjectBundle): string {
+  // T038.1: Prefer semantic summary when available to avoid hardcoded OFDM text
+  const ss = bundle.semantic_summary;
+  if (ss) {
+    const concepts = ss.core_concepts.map(c => c.display_name).join("、");
+    const stages = ss.pipeline_stages.map(s => s.label).join(" → ");
+    const ev = ss.evidence_quality_summary;
+    const unc = ss.uncertainty_summary;
+    const inferredCount = ss.core_concepts.filter(c => c.confidence === "inferred").length;
+
+    let story = `项目 "${ss.project_id}" — ${ss.project_kind_hint}\n${ss.top_level_purpose}。`;
+    story += `\n\nPipeline Stages：${stages}`;
+    story += `\n\n核心概念（${ss.core_concepts.length} 个）：${concepts}`;
+    story += `\n证据质量：strong=${ev.strong_direct}, medium=${ev.medium_structural}, weak=${ev.weak_name_only}, inferred=${ev.inferred}`;
+    if (inferredCount > 0) {
+      story += `\n${inferredCount} 个概念为 inferred 置信度，需进一步验证。`;
+    }
+    if (unc.inferred_claims.length > 0) {
+      story += `\n推断性 Claims：${unc.inferred_claims.join("、")}`;
+    }
+    return story;
+  }
+
+  // Legacy fallback when semantic summary is absent
   const concepts = bundle.graph.nodes.filter(n => n.kind === "concept");
   const claims = bundle.graph.nodes.filter(n => n.kind === "mapping_claim");
   const supported = claims.filter(c => c.confidence === "supported");
@@ -28,7 +51,7 @@ function buildImplementationStory(bundle: ProjectBundle): string {
     }
   });
 
-  let story = `本项目 "${bundle.graph.project_id}" 实现了 FPGA 上的 OFDM 通信功能模块。`;
+  let story = `本项目 "${bundle.graph.project_id}" 是一个 FPGA 信号处理模块。`;
   story += `\n\n识别出 ${concepts.length} 个核心概念：${conceptNames.join("、")}。`;
   story += `\n其中 ${supported.length} 个映射达到 supported 置信度，${inferred.length} 个为 inferred（推断性）。`;
   story += `\n\nL5/L6 Python 模型涉及 ${l5l6Files.size} 个文件，RTL 实现涉及 ${rtlFiles.size} 个文件。`;

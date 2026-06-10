@@ -78,6 +78,9 @@ def build_semantic_summary(
     # --- Uncertainty ---
     uncertainty = _build_uncertainty_summary(project_graph, project_index)
 
+    # --- L5/L6 to RTL mapping summary ---
+    l5_l6_to_rtl = _build_l5_l6_to_rtl_summary(project_index, core_concepts)
+
     # --- Test coverage ---
     test_cov = _build_test_coverage_summary(project_root, project_index, core_concepts)
 
@@ -91,6 +94,7 @@ def build_semantic_summary(
         "core_concepts": core_concepts,
         "implementation_modules": impl_modules,
         "dataflow_summary": dataflow,
+        "l5_l6_to_rtl_summary": l5_l6_to_rtl,
         "evidence_quality_summary": ev_quality,
         "uncertainty_summary": uncertainty,
         "test_coverage_summary": test_cov,
@@ -531,6 +535,115 @@ def _build_dataflow_summary(project_graph: dict[str, Any]) -> dict[str, Any]:
         })
 
     return {"nodes": df_nodes, "edges": df_edges}
+
+
+# ---------------------------------------------------------------------------
+# L5/L6 to RTL mapping summary
+# ---------------------------------------------------------------------------
+
+
+def _build_l5_l6_to_rtl_summary(
+    project_index: dict[str, Any],
+    core_concepts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build per-concept L5/L6 → RTL mapping summary from evidence chain."""
+    evidence_chain = project_index.get("evidence_chain", {})
+    evidence_index = project_index.get("evidence_index", {})
+    claim_index = project_index.get("claim_index", {})
+
+    concept_mappings: list[dict[str, Any]] = []
+    concepts_with_cross = 0
+    concepts_missing_l5l6 = 0
+    concepts_missing_rtl = 0
+    inferred_only = 0
+
+    for cc in core_concepts:
+        cname = cc["canonical_name"]
+        chain = evidence_chain.get(cname, {})
+
+        # L5/L6 sources
+        l5_l6_sources: list[dict[str, Any]] = []
+        for ev in chain.get("l5_l6_evidence", []):
+            eid = ev.get("evidence_id", "")
+            ev_detail = evidence_index.get(eid, {})
+            l5_l6_sources.append({
+                "file_path": ev.get("file_path", ev_detail.get("file_path", "")),
+                "symbol": ev.get("symbol", ev_detail.get("symbol", "")),
+                "evidence_id": eid,
+                "strength": ev_detail.get("strength", "medium"),
+            })
+
+        # RTL targets
+        rtl_targets: list[dict[str, Any]] = []
+        for ev in chain.get("rtl_evidence", []):
+            eid = ev.get("evidence_id", "")
+            ev_detail = evidence_index.get(eid, {})
+            rtl_targets.append({
+                "module_or_file": ev.get("file_path", ev_detail.get("file_path", "")).split("/")[-1],
+                "symbol": ev.get("symbol", ev_detail.get("symbol", "")),
+                "evidence_id": eid,
+                "strength": ev_detail.get("strength", "medium"),
+            })
+
+        # Claims
+        claims = [
+            c.get("claim_id", "")
+            for c in chain.get("claims", [])
+        ]
+
+        # Mapping confidence
+        mapping_confidence = "supported" if l5_l6_sources and rtl_targets else (
+            "inferred" if l5_l6_sources or rtl_targets else "unknown"
+        )
+        if mapping_confidence == "inferred":
+            inferred_only += 1
+
+        # Mapping reason
+        if l5_l6_sources and rtl_targets:
+            mapping_reason = (
+                f"Cross-stage mapping: {len(l5_l6_sources)} L5/L6 evidence → "
+                f"{len(rtl_targets)} RTL targets"
+            )
+            concepts_with_cross += 1
+        elif l5_l6_sources:
+            mapping_reason = f"L5/L6 evidence only ({len(l5_l6_sources)} sources), no RTL evidence"
+            concepts_missing_rtl += 1
+        elif rtl_targets:
+            mapping_reason = f"RTL evidence only ({len(rtl_targets)} targets), no L5/L6 evidence"
+            concepts_missing_l5l6 += 1
+        else:
+            mapping_reason = "No evidence found for this concept"
+            concepts_missing_l5l6 += 1
+            concepts_missing_rtl += 1
+
+        # Gaps
+        gaps: list[str] = []
+        if not l5_l6_sources:
+            gaps.append("missing L5/L6 evidence")
+        if not rtl_targets:
+            gaps.append("missing RTL evidence")
+        if not chain.get("test_evidence", []):
+            gaps.append("missing test evidence")
+
+        concept_mappings.append({
+            "concept": cname,
+            "l5_l6_sources": l5_l6_sources,
+            "rtl_targets": rtl_targets,
+            "claims": claims,
+            "mapping_confidence": mapping_confidence,
+            "mapping_reason": mapping_reason,
+            "gaps": gaps,
+        })
+
+    return {
+        "concept_mappings": concept_mappings,
+        "summary": {
+            "concepts_with_cross_stage_mapping": concepts_with_cross,
+            "concepts_missing_l5_l6": concepts_missing_l5l6,
+            "concepts_missing_rtl": concepts_missing_rtl,
+            "inferred_only_mappings": inferred_only,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

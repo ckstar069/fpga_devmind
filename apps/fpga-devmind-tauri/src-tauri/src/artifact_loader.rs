@@ -127,6 +127,10 @@ pub struct ProjectBundle {
     pub metadata: RunMetadata,
     #[serde(default)]
     pub semantic_summary: Option<serde_json::Value>,
+    #[serde(default)]
+    pub discovery_eval_result: Option<serde_json::Value>,
+    #[serde(default)]
+    pub concept_candidates: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,12 +210,54 @@ pub fn load_bundle(dir: &Path) -> Result<ProjectBundle, String> {
         None
     };
 
+    // T038.1: Load discovery eval result if present
+    let eval_path = dir.join("discovery_eval_result.json");
+    let discovery_eval_result = if eval_path.exists() {
+        match fs::read_to_string(&eval_path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(val) => Some(val),
+                Err(e) => {
+                    eprintln!("Warning: failed to parse discovery_eval_result.json: {e}");
+                    None
+                }
+            },
+            Err(e) => {
+                eprintln!("Warning: failed to read discovery_eval_result.json: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // T038.1: Load concept candidates if present
+    let candidates_path = dir.join("concept_candidates.json");
+    let concept_candidates = if candidates_path.exists() {
+        match fs::read_to_string(&candidates_path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(val) => Some(val),
+                Err(e) => {
+                    eprintln!("Warning: failed to parse concept_candidates.json: {e}");
+                    None
+                }
+            },
+            Err(e) => {
+                eprintln!("Warning: failed to read concept_candidates.json: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     Ok(ProjectBundle {
         path: dir.to_string_lossy().to_string(),
         graph,
         index,
         metadata,
         semantic_summary,
+        discovery_eval_result,
+        concept_candidates,
     })
 }
 

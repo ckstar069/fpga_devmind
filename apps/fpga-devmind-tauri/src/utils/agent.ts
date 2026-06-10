@@ -130,6 +130,33 @@ export function answerQuestion(
     return answerKeyEvidence(bundle, q);
   }
 
+  // T038: Semantic summary driven Q&A — moved BEFORE legacy patterns for priority
+  if (q.includes("pipeline") || q.includes("阶段") || q.includes("stage")) {
+    return answerPipelineStages(bundle, q);
+  }
+
+  if (q.includes("实现细节") || q.includes("implementation")) {
+    return answerImplementationDetails(bundle, q);
+  }
+
+  // T038: inferred/uncertainty via semantic summary takes priority over legacy answerUncertainty
+  if ((q.includes("inferred") || q.includes("推断") || q.includes("不确定性")) && bundle.semantic_summary) {
+    return answerInferredAreas(bundle, q);
+  }
+
+  if (q.includes("数据来源") || q.includes("data from") || q.includes("provenance")) {
+    return answerDataProvenance(bundle, q);
+  }
+
+  // T038: "why.*selected" per concept via semantic summary takes priority over legacy answerSelectionReasons
+  if (q.includes("为什么") && q.includes("选中") && bundle.semantic_summary) {
+    for (const c of bundle.semantic_summary.core_concepts) {
+      if (q.includes(c.canonical_name) || q.includes(c.display_name)) {
+        return answerWhySelected(bundle, c.canonical_name, q);
+      }
+    }
+  }
+
   if (q.includes("不能确认") || q.includes("不确定") || q.includes("还不能") || q.includes("不确定性")) {
     return answerUncertainty(bundle, q);
   }
@@ -180,32 +207,6 @@ export function answerQuestion(
   // T037: "golden spec 匹配分析"
   if (q.includes("golden") || q.includes("基准匹配") || q.includes("标准匹配")) {
     return answerGoldenMatch(bundle, q);
-  }
-
-  // T038: Semantic summary driven Q&A
-  if (q.includes("pipeline") || q.includes("阶段") || q.includes("stage")) {
-    return answerPipelineStages(bundle, q);
-  }
-
-  if (q.includes("实现细节") || q.includes("implementation")) {
-    return answerImplementationDetails(bundle, q);
-  }
-
-  if (q.includes("inferred") || q.includes("推断") || q.includes("不确定性")) {
-    return answerInferredAreas(bundle, q);
-  }
-
-  if (q.includes("数据来源") || q.includes("data from") || q.includes("provenance")) {
-    return answerDataProvenance(bundle, q);
-  }
-
-  // T038: "why.*selected" per concept
-  if (q.includes("为什么") && q.includes("选中") && bundle.semantic_summary) {
-    for (const c of bundle.semantic_summary.core_concepts) {
-      if (q.includes(c.canonical_name) || q.includes(c.display_name)) {
-        return answerWhySelected(bundle, c.canonical_name, q);
-      }
-    }
   }
 
   // Generic concept name matching: if any concept name appears in the question
@@ -975,7 +976,7 @@ function answerTestCoverage(bundle: ProjectBundle, q: string): AgentAnswer {
 }
 
 function answerPrecisionRecall(bundle: ProjectBundle, q: string): AgentAnswer {
-  const evalData = (bundle.index as any).discovery_eval_result;
+  const evalData = (bundle.discovery_eval_result as any) ?? (bundle.index as any).discovery_eval_result;
   if (!evalData) {
     return makeAnswer({
       question: q,
@@ -1063,7 +1064,7 @@ function answerFilteredConcepts(bundle: ProjectBundle, q: string): AgentAnswer {
 }
 
 function answerCategoryDistribution(bundle: ProjectBundle, q: string): AgentAnswer {
-  const candidates = (bundle.index as any).concept_candidates;
+  const candidates = (bundle.concept_candidates as any) ?? (bundle.index as any).concept_candidates;
   if (!candidates?.length) {
     return makeAnswer({
       question: q,

@@ -82,6 +82,9 @@ fn run_project_trace(
     project: String,
     concepts: String,
     out: String,
+    golden_spec: Option<String>,
+    discovery_mode: Option<String>,
+    max_concepts: Option<u32>,
 ) -> Result<String, String> {
     // Find the fpga_devmind project root (parent of apps/fpga-devmind-tauri)
     let exe_dir = std::env::current_dir().map_err(|e| format!("Cannot get CWD: {}", e))?;
@@ -92,14 +95,29 @@ fn run_project_trace(
 
     let python = which_python()?;
 
+    let mut args: Vec<String> = vec![
+        "-m".into(), "fpga_devmind.cli".into(),
+        "p1b-trace-project".into(),
+        "--project".into(), project,
+        "--concepts".into(), concepts,
+        "--out".into(), out,
+    ];
+
+    if let Some(spec) = golden_spec {
+        args.push("--golden-spec".into());
+        args.push(spec);
+    }
+    if let Some(mode) = discovery_mode {
+        args.push("--discovery-mode".into());
+        args.push(mode);
+    }
+    if let Some(max) = max_concepts {
+        args.push("--max-concepts".into());
+        args.push(max.to_string());
+    }
+
     let output = std::process::Command::new(&python)
-        .args([
-            "-m", "fpga_devmind.cli",
-            "p1b-trace-project",
-            "--project", &project,
-            "--concepts", &concepts,
-            "--out", &out,
-        ])
+        .args(&args)
         .env("PYTHONPATH", project_root.join("src").to_string_lossy().to_string())
         .output()
         .map_err(|e| format!("Failed to run Python: {}", e))?;
