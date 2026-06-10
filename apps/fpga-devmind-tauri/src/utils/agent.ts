@@ -6,6 +6,8 @@ import { aggregateRtl } from "./transforms";
 /* ================================================================== */
 
 export const SUGGESTED_QUESTIONS = [
+  "从哪里开始理解这个项目？",
+  "推荐我先看哪些内容？",
   "这个项目整体实现了什么？",
   "自动识别出了哪些概念？",
   "哪些概念达到了 supported 置信度？",
@@ -28,6 +30,8 @@ export const SUGGESTED_QUESTIONS = [
   "某个概念的 pipeline 路径是什么？",
   "哪些概念跨了所有阶段？",
   "dataflow 是怎样的？",
+  "哪些概念可能是噪声？",
+  "下一步我应该点哪里看？",
 ];
 
 /** Helper to build a standard AgentAnswer with evidence-chain fields */
@@ -76,6 +80,31 @@ export function answerQuestion(
   const concepts = nodes.filter((n) => n.kind === "concept");
 
   // Pattern matching on question
+
+  // T041: Navigation-layer questions — highest priority
+  if (q.includes("从哪里开始") || q.includes("推荐") || (q.includes("先看") && q.includes("哪些"))) {
+    return answerNavigationStart(bundle, q);
+  }
+
+  if (q.includes("下一步") || q.includes("点哪里") || q.includes("怎么看")) {
+    return answerNextSteps(bundle, q);
+  }
+
+  if (q.includes("噪声") || q.includes("假阳性") || q.includes("unexpected")) {
+    return answerNoiseConcepts(bundle, q);
+  }
+
+  if (q.includes("完整证据链") || (q.includes("解释") && q.includes("完整"))) {
+    for (const c of concepts) {
+      if (q.includes(c.label)) {
+        return answerFullEvidenceChain(bundle, c.label, q);
+      }
+    }
+  }
+
+  if ((q.includes("edge") || q.includes("边") || q.includes("为什么存在")) && !q.includes("edges")) {
+    return answerEdgeEvidence(bundle, q);
+  }
 
   // "这个项目整体实现了什么？" / overall summary
   if (q.includes("整体") && (q.includes("实现") || q.includes("什么"))) {
@@ -1640,5 +1669,342 @@ function answerDataflowSummary(bundle: ProjectBundle, q: string): AgentAnswer {
     conclusion: `Dataflow: ${summary.total_nodes} 节点, ${summary.total_cross_stage_edges} 跨阶段边。`,
     strength: summary.concepts_with_full_pipeline.length > 0 ? "supported" : "inferred",
     limitations_summary: "Dataflow 基于静态证据链，非动态仿真结果。",
+  });
+}
+
+/* ================================================================== */
+/*  T041: Deterministic Agent Navigation Answers                      */
+/* ================================================================== */
+
+function answerNavigationStart(bundle: ProjectBundle, q: string): AgentAnswer {
+  const nav = bundle.agent_navigation_index;
+  const ss = bundle.semantic_summary;
+
+  if (!nav && !ss) {
+    return makeAnswer({
+      question: q,
+      answer: "当前 bundle 没有导航索引或语义摘要。这是旧版 bundle，建议重新生成项目 trace 以获取完整导航支持。\n\n您可以尝试：\n• 查看 Project Graph 理解图\n• 查看 Evidence 页面证据列表\n• 点击具体概念节点查看理解卡",
+      follow_up_questions: ["画出项目理解图", "自动识别出了哪些概念？"],
+      conclusion: "旧 bundle，无导航索引。",
+      strength: "none",
+      limitations_summary: "需要 T041+ bundle 包含 agent_navigation_index.json。",
+    });
+  }
+
+  // Use nav entrypoints if available
+  let answer = "";
+  if (nav) {
+    const available = nav.entrypoints.filter((e: any) => e.available);
+    const unavailable = nav.entrypoints.filter((e: any) => !e.available);
+
+    answer += `推荐从以下入口开始理解项目 "${nav.project_id}":\n\n`;
+    for (const ep of available) {
+      answer += `• ${ep.label}（${ep.artifact}）\n  ${ep.description}\n\n`;
+    }
+    if (unavailable.length > 0) {
+      answer += `以下入口暂不可用：\n`;
+      for (const ep of unavailable) {
+        answer += `  ○ ${ep.label} — 缺少 ${ep.artifact}\n`;
+      }
+    }
+  } else if (ss) {
+    answer += `项目 "${ss.project_id}" 理解入口：\n\n`;
+    answer += `1. 项目目的：${ss.top_level_purpose}\n`;
+    answer += `2. Pipeline Stages：${ss.pipeline_stages.length} 个阶段\n`;
+    answer += `3. 核心概念：${ss.core_concepts.length} 个\n`;
+    answer += `4. Implementation Modules：${ss.implementation_modules.length} 个\n\n`;
+    answer += "建议先查看 Overview 页面了解整体，再进入 Project Graph 查看概念关系。";
+  }
+
+  // Quality hint
+  const qs = nav?.quality_status;
+  if (qs?.golden_spec_used) {
+    answer += `\n\n质量评估：golden spec 已使用。selected precision=${(qs.selected_precision_like * 100).toFixed(1)}%，recall=${(qs.selected_recall_like * 100).toFixed(1)}%。`;
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "推荐我先看哪些内容？",
+      "哪些概念达到了 supported 置信度？",
+      "pipeline 有哪些阶段？",
+    ],
+    conclusion: nav
+      ? `导航索引可用，${nav.entrypoints.filter((e: any) => e.available).length} 个入口可用。`
+      : "基于 semantic summary 提供导航建议。",
+    strength: nav ? "supported" : "inferred",
+    limitations_summary: nav ? "" : "缺少 agent_navigation_index，导航建议基于 semantic summary 推断。",
+  });
+}
+
+function answerNextSteps(bundle: ProjectBundle, q: string): AgentAnswer {
+  const nav = bundle.agent_navigation_index;
+  const { nodes } = bundle.graph;
+  const concepts = nodes.filter((n) => n.kind === "concept");
+  const supported = concepts.filter((c) => c.confidence === "supported");
+  const inferred = concepts.filter((c) => c.confidence === "inferred");
+
+  let answer = "建议的下一步操作：\n\n";
+
+  if (nav) {
+    const available = nav.entrypoints.filter((e: any) => e.available);
+    answer += "1. 查看可用导航入口：\n";
+    for (const ep of available.slice(0, 3)) {
+      answer += `   • ${ep.label} — ${ep.description}\n`;
+    }
+    answer += "\n";
+  }
+
+  if (supported.length > 0) {
+    answer += `2. 优先确认 supported 概念（${supported.length} 个）：${supported.slice(0, 4).map((c) => c.label).join("、")}\n`;
+    answer += "   这些概念证据最充分，可作为理解项目的锚点。\n\n";
+  }
+
+  if (inferred.length > 0) {
+    answer += `3. 验证 inferred 概念（${inferred.length} 个）：${inferred.slice(0, 4).map((c) => c.label).join("、")}\n`;
+    answer += "   这些映射需要进一步确认，建议查看 Evidence 页面。\n\n";
+  }
+
+  answer += "4. 在 Project Graph 中点击任意概念节点，右侧会显示完整理解卡。\n";
+  answer += "5. 使用 Agent 问答继续深入具体概念或证据。\n";
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [...supported, ...inferred].slice(0, 6).map((c) => c.node_id),
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些概念缺失 RTL 证据？",
+      "哪些证据最关键？",
+      "项目的不确定性有哪些？",
+    ],
+    conclusion: `${supported.length} supported 概念可优先确认，${inferred.length} inferred 概念需验证。`,
+    strength: supported.length >= inferred.length ? "supported" : "mixed",
+    limitations_summary: "下一步建议基于当前证据静态分析。",
+  });
+}
+
+function answerNoiseConcepts(bundle: ProjectBundle, q: string): AgentAnswer {
+  const nav = bundle.agent_navigation_index;
+  const evalData = bundle.discovery_eval_result as any;
+
+  let answer = "";
+  let noiseList: string[] = [];
+
+  if (nav) {
+    const qs = nav.quality_status;
+    if (qs.excluded_terms_selected && qs.excluded_terms_selected.length > 0) {
+      noiseList = qs.excluded_terms_selected;
+      answer += `发现的噪声概念（被排除但出现在选中列表中）：\n`;
+      for (const term of qs.excluded_terms_selected) {
+        answer += `  • ${term}\n`;
+      }
+    }
+
+    // Check limitations for naming_only
+    const namingOnly = nav.limitations.filter((l: any) => l.item === "naming_only_mappings");
+    if (namingOnly.length > 0) {
+      answer += `\n弱映射（naming_only）：${namingOnly[0].reason}\n`;
+    }
+  }
+
+  if (evalData) {
+    if (evalData.unexpected_selected && evalData.unexpected_selected.length > 0) {
+      answer += `\n意外选中概念（不在 golden spec 中）：\n`;
+      for (const c of evalData.unexpected_selected) {
+        answer += `  • ${c}\n`;
+      }
+    }
+    if (evalData.rejected_top_terms && evalData.rejected_top_terms.length > 0) {
+      answer += `\n被过滤的高分概念（可能是噪声）：\n`;
+      for (const r of evalData.rejected_top_terms.slice(0, 8)) {
+        answer += `  • ${r.name}（score=${r.score}，类别=${r.category}）：${r.reason}\n`;
+      }
+    }
+  }
+
+  if (!answer) {
+    answer = "当前未发现明显噪声概念。\n\n";
+    answer += "质量指标：\n";
+    if (nav?.quality_status?.golden_spec_used) {
+      answer += `• golden spec 已使用\n`;
+      answer += `• precision: ${(nav.quality_status.selected_precision_like * 100).toFixed(1)}%\n`;
+      answer += `• recall: ${(nav.quality_status.selected_recall_like * 100).toFixed(1)}%\n`;
+    } else {
+      answer += "• 无 golden spec 评估数据，无法判断噪声。\n";
+    }
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "精确率和召回率是多少？",
+      "哪些概念达到了 supported 置信度？",
+      "发现质量如何？",
+    ],
+    conclusion: noiseList.length > 0
+      ? `发现 ${noiseList.length} 个噪声/弱映射概念。`
+      : "未发现明显噪声概念。",
+    strength: noiseList.length > 0 ? "inferred" : "supported",
+    limitations_summary: "噪声判断基于 golden spec 比对和静态分析。",
+  });
+}
+
+function answerFullEvidenceChain(bundle: ProjectBundle, conceptName: string, q: string): AgentAnswer {
+  const nav = bundle.agent_navigation_index;
+  const route = nav?.concept_routes?.find((r: any) => r.concept === conceptName);
+  const chainData = bundle.index.evidence_chain;
+
+  if (!route && !chainData) {
+    return makeAnswer({
+      question: q,
+      answer: `未找到概念 "${conceptName}" 的导航或证据链数据。`,
+      conclusion: "无数据",
+      strength: "none",
+      limitations_summary: "需要 T041+ bundle 或 evidence chain 数据。",
+    });
+  }
+
+  let answer = `概念 "${conceptName}" 的完整证据链：\n\n`;
+
+  // L5/L6 evidence
+  const chain = (chainData as any)?.[conceptName];
+  if (chain?.l5_l6_evidence?.length > 0) {
+    answer += `【L5/L6 证据】(${chain.l5_l6_evidence.length})\n`;
+    for (const ev of chain.l5_l6_evidence.slice(0, 5)) {
+      answer += `  • ${ev.symbol} — ${ev.file_path} (${ev.strength})\n`;
+    }
+    if (chain.l5_l6_evidence.length > 5) {
+      answer += `  ... 还有 ${chain.l5_l6_evidence.length - 5} 条\n`;
+    }
+    answer += "\n";
+  }
+
+  // Claims
+  if (chain?.claims?.length > 0) {
+    answer += `【Mapping Claims】(${chain.claims.length})\n`;
+    for (const cl of chain.claims) {
+      answer += `  • ${cl.claim_id} — bridge=${cl.bridge_kind}, confidence=${cl.confidence}\n`;
+    }
+    answer += "\n";
+  }
+
+  // RTL evidence
+  if (chain?.rtl_evidence?.length > 0) {
+    answer += `【RTL 证据】(${chain.rtl_evidence.length})\n`;
+    for (const ev of chain.rtl_evidence.slice(0, 5)) {
+      answer += `  • ${ev.symbol} — ${ev.file_path} (${ev.strength})\n`;
+    }
+    answer += "\n";
+  }
+
+  // Test evidence
+  if (chain?.test_evidence?.length > 0) {
+    answer += `【测试证据】(${chain.test_evidence.length})\n`;
+    for (const ev of chain.test_evidence.slice(0, 3)) {
+      answer += `  • ${ev.symbol} — ${ev.file_path}\n`;
+    }
+    answer += "\n";
+  }
+
+  // Navigation route summary
+  if (route) {
+    answer += `【导航摘要】\n`;
+    answer += `  confidence: ${route.confidence}\n`;
+    answer += `  mapping: ${route.mapping_confidence} (${route.mapping_reason})\n`;
+    if (route.known_gaps.length > 0) {
+      answer += `  gaps: ${route.known_gaps.join(", ")}\n`;
+    }
+  }
+
+  // Missing
+  if (chain?.missing?.length > 0) {
+    answer += `\n【缺失】${chain.missing.join(", ")}\n`;
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: route ? [route.node_id] : [],
+    referenced_claims: route ? route.claims : [],
+    referenced_evidence: route ? route.evidence_ids.slice(0, 10) : [],
+    follow_up_questions: [
+      "哪些概念缺失 RTL 证据？",
+      "哪些证据最关键？",
+      "项目的不确定性有哪些？",
+    ],
+    conclusion: `"${conceptName}" 证据链：L5/L6=${chain?.l5_l6_evidence?.length ?? 0}, RTL=${chain?.rtl_evidence?.length ?? 0}, test=${chain?.test_evidence?.length ?? 0}。`,
+    strength: route?.confidence || "unknown",
+    limitations_summary: route?.known_gaps.length
+      ? `已知缺口: ${route.known_gaps.join(", ")}`
+      : "无已知缺口。",
+  });
+}
+
+function answerEdgeEvidence(bundle: ProjectBundle, q: string): AgentAnswer {
+  const nav = bundle.agent_navigation_index;
+  const pv = bundle.semantic_pipeline_view;
+
+  if (!nav && !pv) {
+    return makeAnswer({
+      question: q,
+      answer: "当前 bundle 没有导航索引或 pipeline view，无法回答 edge 证据问题。请加载 T039+ bundle。",
+      conclusion: "无数据",
+      strength: "none",
+      limitations_summary: "需要 agent_navigation_index.json 或 semantic_pipeline_view.json。",
+    });
+  }
+
+  // Show a summary of edge routes
+  const edges = nav?.edge_routes ?? pv?.cross_stage_edges ?? [];
+  const supportedEdges = edges.filter((e: any) => e.confidence === "supported");
+  const inferredEdges = edges.filter((e: any) => e.confidence === "inferred");
+
+  let answer = `跨阶段边证据概览：\n\n`;
+  answer += `总边数：${edges.length}\n`;
+  answer += `• supported: ${supportedEdges.length}\n`;
+  answer += `• inferred: ${inferredEdges.length}\n\n`;
+
+  if (supportedEdges.length > 0) {
+    answer += "【Supported 边示例】\n";
+    for (const e of supportedEdges.slice(0, 3)) {
+      answer += `  ${e.from_lane} → ${e.to_lane} | ${e.edge_type}\n`;
+      if (e.reason) answer += `    原因: ${e.reason}\n`;
+      if (e.evidence_ids?.length) answer += `    证据: ${e.evidence_ids.slice(0, 3).join(", ")}\n`;
+    }
+  }
+
+  if (inferredEdges.length > 0) {
+    answer += "\n【Inferred 边示例】\n";
+    for (const e of inferredEdges.slice(0, 3)) {
+      answer += `  ${e.from_lane} → ${e.to_lane} | ${e.edge_type}\n`;
+      if (e.reason) answer += `    原因: ${e.reason}\n`;
+    }
+    answer += "\n⚠ 推断边基于结构共享或命名匹配，不代表已证明的语义关系。\n";
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: [],
+    referenced_claims: [],
+    referenced_evidence: edges.slice(0, 5).flatMap((e: any) => e.evidence_ids || []),
+    follow_up_questions: [
+      "哪些概念跨了所有阶段？",
+      "dataflow 是怎样的？",
+      "哪些关系是 inferred？",
+    ],
+    conclusion: `${supportedEdges.length} supported 边, ${inferredEdges.length} inferred 边。`,
+    strength: inferredEdges.length > supportedEdges.length ? "mixed" : "supported",
+    limitations_summary: "Edge 证据基于静态分析产物。",
   });
 }

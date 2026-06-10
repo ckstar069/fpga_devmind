@@ -98,6 +98,8 @@ export interface ProjectBundle {
   concept_candidates?: ConceptCandidateV2[] | unknown;
   /** T039/T040: Optional semantic pipeline view */
   semantic_pipeline_view?: SemanticPipelineView;
+  /** T041: Optional agent navigation index */
+  agent_navigation_index?: AgentNavigationIndex;
 }
 
 export interface ProjectBundleSummary {
@@ -584,5 +586,80 @@ export interface PipelineSummary {
 export interface PipelineUncertaintyFlag {
   concept: string;
   flag: string;
+  reason: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  T041: Agent Navigation Index                                      */
+/* ------------------------------------------------------------------ */
+
+export interface AgentNavigationIndex {
+  schema_version: string;
+  project_id: string;
+  entrypoints: AgentEntryPoint[];
+  question_routes: AgentQuestionRoute[];
+  concept_routes: AgentConceptRoute[];
+  edge_routes: AgentEdgeRoute[];
+  quality_status: AgentQualityStatus;
+  limitations: AgentLimitation[];
+  source_provenance: SourceProvenance;
+}
+
+export interface AgentEntryPoint {
+  id: string;
+  label: string;
+  artifact: string;
+  available: boolean;
+  description: string;
+}
+
+export interface AgentQuestionRoute {
+  intent: string;
+  patterns: string[];
+  primary_artifacts: string[];
+  fallback_artifacts: string[];
+}
+
+export interface AgentConceptRoute {
+  concept: string;
+  node_id: string;
+  confidence: string;
+  mapping_confidence: string;
+  mapping_reason: string;
+  evidence_ids: string[];
+  source_files: string[];
+  known_gaps: string[];
+  has_l5_l6: boolean;
+  has_rtl: boolean;
+  has_test: boolean;
+  claims: string[];
+}
+
+export interface AgentEdgeRoute {
+  edge_id: string;
+  edge_type: string;
+  from_lane: string;
+  to_lane: string;
+  from_node_id: string;
+  to_node_id: string;
+  confidence: string;
+  reason: string;
+  evidence_ids: string[];
+  source_files: string[];
+}
+
+export interface AgentQualityStatus {
+  golden_spec_used: boolean;
+  selected_precision_like: number;
+  selected_recall_like: number;
+  excluded_terms_selected: string[];
+  matched_core_count: number;
+  missed_core_count: number;
+  matched_secondary_count: number;
+}
+
+export interface AgentLimitation {
+  category: string;
+  item: string;
   reason: string;
 }

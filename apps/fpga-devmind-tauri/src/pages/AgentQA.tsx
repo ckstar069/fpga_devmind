@@ -39,12 +39,65 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
       : SUGGESTED_QUESTIONS;
   }, [history]);
 
+  // T041: Navigation index status
+  const nav = bundle?.agent_navigation_index;
+  const hasNav = !!nav;
+  const qs = nav?.quality_status;
+
   return (
     <div>
       <div className="page-title">Agent 问答</div>
       <div className="page-subtitle">
         确定性问答系统（不调用外部 LLM），基于当前 bundle 数据回答
       </div>
+
+      {/* T041: Navigation index status banner */}
+      {bundle && (
+        <div
+          className="card"
+          style={{
+            padding: "8px 14px",
+            marginBottom: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            fontSize: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <span
+            className={`badge badge-${hasNav ? "supported" : "unknown"}`}
+            style={{ fontSize: 11 }}
+          >
+            {hasNav ? "T041 导航索引" : "旧版 Bundle"}
+          </span>
+          {hasNav && nav && (
+            <>
+              <span style={{ color: "var(--text2)" }}>
+                入口: {nav.entrypoints.filter((e: any) => e.available).length} /
+                {nav.entrypoints.length} 可用
+              </span>
+              <span style={{ color: "var(--text2)" }}>
+                概念路由: {nav.concept_routes.length}
+              </span>
+              <span style={{ color: "var(--text2)" }}>
+                边路由: {nav.edge_routes.length}
+              </span>
+            </>
+          )}
+          {qs?.golden_spec_used && (
+            <span style={{ color: "var(--green)" }}>
+              P={(qs.selected_precision_like * 100).toFixed(0)}% R=
+              {(qs.selected_recall_like * 100).toFixed(0)}%
+            </span>
+          )}
+          {hasNav && nav.limitations.length > 0 && (
+            <span style={{ color: "var(--yellow)" }}>
+              局限: {nav.limitations.length}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Input area */}
       <div className="qa-input-area">
@@ -187,7 +240,8 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
             点击上方建议问题，或直接输入您的问题。
           </div>
           <div style={{ fontSize: 12, color: "var(--text2)" }}>
-            支持 9 类问题：项目概述、概念映射、RTL 对应、置信度解释、共享 RTL、关键证据、不确定性、导航指引、节点解释
+            支持 {hasNav ? "12" : "9"} 类问题：项目概述、概念映射、RTL 对应、置信度解释、共享 RTL、关键证据、不确定性、节点解释
+            {hasNav && "、导航入口、下一步建议、噪声概念、完整证据链、边证据、质量评估"}
           </div>
         </div>
       )}

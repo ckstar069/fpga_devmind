@@ -134,6 +134,9 @@ pub struct ProjectBundle {
     /// T039/T040: Semantic pipeline view (lane-based dataflow)
     #[serde(default)]
     pub semantic_pipeline_view: Option<serde_json::Value>,
+    /// T041: Deterministic agent navigation index
+    #[serde(default)]
+    pub agent_navigation_index: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -273,6 +276,26 @@ pub fn load_bundle(dir: &Path) -> Result<ProjectBundle, String> {
         None
     };
 
+    // T041: Load agent navigation index if present
+    let agent_nav_path = dir.join("agent_navigation_index.json");
+    let agent_navigation_index = if agent_nav_path.exists() {
+        match fs::read_to_string(&agent_nav_path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(val) => Some(val),
+                Err(e) => {
+                    eprintln!("Warning: failed to parse agent_navigation_index.json: {e}");
+                    None
+                }
+            },
+            Err(e) => {
+                eprintln!("Warning: failed to read agent_navigation_index.json: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     Ok(ProjectBundle {
         path: dir.to_string_lossy().to_string(),
         graph,
@@ -282,6 +305,7 @@ pub fn load_bundle(dir: &Path) -> Result<ProjectBundle, String> {
         discovery_eval_result,
         concept_candidates,
         semantic_pipeline_view,
+        agent_navigation_index,
     })
 }
 
@@ -507,9 +531,15 @@ pub struct SourceContext {
 
 pub fn find_default_bundle() -> Option<PathBuf> {
     let candidates = [
+        // T041: Agent navigation golden bundles (preferred)
+        "/tmp/fpga_devmind/t041_coarse_agent",
+        "/tmp/fpga_devmind/t041_fine_cfo_agent",
+        "/tmp/fpga_devmind/t041_fft_agent",
+        // T040: Pipeline view bundles
         "/tmp/fpga_devmind/t040_coarse",
         "/tmp/fpga_devmind/t040_fine_cfo",
         "/tmp/fpga_devmind/t040_fft",
+        // Legacy bundles
         "/tmp/fpga_devmind/t038_coarse_semantic",
         "/tmp/fpga_devmind/t038_fine_cfo_semantic",
         "/tmp/fpga_devmind/t038_fft_semantic",

@@ -348,6 +348,52 @@ def run_p1b_trace_project(
     if semantic_pipeline_view_error:
         metadata["semantic_pipeline_view_error"] = semantic_pipeline_view_error
 
+    # T041: Generate and write agent navigation index
+    agent_nav_status = "ok"
+    agent_nav_error = ""
+    try:
+        from .agent_navigator import build_agent_navigation_index
+
+        # Build concept_candidates list from discovery result if available
+        candidates_list: list[dict[str, Any]] | None = None  # pyright: ignore[reportExplicitAny]
+        if discovery_result_for_candidates is not None:
+            candidates_list = [
+                _candidate_to_dict(c) for c in discovery_result_for_candidates.candidates
+            ]
+
+        agent_nav = build_agent_navigation_index(
+            project_root,
+            project_graph,
+            project_index,
+            semantic_summary=semantic_summary,
+            pipeline_view=pipeline_view,
+            eval_result=eval_result_dict,
+            concept_candidates=candidates_list,
+        )
+        _write_json(safe_out / "agent_navigation_index.json", agent_nav)
+        metadata["artifacts"].append("agent_navigation_index.json")
+        # Add agent_navigation_index_path to index for cross-reference
+        project_index["agent_navigation_index_path"] = "agent_navigation_index.json"
+        _write_json(safe_out / "project_understanding_index.json", project_index)
+        agent_nav_status = "ok"
+    except Exception as exc:  # noqa: BLE001
+        agent_nav_status = "failed"
+        agent_nav_error = str(exc)
+        diagnostics.append(
+            {
+                "severity": "warning",
+                "concept": "project",
+                "message": f"Agent navigation index generation failed: {exc}",
+                "code": "AGENT_NAVIGATION_INDEX_FAILED",
+            }
+        )
+        if metadata.get("status") == "ok":
+            metadata["status"] = "partial"
+
+    metadata["agent_navigation_index_status"] = agent_nav_status
+    if agent_nav_error:
+        metadata["agent_navigation_index_error"] = agent_nav_error
+
     _write_json(safe_out / "run_metadata.json", metadata)
 
     return metadata
