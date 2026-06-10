@@ -9,14 +9,14 @@ export const PROVIDER_POLICY_VERSION = "t043.0";
 
 /** Input to the policy evaluator */
 export interface ProviderPolicyInput {
-  provider_kind: AgentProviderKind;
+  provider_kind: AgentProviderKind | string;
   question: string;
 }
 
 /** Result of policy evaluation — gates all provider runs */
 export interface ProviderPolicyResult {
   allowed: boolean;
-  provider_kind: AgentProviderKind;
+  provider_kind: AgentProviderKind | string;
   reason: string;
   network_allowed: boolean;
   requires_api_key: boolean;

@@ -107,3 +107,44 @@ rg -n "api_key|apiKey|secret|token|bearer|password|endpoint|base_url|headers|fet
 ```
 
 Expected: zero matches in `src/agent/` (the provider boundary layer).
+
+## T043.1 Hardening
+
+### R6: Audit Question Redaction
+
+`buildQuestionPreview()` scans for sensitive keywords and token patterns before truncation. If detected, it returns `[redacted sensitive-looking question]` instead of any raw text.
+
+Detected patterns:
+- Keywords: `api_key`, `apiKey`, `secret`, `token`, `bearer`, `password`, `auth`
+- Token prefixes: `sk-` (OpenAI), `xoxb-` (Slack), `ghp_` (GitHub PAT), `github_pat_` (GitHub fine-grained), `eyJ` (JWT)
+
+### R7: Canonical Policy & Audit Event
+
+Only `runAgent()` produces the canonical `policy_result` and `audit_event`. Provider implementations (`.run()`) may contain fallback values, but `runAgent()` overwrites them with the policy evaluation result before returning to the caller.
+
+This ensures:
+- Unknown provider requests retain the original provider kind in `policy_result.provider_kind` while the response still comes from `externalDisabledProvider`.
+- The audit log always reflects the policy decision made at the dispatcher level, not any internal provider state.
+
+### R8: No Global Audit Side Effects from Provider Direct Calls
+
+Calling `deterministicProvider.run()`, `offlineMockProvider.run()`, or `externalDisabledProvider.run()` directly does **not** append to the global audit log. Only `runAgent()` appends audit events.
+
+## Verification Commands (T043.1)
+
+```bash
+cd apps/fpga-devmind-tauri
+npm test -- --run   # 115 passed
+npm run build       # pass
+```
+
+```bash
+cd apps/fpga-devmind-tauri/src-tauri
+cargo check         # pass
+```
+
+```bash
+rg -n "api_key|apiKey|secret|token|bearer|password|endpoint|base_url|headers|fetch\(|WebSocket|EventSource|axios|https://" \
+  apps/fpga-devmind-tauri/src/agent/
+# Expected: no matches in src/agent/
+```

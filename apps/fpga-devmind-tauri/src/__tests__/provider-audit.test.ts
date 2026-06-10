@@ -11,6 +11,7 @@ import {
 import { evaluateProviderPolicy } from "../agent/policy";
 import { deterministicProvider } from "../agent/deterministicProvider";
 import { externalDisabledProvider } from "../agent/externalDisabledProvider";
+import { runAgent } from "../agent";
 import type { ProjectBundle } from "../types";
 
 function makeTestBundle(): ProjectBundle {
@@ -214,5 +215,108 @@ describe("T043 Provider Audit", () => {
     expect(getAuditEvents().length).toBe(1);
     clearAuditLog();
     expect(getAuditEvents().length).toBe(0);
+  });
+
+  // ─── T043.1: Redaction tests ────────────────────────────────────────
+
+  it("buildQuestionPreview redacts api_key questions", () => {
+    const preview = buildQuestionPreview("我的 api_key 是 abc123");
+    expect(preview).not.toContain("api_key");
+    expect(preview).not.toContain("abc123");
+    expect(preview).toBe("[redacted sensitive-looking question]");
+  });
+
+  it("buildQuestionPreview redacts Bearer token questions", () => {
+    const preview = buildQuestionPreview("Bearer eyJhbGciOiJIUzI1NiIs");
+    expect(preview).not.toContain("Bearer");
+    expect(preview).not.toContain("eyJhbGci");
+    expect(preview).toBe("[redacted sensitive-looking question]");
+  });
+
+  it("buildQuestionPreview redacts sk- token questions", () => {
+    const preview = buildQuestionPreview("sk-abcdefghijklmnopqrstuvwxyz");
+    expect(preview).toBe("[redacted sensitive-looking question]");
+  });
+
+  it("buildQuestionPreview redacts ghp_ token questions", () => {
+    const preview = buildQuestionPreview("我的 github token 是 ghp_xxxxxxxx");
+    expect(preview).toBe("[redacted sensitive-looking question]");
+  });
+
+  it("buildQuestionPreview redacts xoxb- token questions", () => {
+    const preview = buildQuestionPreview("Slack bot token: xoxb-1234567890");
+    expect(preview).toBe("[redacted sensitive-looking question]");
+  });
+
+  it("buildQuestionPreview redacts JWT-looking content", () => {
+    const preview = buildQuestionPreview("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9");
+    expect(preview).toBe("[redacted sensitive-looking question]");
+  });
+
+  it("buildQuestionPreview preserves normal questions", () => {
+    const q = "这个项目整体实现了什么？";
+    expect(buildQuestionPreview(q)).toBe(q);
+  });
+
+  it("buildQuestionPreview truncates long normal questions", () => {
+    const q = "a".repeat(100);
+    const preview = buildQuestionPreview(q);
+    expect(preview.length).toBe(80);
+    expect(preview.endsWith("...")).toBe(true);
+    expect(preview).not.toBe("[redacted sensitive-looking question]");
+  });
+
+  it("buildProviderRunAuditEvent redacts sensitive questions", () => {
+    const bundle = makeTestBundle();
+    const result = deterministicProvider.run({
+      question: "api_key=abc123",
+      selectedNodeId: null,
+      bundle,
+      providerKind: "deterministic",
+    });
+    const policy = evaluateProviderPolicy({ provider_kind: "deterministic", question: "api_key=abc123" });
+    const event = buildProviderRunAuditEvent(result, policy, "api_key=abc123");
+
+    expect(event.question_preview).toBe("[redacted sensitive-looking question]");
+    expect(event.question_preview).not.toContain("abc123");
+    expect(event.question_preview).not.toContain("api_key");
+  });
+
+  // T043.1: provider.run() direct call must NOT append global audit log
+  it("direct provider.run does NOT append to global audit log", () => {
+    clearAuditLog();
+    const bundle = makeTestBundle();
+    deterministicProvider.run({
+      question: "test",
+      selectedNodeId: null,
+      bundle,
+      providerKind: "deterministic",
+    });
+    expect(getAuditEvents().length).toBe(0);
+
+    externalDisabledProvider.run({
+      question: "test",
+      selectedNodeId: null,
+      bundle: null,
+      providerKind: "external_disabled",
+    });
+    expect(getAuditEvents().length).toBe(0);
+  });
+
+  it("runAgent appends exactly one canonical audit event per run", () => {
+    clearAuditLog();
+    const bundle = makeTestBundle();
+
+    const result = runAgent({
+      question: "q1",
+      selectedNodeId: null,
+      bundle,
+      providerKind: "deterministic",
+    });
+
+    expect(getAuditEvents().length).toBe(1);
+    // The audit event in the log must match the canonical one returned
+    expect(getAuditEvents()[0].event_id).toBe(result.audit_event.event_id);
+    expect(getAuditEvents()[0].policy_reason).toBe(result.policy_result.reason);
   });
 });

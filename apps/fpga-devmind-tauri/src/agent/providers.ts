@@ -51,7 +51,7 @@ export interface AgentRunTrace {
 /** Minimal policy result reference (imported lazily to avoid cycles) */
 export interface AgentRunPolicyResult {
   allowed: boolean;
-  provider_kind: AgentProviderKind;
+  provider_kind: AgentProviderKind | string;
   reason: string;
   network_allowed: boolean;
   requires_api_key: boolean;

@@ -96,15 +96,28 @@ export function runAgent(request: AgentRunRequest): AgentRunResult {
     }
   }
 
-  // T043: Build and record audit event
+  // T043.1: Canonical policy_result comes from runAgent evaluation,
+  // not from the provider's internal fallback.
+  const canonicalResult: AgentRunResult = {
+    ...result,
+    policy_result: policyResult,
+  };
+
+  // T043: Build and record canonical audit event using the runAgent policy
   const auditEvent = buildProviderRunAuditEvent(
-    result,
-    result.policy_result,
+    canonicalResult,
+    policyResult,
     request.question
   );
+
+  const canonicalResultWithAudit: AgentRunResult = {
+    ...canonicalResult,
+    audit_event: auditEvent,
+  };
+
   appendAuditEvent(auditEvent);
 
-  return result;
+  return canonicalResultWithAudit;
 }
 
 /** Get a list of available provider kinds for UI selection */

@@ -24,9 +24,48 @@ export interface ProviderRunAuditEvent {
   policy_version: string;
 }
 
-/** Build a preview of the question (max 80 chars) */
+/** Patterns that indicate sensitive content in a question. */
+const SENSITIVE_KEYWORD_PATTERNS: RegExp[] = [
+  /\bapi[_-]?key\b/i,
+  /\bsecret\b/i,
+  /\btoken\b/i,
+  /\bbearer\b/i,
+  /\bpassword\b/i,
+  /\bauth\b/i,
+];
+
+/** Known secret/token value prefixes. */
+const SENSITIVE_VALUE_PATTERNS: RegExp[] = [
+  /\bsk-[a-zA-Z0-9]{10,}/i,          // OpenAI API key prefix
+  /\bxoxb-[a-zA-Z0-9]{10,}/i,        // Slack bot token prefix
+  /\bghp_[a-zA-Z0-9]{10,}/i,         // GitHub PAT prefix
+  /\bgithub_pat_[a-zA-Z0-9]{10,}/i,  // GitHub fine-grained PAT
+  /\beyJ[a-zA-Z0-9_-]{10,}/,         // JWT / base64-encoded credential prefix
+];
+
+/** Check if a question contains sensitive-looking content.
+ *  Returns true if keyword or token pattern is detected.
+ */
+export function questionContainsSensitiveContent(question: string): boolean {
+  for (const pattern of SENSITIVE_KEYWORD_PATTERNS) {
+    if (pattern.test(question)) return true;
+  }
+  for (const pattern of SENSITIVE_VALUE_PATTERNS) {
+    if (pattern.test(question)) return true;
+  }
+  return false;
+}
+
+/** Build a preview of the question (max 80 chars).
+ *
+ *  If the question contains sensitive-looking content, returns
+ *  "[redacted sensitive-looking question]" instead of any raw text.
+ */
 export function buildQuestionPreview(question: string): string {
   const trimmed = question.trim();
+  if (questionContainsSensitiveContent(trimmed)) {
+    return "[redacted sensitive-looking question]";
+  }
   if (trimmed.length <= 80) return trimmed;
   return trimmed.slice(0, 77) + "...";
 }

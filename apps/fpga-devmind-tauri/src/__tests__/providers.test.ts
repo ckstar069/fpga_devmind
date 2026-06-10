@@ -351,12 +351,15 @@ describe("T042 Provider Boundary", () => {
         bundle,
         providerKind: "unknown" as any,
       });
-      // T043: unknown provider is denied by policy → external_disabledProvider result
+      // T043.1: unknown provider is denied by policy → external_disabledProvider result
+      // but canonical policy_result preserves the originally requested provider kind
       expect(result.provider).toBe("external_disabled");
       expect(result.external_calls_made).toBe(false);
       expect(result.policy_result.allowed).toBe(false);
-      expect(result.policy_result.provider_kind).toBe("external_disabled");
+      expect(result.policy_result.provider_kind).toBe("unknown");
+      expect(result.policy_result.reason).toContain("未知");
       expect(result.audit_event.policy_allowed).toBe(false);
+      expect(result.audit_event.policy_reason).toContain("未知");
     });
   });
 });

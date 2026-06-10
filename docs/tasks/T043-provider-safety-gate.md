@@ -82,6 +82,50 @@ rg -n "api_key|apiKey|secret|token|bearer|password|endpoint|base_url|headers|fet
 # Expected: no matches
 ```
 
+## T043.1 Hardening
+
+### Audit Question Redaction
+
+- `buildQuestionPreview()` now calls `sanitizeQuestionPreview()` before truncation.
+- Detected keywords: `api_key`, `apiKey`, `secret`, `token`, `bearer`, `password`, `auth`.
+- Detected token prefixes: `sk-`, `xoxb-`, `ghp_`, `github_pat_`, `eyJ` (JWT).
+- If sensitive content is detected, returns `[redacted sensitive-looking question]`.
+- 8 new tests in `provider-audit.test.ts` covering redaction.
+
+### Canonical Policy & Audit Event
+
+- `runAgent()` now overwrites `result.policy_result` with the canonical `policyResult` from `evaluateProviderPolicy()`.
+- `runAgent()` builds the canonical `audit_event` using the canonical policy result and overwrites the provider's internal fallback.
+- Unknown provider: `policy_result.provider_kind` preserves the original requested kind (e.g., `"unknown"`), while `result.provider` is still `"external_disabled"`.
+- `appendAuditEvent()` receives the canonical event from `runAgent()` only.
+
+### No Global Audit Side Effects
+
+- Direct calls to `deterministicProvider.run()`, `offlineMockProvider.run()`, `externalDisabledProvider.run()` do **not** append to the global audit log.
+- Only `runAgent()` triggers `appendAuditEvent()`.
+- 2 new tests in `provider-audit.test.ts` verify this.
+
+### Test Count
+
+**T043.1: 115 tests passed** (was 104, +11 new tests).
+
+## Verification (T043.1)
+
+```bash
+cd apps/fpga-devmind-tauri
+npm test -- --run   # 115 passed
+npm run build       # pass
+
+cd src-tauri
+cargo check         # pass
+```
+
+```bash
+rg -n "api_key|apiKey|secret|token|bearer|password|endpoint|base_url|headers|fetch\(|WebSocket|EventSource|axios|https://" \
+  apps/fpga-devmind-tauri/src/agent/
+# Expected: no matches
+```
+
 ## Constraints Met
 
 - ✅ 外部 provider 仍然 disabled
@@ -91,3 +135,7 @@ rg -n "api_key|apiKey|secret|token|bearer|password|endpoint|base_url|headers|fet
 - ✅ 所有 provider external_calls_made=false
 - ✅ Policy 先于执行
 - ✅ 每次 run 生成 audit event
+- ✅ Audit question redaction prevents sensitive content leakage
+- ✅ Canonical policy/audit centralized in runAgent
+- ✅ Unknown provider denied decision preserved in policy_result
+- ✅ Provider direct calls do not pollute global audit log
