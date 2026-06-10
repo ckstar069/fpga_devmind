@@ -1,6 +1,12 @@
 import { useState, useMemo } from "react";
-import type { ProjectBundle, AgentAnswer } from "../types";
-import { answerQuestion, SUGGESTED_QUESTIONS } from "../utils/agent";
+import type { ProjectBundle } from "../types";
+import { SUGGESTED_QUESTIONS } from "../utils/agent";
+import {
+  runAgent,
+  PROVIDER_CAPABILITIES,
+  getAvailableProviderKinds,
+} from "../agent";
+import type { AgentRunResult, AgentProviderKind } from "../agent";
 
 interface Props {
   bundle: ProjectBundle | null;
@@ -10,13 +16,19 @@ interface Props {
 
 function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
   const [question, setQuestion] = useState("");
-  const [history, setHistory] = useState<AgentAnswer[]>([]);
+  const [providerKind, setProviderKind] = useState<AgentProviderKind>("deterministic");
+  const [history, setHistory] = useState<AgentRunResult[]>([]);
 
   const handleAsk = () => {
     const q = question.trim();
     if (!q) return;
-    const answer = answerQuestion(bundle, q, selectedNodeId);
-    setHistory((prev) => [answer, ...prev]);
+    const result = runAgent({
+      question: q,
+      selectedNodeId,
+      bundle,
+      providerKind,
+    });
+    setHistory((prev) => [result, ...prev]);
     setQuestion("");
   };
 
@@ -28,14 +40,19 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
   };
 
   const handleSuggested = (q: string) => {
-    const answer = answerQuestion(bundle, q, selectedNodeId);
-    setHistory((prev) => [answer, ...prev]);
+    const result = runAgent({
+      question: q,
+      selectedNodeId,
+      bundle,
+      providerKind,
+    });
+    setHistory((prev) => [result, ...prev]);
   };
 
   const suggestedToShow = useMemo(() => {
     if (history.length === 0) return SUGGESTED_QUESTIONS;
-    return history[0].follow_up_questions.length > 0
-      ? history[0].follow_up_questions
+    return history[0].answer.follow_up_questions.length > 0
+      ? history[0].answer.follow_up_questions
       : SUGGESTED_QUESTIONS;
   }, [history]);
 
@@ -49,6 +66,34 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
       <div className="page-title">Agent 问答</div>
       <div className="page-subtitle">
         确定性问答系统（不调用外部 LLM），基于当前 bundle 数据回答
+      </div>
+
+      {/* T042: Provider selection */}
+      <div className="card" style={{ padding: "10px 14px", marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: "var(--text2)", marginBottom: 6 }}>
+          Provider 选择（T042）
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {getAvailableProviderKinds().map((kind) => {
+            const cap = PROVIDER_CAPABILITIES[kind];
+            return (
+              <button
+                key={kind}
+                className={`btn ${providerKind === kind ? "btn-primary" : "btn-secondary"}`}
+                style={{ fontSize: 11, padding: "4px 10px" }}
+                onClick={() => setProviderKind(kind)}
+                title={cap.description}
+              >
+                {cap.label}
+                {!cap.enabled && " (Disabled)"}
+                {cap.network_allowed && " 🌐"}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text2)", marginTop: 6 }}>
+          {PROVIDER_CAPABILITIES[providerKind].description}
+        </div>
       </div>
 
       {/* T041: Navigation index status banner */}
@@ -132,106 +177,14 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
       </div>
 
       {/* History */}
-      {history.map((a, idx) => (
-        <div key={idx} className="card qa-answer-card">
-          <div className="qa-question">{a.question}</div>
-          <div className="qa-answer">{a.answer}</div>
-
-          {/* Evidence-chain summary (T034) */}
-          <div className="qa-chain">
-            <div className="qa-chain-item">
-              <span className="qa-chain-label">结论：</span>
-              <span className="qa-chain-text">{a.conclusion}</span>
-            </div>
-            <div className="qa-chain-item">
-              <span className="qa-chain-label">强度：</span>
-              <span className={`badge badge-${
-                a.strength === "supported" ? "supported"
-                : a.strength === "inferred" ? "inferred"
-                : "unknown"
-              }`}>
-                {a.strength}
-              </span>
-            </div>
-            <div className="qa-chain-item">
-              <span className="qa-chain-label">局限：</span>
-              <span className="qa-chain-text" style={{ color: "var(--yellow)" }}>
-                {a.limitations_summary}
-              </span>
-            </div>
-          </div>
-
-          {/* Referenced nodes (clickable) */}
-          {a.referenced_nodes.length > 0 && (
-            <div className="qa-refs">
-              <span className="qa-refs-label">相关节点：</span>
-              {a.referenced_nodes.slice(0, 8).map((id) => (
-                <button
-                  key={id}
-                  className="qa-ref-btn"
-                  onClick={() => onNavigateNode(id)}
-                >
-                  {id.length > 20 ? id.slice(0, 20) + "…" : id}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Referenced claims (clickable) */}
-          {a.referenced_claims.length > 0 && (
-            <div className="qa-refs">
-              <span className="qa-refs-label">Claims：</span>
-              {a.referenced_claims.slice(0, 8).map((id) => (
-                <button
-                  key={id}
-                  className="qa-ref-btn"
-                  onClick={() => onNavigateNode(id)}
-                >
-                  {id.length > 20 ? id.slice(0, 20) + "…" : id}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Referenced evidence IDs (clickable concept for now) */}
-          {a.referenced_evidence.length > 0 && (
-            <div className="qa-refs">
-              <span className="qa-refs-label">证据 ID：</span>
-              {a.referenced_evidence.slice(0, 6).map((id) => (
-                <span
-                  key={id}
-                  className="qa-ref-btn"
-                  style={{ cursor: "default" }}
-                  title={id}
-                >
-                  {id.length > 25 ? id.slice(0, 25) + "…" : id}
-                </span>
-              ))}
-              {a.referenced_evidence.length > 6 && (
-                <span style={{ fontSize: 10, color: "var(--text2)" }}>
-                  +{a.referenced_evidence.length - 6} 条
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Follow up */}
-          {idx === 0 && a.follow_up_questions.length > 0 && (
-            <div className="qa-followup">
-              <span className="qa-refs-label">继续提问：</span>
-              {a.follow_up_questions.slice(0, 3).map((q) => (
-                <button
-                  key={q}
-                  className="btn btn-secondary qa-suggestion-btn"
-                  style={{ fontSize: 11 }}
-                  onClick={() => handleSuggested(q)}
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+      {history.map((result, idx) => (
+        <AgentQAResultCard
+          key={idx}
+          result={result}
+          isLatest={idx === 0}
+          onNavigateNode={onNavigateNode}
+          onSuggested={handleSuggested}
+        />
       ))}
 
       {history.length === 0 && (
@@ -243,6 +196,223 @@ function AgentQA({ bundle, selectedNodeId, onNavigateNode }: Props) {
             支持 {hasNav ? "12" : "9"} 类问题：项目概述、概念映射、RTL 对应、置信度解释、共享 RTL、关键证据、不确定性、节点解释
             {hasNav && "、导航入口、下一步建议、噪声概念、完整证据链、边证据、质量评估"}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Single result card with trace display                             */
+/* ------------------------------------------------------------------ */
+
+function AgentQAResultCard({
+  result,
+  isLatest,
+  onNavigateNode,
+  onSuggested,
+}: {
+  result: AgentRunResult;
+  isLatest: boolean;
+  onNavigateNode: (id: string) => void;
+  onSuggested: (q: string) => void;
+}) {
+  const a = result.answer;
+  const trace = result.trace;
+  const [showTrace, setShowTrace] = useState(false);
+
+  return (
+    <div className="card qa-answer-card">
+      <div className="qa-question">{a.question}</div>
+
+      {/* Provider badge */}
+      <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <span
+          className={`badge badge-${
+            result.provider === "deterministic"
+              ? "supported"
+              : result.provider === "offline_mock"
+              ? "inferred"
+              : "unknown"
+          }`}
+          style={{ fontSize: 10 }}
+        >
+          {result.provider === "deterministic"
+            ? "确定性 Agent"
+            : result.provider === "offline_mock"
+            ? "Offline Mock"
+            : "External Disabled"}
+        </span>
+        <span style={{ fontSize: 11, color: "var(--text2)" }}>
+          外部调用: {result.external_calls_made ? "是" : "否"}
+        </span>
+        {result.artifacts_used.length > 0 && (
+          <span style={{ fontSize: 11, color: "var(--text2)" }}>
+            artifacts: {result.artifacts_used.length}
+          </span>
+        )}
+        <button
+          className="btn btn-secondary"
+          style={{ fontSize: 10, padding: "2px 8px", marginLeft: "auto" }}
+          onClick={() => setShowTrace((s) => !s)}
+        >
+          {showTrace ? "隐藏 Trace" : "查看 Trace"}
+        </button>
+      </div>
+
+      <div className="qa-answer">{a.answer}</div>
+
+      {/* Evidence-chain summary (T034) */}
+      <div className="qa-chain">
+        <div className="qa-chain-item">
+          <span className="qa-chain-label">结论：</span>
+          <span className="qa-chain-text">{a.conclusion}</span>
+        </div>
+        <div className="qa-chain-item">
+          <span className="qa-chain-label">强度：</span>
+          <span
+            className={`badge badge-${
+              a.strength === "supported"
+                ? "supported"
+                : a.strength === "inferred"
+                ? "inferred"
+                : "unknown"
+            }`}
+          >
+            {a.strength}
+          </span>
+        </div>
+        <div className="qa-chain-item">
+          <span className="qa-chain-label">局限：</span>
+          <span className="qa-chain-text" style={{ color: "var(--yellow)" }}>
+            {a.limitations_summary}
+          </span>
+        </div>
+      </div>
+
+      {/* Trace display (T042) */}
+      {showTrace && (
+        <div
+          className="card"
+          style={{
+            marginTop: 10,
+            padding: 10,
+            background: "rgba(0,0,0,0.2)",
+            fontSize: 11,
+          }}
+        >
+          <div style={{ fontWeight: "bold", marginBottom: 6, fontSize: 12 }}>
+            Run Trace ({trace.trace_id})
+          </div>
+          <div style={{ color: "var(--text2)", marginBottom: 4 }}>
+            Provider: {trace.provider_kind} | Intent: {trace.matched_intent}
+          </div>
+          {trace.steps.map((step) => (
+            <div key={step.step_id} style={{ marginBottom: 6, paddingLeft: 8, borderLeft: "2px solid var(--border)" }}>
+              <span style={{ fontWeight: "bold" }}>{step.kind}</span>
+              <span style={{ color: "var(--text2)", marginLeft: 6 }}>
+                {step.description}
+              </span>
+              {step.input_artifacts.length > 0 && (
+                <div style={{ color: "var(--text2)", marginTop: 2 }}>
+                  输入: {step.input_artifacts.join(", ")}
+                </div>
+              )}
+              <div style={{ color: "var(--green)", marginTop: 2 }}>
+                输出: {step.output_summary}
+              </div>
+            </div>
+          ))}
+          {trace.artifacts_used.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <span style={{ fontWeight: "bold" }}>Artifacts used:</span>{" "}
+              {trace.artifacts_used.join(", ")}
+            </div>
+          )}
+          {trace.evidence_ids.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <span style={{ fontWeight: "bold" }}>Evidence IDs:</span>{" "}
+              {trace.evidence_ids.slice(0, 5).join(", ")}
+              {trace.evidence_ids.length > 5 && ` +${trace.evidence_ids.length - 5} more`}
+            </div>
+          )}
+          {trace.limitations.length > 0 && (
+            <div style={{ marginTop: 4, color: "var(--yellow)" }}>
+              <span style={{ fontWeight: "bold" }}>Limitations:</span>{" "}
+              {trace.limitations.join("; ")}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Referenced nodes (clickable) */}
+      {a.referenced_nodes.length > 0 && (
+        <div className="qa-refs">
+          <span className="qa-refs-label">相关节点：</span>
+          {a.referenced_nodes.slice(0, 8).map((id) => (
+            <button
+              key={id}
+              className="qa-ref-btn"
+              onClick={() => onNavigateNode(id)}
+            >
+              {id.length > 20 ? id.slice(0, 20) + "…" : id}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Referenced claims (clickable) */}
+      {a.referenced_claims.length > 0 && (
+        <div className="qa-refs">
+          <span className="qa-refs-label">Claims：</span>
+          {a.referenced_claims.slice(0, 8).map((id) => (
+            <button
+              key={id}
+              className="qa-ref-btn"
+              onClick={() => onNavigateNode(id)}
+            >
+              {id.length > 20 ? id.slice(0, 20) + "…" : id}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Referenced evidence IDs */}
+      {a.referenced_evidence.length > 0 && (
+        <div className="qa-refs">
+          <span className="qa-refs-label">证据 ID：</span>
+          {a.referenced_evidence.slice(0, 6).map((id) => (
+            <span
+              key={id}
+              className="qa-ref-btn"
+              style={{ cursor: "default" }}
+              title={id}
+            >
+              {id.length > 25 ? id.slice(0, 25) + "…" : id}
+            </span>
+          ))}
+          {a.referenced_evidence.length > 6 && (
+            <span style={{ fontSize: 10, color: "var(--text2)" }}>
+              +{a.referenced_evidence.length - 6} 条
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Follow up */}
+      {isLatest && a.follow_up_questions.length > 0 && (
+        <div className="qa-followup">
+          <span className="qa-refs-label">继续提问：</span>
+          {a.follow_up_questions.slice(0, 3).map((q) => (
+            <button
+              key={q}
+              className="btn btn-secondary qa-suggestion-btn"
+              style={{ fontSize: 11 }}
+              onClick={() => onSuggested(q)}
+            >
+              {q}
+            </button>
+          ))}
         </div>
       )}
     </div>
