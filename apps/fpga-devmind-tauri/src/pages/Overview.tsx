@@ -241,6 +241,49 @@ function Overview({ summary, bundle, onSelectNode, onNavigateGraph }: Props) {
         );
       })()}
 
+      {/* Discovery Quality (T036) */}
+      {(() => {
+        // Extract V2 fields from evidence chain
+        const chains = Object.entries(bundle.index.evidence_chain || {});
+        if (chains.length === 0) return null;
+
+        const withSelectionReason = chains.filter(([_, chain]: [string, any]) =>
+          chain.selection_reason
+        );
+
+        if (withSelectionReason.length === 0) return null;
+
+        return (
+          <div className="card" style={{ borderLeft: "3px solid var(--accent)" }}>
+            <div className="card-title">Discovery Quality</div>
+            <div style={{ fontSize: 13 }}>
+              {withSelectionReason.map(([concept, chain]: [string, any]) => (
+                <div key={concept} style={{ marginBottom: 8, padding: "4px 0" }}>
+                  <strong>{concept}</strong>
+                  {chain.aliases && chain.aliases.length > 0 && (
+                    <span style={{ color: "var(--text2)", marginLeft: 8 }}>
+                      aliases: {chain.aliases.join(", ")}
+                    </span>
+                  )}
+                  <div style={{ color: "var(--text2)", marginTop: 2 }}>
+                    {chain.selection_reason || "No selection reason"}
+                  </div>
+                  <div style={{ color: chain.why_core_or_secondary === "core" ? "var(--green)" : "var(--yellow)", marginTop: 2 }}>
+                    {chain.why_core_or_secondary === "core" ? "● Core" : "○ Secondary"}
+                    {chain.confidence_explanation && ` — ${chain.confidence_explanation}`}
+                  </div>
+                  {chain.missing && chain.missing.length > 0 && (
+                    <div style={{ color: "var(--red)", marginTop: 2 }}>
+                      Missing: {chain.missing.join(", ")}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Quick actions */}
       <div className="card">
         <div className="card-title">快速操作</div>

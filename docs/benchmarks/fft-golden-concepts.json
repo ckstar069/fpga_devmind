@@ -1,0 +1,94 @@
+{
+  "schema_version": "golden-concepts-0.1",
+  "project_id": "fpga_project_fft",
+  "project_root": "/Users/ckstar/Repo/znxt_ofdm/fpga_project_fft",
+  "description": "FFT/IFFT: DIF butterfly stages, twiddle generation, fixed-point DFT core",
+  "expected_core_concepts": [
+    {
+      "concept": "fft",
+      "aliases": ["FFT", "fft_core", "FFTCycleAccurate", "fft_fixed", "fft_algorithm"],
+      "why_core": "Main FFT computation — the central function of this project",
+      "expected_l5_l6_files": ["fft_fixed.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "butterfly",
+      "aliases": ["butterfly_stage", "ButterflyStageFixed", "DIFButterflyStage", "dif_butterfly", "radix4"],
+      "why_core": "Butterfly operation — the fundamental FFT computation unit",
+      "expected_l5_l6_files": ["fft_fixed.py", "dif_butterfly.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "twiddle",
+      "aliases": ["twiddle_factor", "_generate_twiddles", "_get_twiddle", "twiddle_table"],
+      "why_core": "Twiddle factor generation and lookup for FFT stages",
+      "expected_l5_l6_files": ["fft_fixed.py", "dft_fixed.py", "dif_butterfly.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "signal"
+    },
+    {
+      "concept": "dft",
+      "aliases": ["DFT", "DFTCoreFixed", "dft_core", "dft_fixed", "idft"],
+      "why_core": "DFT core computation — alternative to butterfly-based FFT",
+      "expected_l5_l6_files": ["dft_fixed.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "stage",
+      "aliases": ["fft_stage", "process_stage", "butterfly_stages", "num_stages"],
+      "why_core": "FFT pipeline stages — controls the multi-stage decomposition",
+      "expected_l5_l6_files": ["fft_fixed.py", "dif_butterfly.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "bit_reverse",
+      "aliases": ["digit_reverse", "bit_reversal", "_generate_bit_reverse_indices"],
+      "why_core": "Bit/digit reversal permutation for FFT output ordering",
+      "expected_l5_l6_files": ["fft_fixed.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "function"
+    }
+  ],
+  "expected_secondary_concepts": [
+    {
+      "concept": "sine_table",
+      "aliases": ["sine", "_init_sine_table", "sin_table"],
+      "why_secondary": "Sine table for twiddle factor computation",
+      "semantic_role": "signal"
+    },
+    {
+      "concept": "axis_interface",
+      "aliases": ["axis", "AXIStream", "axis_interface_fixed"],
+      "why_secondary": "AXI-Stream interface wrapper",
+      "semantic_role": "interface"
+    },
+    {
+      "concept": "saturation",
+      "aliases": ["saturate", "sat_bits", "overflow"],
+      "why_secondary": "Fixed-point saturation handling",
+      "semantic_role": "function"
+    },
+    {
+      "concept": "convergent_round",
+      "aliases": ["_scale_convergent", "rounding", "convergent"],
+      "why_secondary": "Convergent rounding for fixed-point scaling",
+      "semantic_role": "function"
+    }
+  ],
+  "excluded_terms": [
+    {"term": "cfg", "reason": "configuration"},
+    {"term": "config", "reason": "FFTConfig dataclass, parameter holder"},
+    {"term": "pytestmark", "reason": "test framework"},
+    {"term": "expected", "reason": "test variable"},
+    {"term": "actual", "reason": "test variable"},
+    {"term": "model", "reason": "generic reference"},
+    {"term": "pipeline", "reason": "too generic"},
+    {"term": "core", "reason": "too generic — should be fft_core, dft_core, etc."},
+    {"term": "frac_bits", "reason": "fixed-point parameter, not a concept"},
+    {"term": "final", "reason": "generic variable name"}
+  ]
+}

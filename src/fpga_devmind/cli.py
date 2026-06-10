@@ -103,6 +103,14 @@ def build_parser() -> argparse.ArgumentParser:
     p1b_benchmark.add_argument("--projects-parent", type=Path, required=True)
     p1b_benchmark.add_argument("--out", type=Path, required=True)
 
+    p1b_eval = sub.add_parser(
+        "p1b-evaluate-discovery",
+        help="Evaluate auto-discovery against golden benchmark spec (T036)",
+    )
+    p1b_eval.add_argument("--project", type=Path, required=True)
+    p1b_eval.add_argument("--golden-spec", type=Path, required=True)
+    p1b_eval.add_argument("--out", type=Path, required=True)
+
     noop = sub.add_parser(
         "agent-noop-run",
         help="Run local no-op ReAct dry run over a P1a/P1b artifact bundle",
@@ -271,6 +279,37 @@ def main(argv: list[str] | None = None) -> int:
                 len(entry.get("recommended_concepts", [])),
             ))
         return 0
+    if args.command == "p1b-evaluate-discovery":
+        from .discovery_eval import evaluate_discovery
+        from .safety import ensure_safe_output_dir
+
+        safe_out = ensure_safe_output_dir(args.out, label="evaluation output")
+        safe_out.mkdir(parents=True, exist_ok=True)
+
+        result = evaluate_discovery(args.project, args.golden_spec)
+
+        # Write result JSON
+        result_json = safe_out / "discovery_eval_result.json"
+        result_json.write_text(
+            json.dumps(result.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        # Print summary
+        print("Project: {}".format(result.project_id))
+        print("Golden core concepts: {}".format(result.golden_core_count))
+        print("Golden secondary concepts: {}".format(result.golden_secondary_count))
+        print("Matched core: {} / {}".format(len(result.matched_core), result.golden_core_count))
+        if result.missed_core:
+            print("Missed core: {}".format(", ".join(result.missed_core)))
+        print("Matched secondary: {} / {}".format(len(result.matched_secondary), result.golden_secondary_count))
+        if result.unexpected_selected:
+            print("Unexpected selected: {}".format(", ".join(result.unexpected_selected)))
+        print("Precision-like: {:.2%}".format(result.precision_like))
+        print("Recall-like: {:.2%}".format(result.recall_like))
+        print("Output: {}".format(result_json))
+        return 0
+
     if args.command == "agent-noop-run":
         from .agent_noop_runtime import run_noop_agent_once
 

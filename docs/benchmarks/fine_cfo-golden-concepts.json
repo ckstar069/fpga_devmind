@@ -1,0 +1,87 @@
+{
+  "schema_version": "golden-concepts-0.1",
+  "project_id": "fpga_project_fine_cfo",
+  "project_root": "/Users/ckstar/Repo/znxt_ofdm/fpga_project_fine_cfo",
+  "description": "Fine CFO estimation: LTS correlation → first path detection → CORDIC angle → CFO",
+  "expected_core_concepts": [
+    {
+      "concept": "fine_cfo",
+      "aliases": ["cfo", "cfo_est", "cfo_estimator", "cfo_hz", "cfo_rad", "streaming_cfo"],
+      "why_core": "Fine carrier frequency offset estimation — the main output",
+      "expected_l5_l6_files": ["fine_cfo_estimator_fixedpoint.py", "fine_cfo_estimator_optimized.py", "streaming_pipeline_fp.py"],
+      "expected_rtl_files": ["streaming_cfo_estimator.v"],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "correlator",
+      "aliases": ["correlation", "streaming_correlator", "short_correlator", "lts_corr"],
+      "why_core": "LTS correlation for preamble detection and phase reference",
+      "expected_l5_l6_files": ["fine_cfo_estimator_fixedpoint.py", "streaming_pipeline_fp.py"],
+      "expected_rtl_files": ["streaming_correlator.v", "streaming_short_correlator.v"],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "first_path",
+      "aliases": ["fpd", "first_path_detect", "_detect_first_path", "streaming_fpd", "lts_start"],
+      "why_core": "First path detection to find the start of LTS within the correlation window",
+      "expected_l5_l6_files": ["fine_cfo_estimator_fixedpoint.py", "streaming_pipeline_fp.py"],
+      "expected_rtl_files": ["streaming_fpd.v"],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "cordic",
+      "aliases": ["atan2", "cordic_l5", "_atan2_cordic"],
+      "why_core": "CORDIC atan2 for computing CFO phase angle",
+      "expected_l5_l6_files": ["fine_cfo_estimator_fixedpoint.py", "streaming_pipeline_fp.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "lts",
+      "aliases": ["lts_ref", "long_training", "preamble_lts"],
+      "why_core": "Long Training Sequence reference for correlation-based CFO estimation",
+      "expected_l5_l6_files": ["fine_cfo_estimator_fixedpoint.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "signal"
+    },
+    {
+      "concept": "sync",
+      "aliases": ["sync_fp", "FixedPointSync", "sync_detect", "metric_peak"],
+      "why_core": "Synchronization/preamble detection stage that feeds into CFO estimation",
+      "expected_l5_l6_files": ["fine_cfo_estimator_fixedpoint.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "function"
+    }
+  ],
+  "expected_secondary_concepts": [
+    {
+      "concept": "streaming",
+      "aliases": ["streaming_pipeline", "StreamingPipelineFP"],
+      "why_secondary": "Streaming (sample-by-sample) processing mode",
+      "semantic_role": "function"
+    },
+    {
+      "concept": "circular_buffer",
+      "aliases": ["CircularBufferFP", "fifo", "sample_fifo"],
+      "why_secondary": "Circular buffer / FIFO for streaming sample storage",
+      "semantic_role": "function"
+    },
+    {
+      "concept": "complex_multiply",
+      "aliases": ["cmpy_dsp48", "signed_mult_pipe", "unsigned_mult_pipe"],
+      "why_secondary": "Complex/signed multiplication primitives",
+      "semantic_role": "function"
+    }
+  ],
+  "excluded_terms": [
+    {"term": "cfg", "reason": "configuration object"},
+    {"term": "config", "reason": "configuration dataclass"},
+    {"term": "pytestmark", "reason": "test framework marker"},
+    {"term": "expected", "reason": "test variable"},
+    {"term": "actual", "reason": "test variable"},
+    {"term": "model", "reason": "generic reference"},
+    {"term": "pipeline", "reason": "too generic — should be specific pipeline like streaming_pipeline or cfo_pipeline"},
+    {"term": "angle", "reason": "part of cordic/cfo concept, not standalone"},
+    {"term": "metric", "reason": "too generic without context"}
+  ]
+}

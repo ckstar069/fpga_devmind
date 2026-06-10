@@ -59,12 +59,16 @@ class TestDiscoverConcepts:
             assert stop_word not in candidate_names, f"Stop word '{stop_word}' found in candidates"
 
     def test_high_confidence_cross_stage(self):
-        """High confidence candidates should appear in multiple sections."""
+        """High confidence candidates should have cross-stage evidence OR be domain terms."""
         result = discover_concepts(PROJECT_ROOT)
         high = [c for c in result.candidates if c.confidence == "high"]
         assert len(high) > 0
         for c in high:
-            assert len(c.source_sections) >= 2, f"{c.name} has high confidence but only {c.source_sections}"
+            is_domain = c.name.lower() in DOMAIN_TERMS
+            has_cross_stage = len(c.source_sections) >= 2
+            assert is_domain or has_cross_stage, (
+                f"{c.name} has high confidence but only {c.source_sections} and is not a domain term"
+            )
 
     def test_sorted_by_confidence_and_count(self):
         """Candidates should be sorted: high first, then by occurrence count desc."""

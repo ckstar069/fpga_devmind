@@ -478,6 +478,47 @@ function ConceptChainView({
                 Missing: {ch.missing.join(", ")}
               </div>
             )}
+
+            {/* T036: V2 evidence chain fields */}
+            {ch.chain && (
+              <div style={{ marginTop: 6, padding: "4px 8px", backgroundColor: "rgba(128,128,128,0.06)", borderRadius: 4 }}>
+                {ch.chain.selection_reason && (
+                  <div style={{ fontSize: 11, color: "var(--text2)", marginBottom: 2 }}>
+                    <strong>Selection:</strong> {ch.chain.selection_reason}
+                  </div>
+                )}
+                {ch.chain.confidence_explanation && (
+                  <div style={{ fontSize: 11, color: "var(--text2)", marginBottom: 2 }}>
+                    <strong>Confidence:</strong> {ch.chain.confidence_explanation}
+                  </div>
+                )}
+                {ch.chain.why_core_or_secondary && (
+                  <div style={{ fontSize: 11, marginTop: 2 }}>
+                    <span style={{
+                      display: "inline-block",
+                      padding: "1px 6px",
+                      borderRadius: 3,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      backgroundColor: ch.chain.why_core_or_secondary === "core" ? "var(--green)" : "var(--yellow)",
+                      color: ch.chain.why_core_or_secondary === "core" ? "#fff" : "#000",
+                    }}>
+                      {ch.chain.why_core_or_secondary === "core" ? "Core" : "Secondary"}
+                    </span>
+                  </div>
+                )}
+                {ch.chain.aliases && ch.chain.aliases.length > 0 && (
+                  <div style={{ fontSize: 10, color: "var(--text2)", marginTop: 2 }}>
+                    Aliases: {ch.chain.aliases.join(", ")}
+                  </div>
+                )}
+                {ch.chain.missing && ch.chain.missing.length > 0 && (
+                  <div style={{ fontSize: 11, color: "var(--red)", marginTop: 4, fontWeight: 600 }}>
+                    Missing evidence: {ch.chain.missing.join(", ")}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ))}

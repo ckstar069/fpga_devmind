@@ -528,6 +528,13 @@ def _build_project_index(
         if not chain["test_evidence"]:
             chain["missing"].append("test evidence")
 
+        # V2 additions: aliases, selection_reason, confidence_explanation,
+        # why_core_or_secondary
+        chain["aliases"] = []
+        chain["selection_reason"] = ""
+        chain["confidence_explanation"] = _build_confidence_explanation(chain)
+        chain["why_core_or_secondary"] = _classify_core_or_secondary(chain)
+
         evidence_chain[concept] = chain
 
     return {
@@ -815,6 +822,99 @@ def _render_project_mermaid(graph: dict[str, Any]) -> str:  # pyright: ignore[re
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _build_confidence_explanation(chain: dict[str, Any]) -> str:  # pyright: ignore[reportExplicitAny]
+    """Build a human-readable confidence explanation from evidence chain data.
+
+    Parameters
+    ----------
+    chain : dict[str, Any]
+        Evidence chain dictionary with l5_l6_evidence, rtl_evidence, test_evidence.
+
+    Returns
+    -------
+    str
+        Human-readable confidence explanation string.
+    """
+    l5l6_count = len(chain.get("l5_l6_evidence", []))
+    rtl_count = len(chain.get("rtl_evidence", []))
+    test_count = len(chain.get("test_evidence", []))
+    claim_count = len(chain.get("claims", []))
+    missing = chain.get("missing", [])
+
+    parts: list[str] = []
+
+    if l5l6_count > 0:
+        parts.append("L5/L6 ({} ref{})".format(l5l6_count, "s" if l5l6_count != 1 else ""))
+    if rtl_count > 0:
+        parts.append("RTL ({} ref{})".format(rtl_count, "s" if rtl_count != 1 else ""))
+    if test_count > 0:
+        parts.append("tests ({} ref{})".format(test_count, "s" if test_count != 1 else ""))
+
+    if not parts:
+        return "No confidence: no evidence found"
+
+    total_refs = l5l6_count + rtl_count + test_count
+    cross_stage = (l5l6_count > 0 and rtl_count > 0)
+
+    if cross_stage and total_refs >= 4:
+        level = "High"
+    elif cross_stage:
+        level = "High"
+    elif total_refs >= 3:
+        level = "Medium"
+    elif total_refs == 1:
+        level = "Low"
+    else:
+        level = "Medium"
+
+    explanation = "{} confidence: found in {}".format(level, ", ".join(parts))
+    if claim_count > 0:
+        explanation += " with {} claim{}".format(claim_count, "s" if claim_count != 1 else "")
+    if missing:
+        explanation += " — missing: {}".format(", ".join(missing))
+    if cross_stage:
+        explanation += " — cross-stage evidence"
+
+    return explanation
+
+
+def _classify_core_or_secondary(chain: dict[str, Any]) -> str:  # pyright: ignore[reportExplicitAny]
+    """Classify a concept as core or secondary based on evidence chain data.
+
+    A concept is "core" if it has cross-stage evidence (L5/L6 + RTL) or
+    high total occurrence count. Otherwise it is "secondary".
+
+    Parameters
+    ----------
+    chain : dict[str, Any]
+        Evidence chain dictionary.
+
+    Returns
+    -------
+    str
+        Classification string: "core: <reason>" or "secondary: <reason>".
+    """
+    l5l6_count = len(chain.get("l5_l6_evidence", []))
+    rtl_count = len(chain.get("rtl_evidence", []))
+    test_count = len(chain.get("test_evidence", []))
+    total = l5l6_count + rtl_count + test_count
+
+    has_cross_stage = l5l6_count > 0 and rtl_count > 0
+    has_high_count = total >= 4
+
+    if has_cross_stage:
+        return "core: cross-stage evidence (L5/L6 + RTL)"
+    if has_high_count:
+        return "core: high occurrence count ({} refs)".format(total)
+    if l5l6_count > 0 and rtl_count == 0:
+        return "secondary: domain term found in L5/L6 only"
+    if rtl_count > 0 and l5l6_count == 0:
+        return "secondary: RTL-only evidence"
+    if test_count > 0 and l5l6_count == 0 and rtl_count == 0:
+        return "secondary: test-only evidence"
+    return "secondary: limited evidence"
 
 
 def _concept_node_id(concept: str) -> str:

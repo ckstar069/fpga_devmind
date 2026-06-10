@@ -1,0 +1,112 @@
+{
+  "schema_version": "golden-concepts-0.1",
+  "project_id": "fpga_project_coarse_sync_glm",
+  "project_root": "/Users/ckstar/Repo/znxt_ofdm/fpga_project_coarse_sync_glm",
+  "description": "Coarse synchronization: autocorrelation → merge → smooth/peak detection → CFO estimation",
+  "expected_core_concepts": [
+    {
+      "concept": "autocorr",
+      "aliases": ["autocorrelation", "autocorr_metric", "corr_metric", "s0_autocorr"],
+      "why_core": "Stage 0: autocorrelation metric computation for preamble detection",
+      "expected_l5_l6_files": ["coarse_sync_fixedpoint.py", "coarse_sync_optimized.py"],
+      "expected_rtl_files": ["coarse_sync_s0_autocorr.v"],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "merge",
+      "aliases": ["s1_merge", "merge_stage", "merge_fixed"],
+      "why_core": "Stage 1: merge multiple autocorrelation windows with SNR/delay weighting",
+      "expected_l5_l6_files": ["coarse_sync_fixedpoint.py", "coarse_sync_optimized.py"],
+      "expected_rtl_files": ["coarse_sync_s1_merge.v"],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "smooth_detect",
+      "aliases": ["smooth", "smoothing", "sma", "s2_smooth", "smooth_detect_fixed"],
+      "why_core": "Stage 2: SMA smoothing + peak detection to find coarse timing",
+      "expected_l5_l6_files": ["coarse_sync_fixedpoint.py", "coarse_sync_optimized.py"],
+      "expected_rtl_files": ["coarse_sync_s2_smooth_detect.v"],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "peak_idx",
+      "aliases": ["peak", "peak_index", "out_peak_idx", "s2_peak_idx", "detect_peak"],
+      "why_core": "Peak position output from smooth detection — the main timing result",
+      "expected_l5_l6_files": ["coarse_sync_fixedpoint.py"],
+      "expected_rtl_files": ["coarse_sync_s2_smooth_detect.v"],
+      "semantic_role": "signal"
+    },
+    {
+      "concept": "cfo",
+      "aliases": ["cfo_est", "carrier_freq_offset", "freq_offset", "cfo_fixed", "s3_cfo", "cfo_hz"],
+      "why_core": "Stage 3: carrier frequency offset estimation from preamble phase",
+      "expected_l5_l6_files": ["coarse_sync_fixedpoint.py", "coarse_sync_optimized.py"],
+      "expected_rtl_files": ["coarse_sync_s3_cfo.v"],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "cordic",
+      "aliases": ["atan2", "fixed_point_atan2", "cordic_l5"],
+      "why_core": "CORDIC/atan2 computation used for CFO angle estimation",
+      "expected_l5_l6_files": ["coarse_sync_fixedpoint.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "coarse_sync",
+      "aliases": ["coarse_sync_pipeline", "coarse_sync_top"],
+      "why_core": "Top-level pipeline integrating all stages",
+      "expected_l5_l6_files": ["coarse_sync_pipeline_l5.py"],
+      "expected_rtl_files": ["coarse_sync_top.v"],
+      "semantic_role": "function"
+    },
+    {
+      "concept": "energy",
+      "aliases": ["seg_energy", "window_energy", "metric_energy"],
+      "why_core": "Signal energy computation used for normalization and SNR weighting",
+      "expected_l5_l6_files": ["coarse_sync_fixedpoint.py"],
+      "expected_rtl_files": [],
+      "semantic_role": "signal"
+    }
+  ],
+  "expected_secondary_concepts": [
+    {
+      "concept": "normalize",
+      "aliases": ["normalization", "norm", "normalize_q"],
+      "why_secondary": "Normalization of autocorrelation by energy — supporting computation",
+      "semantic_role": "function"
+    },
+    {
+      "concept": "qfmt",
+      "aliases": ["q_format", "QFormat", "fixed_point"],
+      "why_secondary": "Fixed-point quantization format used throughout",
+      "semantic_role": "parameter"
+    },
+    {
+      "concept": "axis",
+      "aliases": ["axis_valid", "AxisValidOnly"],
+      "why_secondary": "AXI-Stream interface wrapper",
+      "semantic_role": "interface"
+    },
+    {
+      "concept": "dsp48",
+      "aliases": ["cmpy_valid_dsp48", "complex_multiply"],
+      "why_secondary": "Complex multiply using DSP48 primitive",
+      "semantic_role": "function"
+    }
+  ],
+  "excluded_terms": [
+    {"term": "cfg", "reason": "configuration object, not core implementation concept"},
+    {"term": "config", "reason": "configuration dataclass, parameter holder not a function"},
+    {"term": "pytestmark", "reason": "test framework marker"},
+    {"term": "expected", "reason": "test variable name"},
+    {"term": "actual", "reason": "test variable name"},
+    {"term": "results", "reason": "generic result container"},
+    {"term": "model", "reason": "generic model reference"},
+    {"term": "updates", "reason": "generic variable"},
+    {"term": "last", "reason": "generic index"},
+    {"term": "metric", "reason": "too generic without context — should be autocorr_metric or corr_metric"},
+    {"term": "angle", "reason": "should be part of cfo/cordic concept, not standalone"},
+    {"term": "pipeline", "reason": "too generic — should be coarse_sync_pipeline or specific stage"}
+  ]
+}

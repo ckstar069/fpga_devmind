@@ -228,6 +228,11 @@ export interface EvidenceChain {
   rtl_evidence: EvidenceChainItem[];
   test_evidence: EvidenceChainItem[];
   missing: string[];
+  // V2 fields (optional for backward compat)
+  aliases?: string[];
+  selection_reason?: string;
+  confidence_explanation?: string;
+  why_core_or_secondary?: string;
 }
 
 export interface EvidenceChainItem {
@@ -256,4 +261,86 @@ export interface ProjectInfo {
   has_L6: boolean;
   has_RTL: boolean;
   has_tests: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/*  T036: Discovery Quality, Golden Spec, Agent Q&A                  */
+/* ------------------------------------------------------------------ */
+
+/** V2 discovery result from Python backend */
+export interface DiscoveryResultV2 {
+  schema_version: string;
+  project_id: string;
+  candidates: ConceptCandidateV2[];
+  mode: string;
+  total_raw_symbols: number;
+  total_after_filter: number;
+}
+
+export interface ConceptCandidateV2 {
+  name: string;
+  aliases: string[];
+  source_sections: string[];
+  occurrence_count: number;
+  confidence: string;
+  reason: string;
+  representative_files: string[];
+  likely_stage: string;
+  semantic_role: string;
+  score_breakdown: ScoreBreakdown;
+  selection_reason: string;
+  compound_source: string;
+}
+
+export interface ScoreBreakdown {
+  cross_stage_bonus: number;
+  key_position_bonus: number;
+  domain_term_bonus: number;
+  test_presence_bonus: number;
+  occurrence_score: number;
+  alias_group_bonus: number;
+  generic_penalty: number;
+  total: number;
+}
+
+/** Golden benchmark spec */
+export interface GoldenSpec {
+  schema_version: string;
+  project_id: string;
+  expected_core_concepts: GoldenConcept[];
+  expected_secondary_concepts: GoldenConcept[];
+  excluded_terms: Array<{ term: string; reason: string }>;
+}
+
+export interface GoldenConcept {
+  concept: string;
+  aliases: string[];
+  why_core: string;
+  expected_l5_l6_files: string[];
+  expected_rtl_files: string[];
+  semantic_role: string;
+}
+
+/** Evaluation result */
+export interface EvalResult {
+  project_id: string;
+  golden_core_count: number;
+  matched_core: string[];
+  missed_core: string[];
+  unexpected_selected: string[];
+  precision_like: number;
+  recall_like: number;
+}
+
+/** Evidence chain V2 per concept */
+export interface EvidenceChainV2 {
+  l5_l6_evidence: EvidenceChainItem[];
+  claims: Array<{ claim_id: string; bridge_kind: string; confidence: string }>;
+  rtl_evidence: EvidenceChainItem[];
+  test_evidence: EvidenceChainItem[];
+  missing: string[];
+  aliases: string[];
+  selection_reason: string;
+  confidence_explanation: string;
+  why_core_or_secondary: string;
 }

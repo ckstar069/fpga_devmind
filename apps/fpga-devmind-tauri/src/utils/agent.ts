@@ -13,6 +13,9 @@ export const SUGGESTED_QUESTIONS = [
   "哪些 RTL 文件承载了多个概念？",
   "哪些证据最关键？",
   "项目的不确定性有哪些？",
+  "为什么这些概念被选中？",
+  "哪些概念缺少测试证据？",
+  "发现质量如何？",
   "画出项目理解图",
   "解释当前选中节点",
 ];
@@ -130,6 +133,21 @@ export function answerQuestion(
 
   if (q.includes("选中") || q.includes("解释") || q.includes("当前节点")) {
     return answerExplainSelected(bundle, q, selectedNodeId);
+  }
+
+  // T036: "为什么这些概念被选中？" / "selection reason"
+  if (q.includes("为什么") && (q.includes("选中") || q.includes("选择") || q.includes("选出"))) {
+    return answerSelectionReasons(bundle, q);
+  }
+
+  // T036: "哪些概念缺少测试证据？"
+  if (q.includes("缺少") && q.includes("测试")) {
+    return answerMissingTestEvidence(bundle, q);
+  }
+
+  // T036: "发现质量如何？"
+  if (q.includes("发现质量") || (q.includes("发现") && q.includes("质量"))) {
+    return answerDiscoveryQuality(bundle, q);
   }
 
   // Generic concept name matching: if any concept name appears in the question
@@ -667,5 +685,173 @@ function answerExplainSelected(
     conclusion: `节点 "${node.label}"（${node.kind}），置信度 ${node.confidence ?? "unknown"}。`,
     strength: node.confidence ?? "unknown",
     limitations_summary: "此节点类型的分析有限，请在 Understanding Card 查看详情。",
+  });
+}
+
+/* ================================================================== */
+/*  T036: Discovery Quality Agent Answers                             */
+/* ================================================================== */
+
+function answerSelectionReasons(bundle: ProjectBundle, q: string): AgentAnswer {
+  const chainData = bundle.index.evidence_chain;
+  const { nodes } = bundle.graph;
+  const concepts = nodes.filter((n) => n.kind === "concept");
+
+  if (!chainData || Object.keys(chainData).length === 0) {
+    return makeAnswer({
+      question: q,
+      answer: `当前 bundle 没有 V2 evidence chain 数据，无法提供选择原因。\n\n识别出的概念：\n` +
+        concepts.map((c) => `  • ${c.label} (${c.confidence ?? "unknown"})`).join("\n"),
+      referenced_nodes: concepts.map((c) => c.node_id),
+      referenced_claims: [],
+      referenced_evidence: [],
+      follow_up_questions: ["自动识别出了哪些概念？", "哪些概念达到了 supported 置信度？"],
+      conclusion: "无 V2 选择原因数据。",
+      strength: "none",
+      limitations_summary: "需要运行带有 V2 discovery 的 trace 才能获取选择原因。",
+    });
+  }
+
+  const entries = Object.entries(chainData);
+  const withReason = entries.filter(([_, chain]: [string, any]) => (chain as any).selection_reason);
+
+  const answer = `概念选择原因分析（${withReason.length}/${entries.length} 概念有选择原因）：\n\n` +
+    entries.map(([concept, chain]: [string, any]) => {
+      const c = chain as any;
+      return `• ${concept}\n` +
+        (c.selection_reason ? `  选择原因：${c.selection_reason}\n` : "  选择原因：未记录\n") +
+        (c.why_core_or_secondary ? `  分类：${c.why_core_or_secondary === "core" ? "核心概念" : "次要概念"}\n` : "") +
+        (c.confidence_explanation ? `  置信度说明：${c.confidence_explanation}\n` : "") +
+        (c.aliases && c.aliases.length > 0 ? `  别名：${c.aliases.join("、")}\n` : "");
+    }).join("\n");
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: concepts.map((c) => c.node_id),
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "发现质量如何？",
+      "哪些概念缺少测试证据？",
+      "自动识别出了哪些概念？",
+    ],
+    conclusion: `${withReason.length} 个概念有选择原因记录。`,
+    strength: withReason.length > 0 ? "supported" : "inferred",
+    limitations_summary: "选择原因由 V2 discovery 自动生成，仅反映静态分析结果。",
+  });
+}
+
+function answerMissingTestEvidence(bundle: ProjectBundle, q: string): AgentAnswer {
+  const chainData = bundle.index.evidence_chain;
+  const { nodes } = bundle.graph;
+  const concepts = nodes.filter((n) => n.kind === "concept");
+
+  const missingTest: string[] = [];
+  const hasTest: string[] = [];
+
+  for (const c of concepts) {
+    const evEntries = Object.entries(bundle.index.evidence_index)
+      .filter(([, v]) => v.concept === c.label);
+    const hasTestEv = evEntries.some(([, v]) =>
+      v.source_type.startsWith("test_") || (v.file_path?.includes("test") ?? false)
+    );
+
+    // Also check evidence chain if available
+    if (chainData) {
+      const chain = (chainData as any)[c.label] as any;
+      if (chain?.missing && chain.missing.some((m: string) => m.toLowerCase().includes("test"))) {
+        missingTest.push(c.label);
+        continue;
+      }
+    }
+
+    if (hasTestEv) {
+      hasTest.push(c.label);
+    } else {
+      missingTest.push(c.label);
+    }
+  }
+
+  const answer = `测试证据分析：\n\n` +
+    `缺少测试证据的概念 (${missingTest.length})：\n` +
+    (missingTest.length > 0
+      ? missingTest.map((name) => `  • ${name}`).join("\n")
+      : "  所有概念都有测试证据") +
+    `\n\n有测试证据的概念 (${hasTest.length})：\n` +
+    (hasTest.length > 0
+      ? hasTest.map((name) => `  • ${name}`).join("\n")
+      : "  无");
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: concepts.map((c) => c.node_id),
+    referenced_claims: [],
+    referenced_evidence: [],
+    follow_up_questions: [
+      "哪些概念缺失 RTL 证据？",
+      "发现质量如何？",
+      "这个项目整体实现了什么？",
+    ],
+    conclusion: `${missingTest.length} 个概念缺少测试证据（共 ${concepts.length} 个概念）。`,
+    strength: missingTest.length === 0 ? "supported" : "inferred",
+    limitations_summary: "测试证据基于文件路径和 source_type 匹配，可能遗漏非标准命名的测试。",
+  });
+}
+
+function answerDiscoveryQuality(bundle: ProjectBundle, q: string): AgentAnswer {
+  const chainData = bundle.index.evidence_chain;
+  const { nodes } = bundle.graph;
+  const concepts = nodes.filter((n) => n.kind === "concept");
+  const claims = nodes.filter((n) => n.kind === "mapping_claim");
+  const supported = claims.filter((c) => c.confidence === "supported");
+  const inferred = claims.filter((c) => c.confidence === "inferred");
+
+  let answer = `发现质量概要：\n\n` +
+    `• 概念数量：${concepts.length}\n` +
+    `• 映射声明：${claims.length}（${supported.length} supported，${inferred.length} inferred）\n` +
+    `• 证据总数：${bundle.metadata.evidence_items}\n`;
+
+  if (chainData && Object.keys(chainData).length > 0) {
+    const entries = Object.entries(chainData);
+    const coreCount = entries.filter(([_, chain]: [string, any]) =>
+      (chain as any).why_core_or_secondary === "core"
+    ).length;
+    const secondaryCount = entries.filter(([_, chain]: [string, any]) =>
+      (chain as any).why_core_or_secondary === "secondary"
+    ).length;
+    const withMissing = entries.filter(([_, chain]: [string, any]) =>
+      (chain as any).missing && (chain as any).missing.length > 0
+    );
+
+    answer += `\nV2 Discovery 质量指标：\n` +
+      `• 核心概念：${coreCount}，次要概念：${secondaryCount}\n` +
+      `• 有缺失证据的概念：${withMissing.length}/${entries.length}\n`;
+
+    if (withMissing.length > 0) {
+      answer += `\n缺失证据详情：\n` +
+        withMissing.map(([concept, chain]: [string, any]) =>
+          `  • ${concept}: ${(chain as any).missing.join(", ")}`
+        ).join("\n");
+    }
+  } else {
+    answer += `\n（当前无 V2 discovery 数据，无法提供详细质量分析。运行 V2 discovery 后可获取更多信息。）`;
+  }
+
+  return makeAnswer({
+    question: q,
+    answer,
+    referenced_nodes: concepts.map((c) => c.node_id),
+    referenced_claims: claims.map((c) => c.node_id),
+    referenced_evidence: [],
+    follow_up_questions: [
+      "为什么这些概念被选中？",
+      "哪些概念缺少测试证据？",
+      "哪些概念达到了 supported 置信度？",
+    ],
+    conclusion: `发现质量：${concepts.length} 个概念，${supported.length}/${claims.length} supported，${bundle.metadata.evidence_items} 条证据。`,
+    strength: supported.length >= concepts.length * 0.7 ? "supported" : "mixed",
+    limitations_summary: "质量评估基于静态分析，未经仿真或形式验证确认。",
   });
 }

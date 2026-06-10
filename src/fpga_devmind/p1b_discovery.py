@@ -1,9 +1,9 @@
-"""P1b concept auto-discovery engine (T035).
+"""P1b concept auto-discovery engine V2 (T035).
 
 Scans project source files (L5/L6 Python, RTL Verilog, tests) to discover
 candidate concept names using AST and regex analysis.
-
-Does not call LLM, does not modify target projects.
+V2 adds: alias aggregation, compound concepts, numeric scoring,
+semantic roles, and discovery modes.
 """
 from __future__ import annotations
 
@@ -15,9 +15,8 @@ from typing import Any
 
 from fpga_devmind.p1b_collectors import _discover_py_files, _discover_rtl_files, _discover_test_files
 
-DISCOVERY_SCHEMA_VERSION = "p1b-discovery-0.1"
+DISCOVERY_SCHEMA_VERSION = "p1b-discovery-0.2"
 
-# Generic names to exclude from concept candidates
 GENERIC_STOP_WORDS: frozenset[str] = frozenset({
     "reset", "clk", "clock", "data", "valid", "ready", "enable",
     "input", "output", "init", "start", "stop", "count", "index",
@@ -35,21 +34,26 @@ GENERIC_STOP_WORDS: frozenset[str] = frozenset({
     "pi", "e", "i", "j", "k", "n", "m", "x", "y", "z",
     "cls", "obj", "item", "element", "key", "name", "type",
     "path", "file", "dir", "dir_path", "base", "root",
-    # Additional generic names found in real discovery runs (T035)
     "min_len", "max_pos", "q_total_bits", "re_q", "im_q",
     "total_bits", "bits", "shift", "scale", "offset", "step",
     "sample", "samples", "range", "limit", "threshold_high", "threshold_low",
     "sum", "diff", "prod", "abs", "norm", "mean", "var", "std",
     "tol", "epsilon", "delta", "alpha", "beta", "gamma",
     "arg", "args", "kwargs", "return", "returns",
-    # Verilog/RTL keywords and common signal names
     "signed", "wire", "reg", "logic", "always", "assign", "module",
     "input", "output", "inout", "parameter", "localparam",
     "signal", "rng", "acc", "rom", "ram", "fifo", "mux",
     "clk_en", "we", "re", "ce", "cs", "oe",
+    # Additional generic noise (T036 calibration)
+    "sig", "cfg", "mod", "est", "exp", "recon", "rhs", "use",
+    "n_samples", "p_sq", "metrics", "structured", "num_stages",
+    "project_root", "measure_performance", "overflow", "underflow",
+    "q_scale", "pytest_configure", "threshold", "angle",
+    "n_fft", "q_z",
+    # T036 gate #4 additions
+    "expected", "actual", "results", "model",
 })
 
-# FPGA/OFDM domain terms to prioritize even if they'd normally be filtered
 DOMAIN_TERMS: frozenset[str] = frozenset({
     "cfo", "peak", "sync", "phase", "freq", "angle", "metric",
     "detect", "smooth", "corr", "threshold", "fft", "cordic",
@@ -66,278 +70,411 @@ DOMAIN_TERMS: frozenset[str] = frozenset({
     "scrambler", "descrambler", "interleaver",
 })
 
+_COMPOUND_GENERIC = frozenset({
+    "fixed", "stage", "pipeline", "fixedpoint", "fixedp", "module",
+    "component", "entity", "block", "unit", "handler", "manager",
+    "wrapper", "impl", "base", "abstract", "top", "tb",
+})
+_RE_CAMEL = re.compile(r"([A-Z]{2,}[0-9]*|[A-Z][a-z0-9]*)")
+_RE_MODULE = re.compile(r"^\s*module\s+(\w+)")
+_RE_SIGNAL = re.compile(r"^\s*(?:input|output|inout|reg|wire|logic)\s+(?:\[\S+?\]\s+)?(\w+)")
+_RE_PARAM = re.compile(r"^\s*(?:parameter|localparam)\s+.*?(\w+)\s*=")
+_RE_ALIAS_SUFFIX = re.compile(r"_(idx|index|pos|val|value|est|calc|result|out|in)$")
+
+
+@dataclass
+class ScoreBreakdown:
+    cross_stage_bonus: int = 0
+    key_position_bonus: int = 0
+    domain_term_bonus: int = 0
+    test_presence_bonus: int = 0
+    occurrence_score: int = 0
+    alias_group_bonus: int = 0
+    generic_penalty: int = 0
+    total: int = 0
+
 
 @dataclass
 class ConceptCandidate:
-    """A discovered concept candidate."""
     name: str
-    source_sections: list[str]  # ["L5_fixedpoint", "L6_resource_opt", "RTL", "tests"]
-    occurrence_count: int
-    confidence: str  # "high" | "medium" | "low"
-    reason: str
-    representative_files: list[str]
-    likely_stage: str  # "L5", "L6", "RTL", "test", "cross_stage", "unknown"
+    source_sections: list[str] = field(default_factory=list)
+    occurrence_count: int = 0
+    confidence: str = "low"
+    reason: str = ""
+    representative_files: list[str] = field(default_factory=list)
+    likely_stage: str = "unknown"
+    aliases: list[str] = field(default_factory=list)
+    semantic_role: str = "unknown"
+    score_breakdown: ScoreBreakdown = field(default_factory=ScoreBreakdown)
+    selection_reason: str = ""
+    compound_source: str = ""
 
 
 @dataclass
 class DiscoveryResult:
-    """Result of concept auto-discovery."""
     schema_version: str = DISCOVERY_SCHEMA_VERSION
     project_id: str = ""
     project_root: str = ""
     candidates: list[ConceptCandidate] = field(default_factory=list)
     diagnostics: list[dict[str, str]] = field(default_factory=list)
+    mode: str = "balanced"
+    total_raw_symbols: int = 0
+    total_after_filter: int = 0
 
 
-# RTL regex patterns (from p1b_rtl.py)
-_RE_MODULE = re.compile(r"^\s*module\s+(\w+)")
-_RE_SIGNAL_DECL = re.compile(r"^\s*(?:input|output|inout|reg|wire|logic)\s+(?:\[\S+?\]\s+)?(\w+)")
-_RE_PARAM = re.compile(r"^\s*(?:parameter|localparam)\s+.*?(\w+)\s*=")
-
-
-def discover_concepts(project_root: Path) -> DiscoveryResult:
-    """Scan all source sections for candidate concept names.
-
-    Parameters
-    ----------
-    project_root : Path
-        Root directory of the FPGA project.
-
-    Returns
-    -------
-    DiscoveryResult
-        Sorted list of concept candidates.
-    """
+def discover_concepts(project_root: Path, mode: str = "balanced") -> DiscoveryResult:
+    """Scan all source sections for candidate concept names."""
     root = project_root.resolve()
     if not root.is_dir():
         raise ValueError("Project root does not exist: {}".format(root))
+    result = DiscoveryResult(project_id=root.name, project_root=str(root), mode=mode)
+    smap: dict[str, dict[str, Any]] = {}
 
-    result = DiscoveryResult(
-        project_id=root.name,
-        project_root=str(root),
-    )
+    # Phase 1: collect
+    _scan_python_files(_discover_py_files(root / "src" / "python_model" / "L5_fixedpoint"), "L5_fixedpoint", smap)
+    _scan_python_files(_discover_py_files(root / "src" / "python_model" / "L6_resource_opt"), "L6_resource_opt", smap)
+    _scan_rtl_files(_discover_rtl_files(root / "src" / "verilog_model" / "rtl"), smap)
+    _scan_python_files(_discover_test_files(root), "tests", smap, is_test=True)
 
-    # Collect all symbol names from each section
-    # name -> {section: count, files: set, ...}
-    symbol_map: dict[str, dict[str, Any]] = {}
+    result.total_raw_symbols = len(smap)
 
-    # Scan L5
-    l5_dir = root / "src" / "python_model" / "L5_fixedpoint"
-    l5_files = _discover_py_files(l5_dir)
-    _scan_python_files(l5_files, "L5_fixedpoint", symbol_map)
+    # Phase 2: filter
+    filt = {n: i for n, i in smap.items()
+            if len(n) >= 3 and not _is_generic(n) and not n.replace("_", "").isdigit()}
+    result.total_after_filter = len(filt)
 
-    # Scan L6
-    l6_dir = root / "src" / "python_model" / "L6_resource_opt"
-    l6_files = _discover_py_files(l6_dir)
-    _scan_python_files(l6_files, "L6_resource_opt", symbol_map)
+    # Phase 3: compound concepts
+    _extract_compounds(filt)
 
-    # Scan RTL
-    rtl_dir = root / "src" / "verilog_model" / "rtl"
-    rtl_files = _discover_rtl_files(rtl_dir)
-    _scan_rtl_files(rtl_files, symbol_map)
+    # Phase 4: alias aggregation
+    groups = _build_alias_groups(filt)
 
-    # Scan tests
-    test_files = _discover_test_files(root)
-    _scan_python_files(test_files, "tests", symbol_map, is_test=True)
+    # Phase 5: build candidates
+    for canonical, members in groups.items():
+        merged_sec: dict[str, int] = {}
+        merged_files: set[str] = set()
+        total = 0
+        aliases: list[str] = []
+        compound_src = ""
+        roles: dict[str, int] = {}
+        for m in members:
+            info = filt[m]
+            for s, c in info["sections"].items():
+                merged_sec[s] = merged_sec.get(s, 0) + c
+            merged_files |= info["files"]
+            total += info["count"]
+            if m != canonical:
+                aliases.append(m)
+            for r in info.get("roles", []):
+                roles[r] = roles.get(r, 0) + 1
+            if info.get("compound_source"):
+                compound_src = info["compound_source"]
 
-    # Build candidates
-    for name, info in symbol_map.items():
-        sections = list(info["sections"].keys())
-        total_count = info["count"]
-        files = sorted(info["files"])[:5]  # Keep top 5 representative files
+        secs = list(merged_sec.keys())
+        files = sorted(merged_files)[:5]
+        sec_set = set(secs)
+        has_l5l6 = bool({"L5_fixedpoint", "L6_resource_opt"} & sec_set)
+        has_rtl = "RTL" in sec_set
 
-        # Skip generic names
-        if _is_generic(name):
-            continue
+        sb = _score(canonical, secs, total, aliases, roles, compound_src)
+        conf = "high" if sb.total >= 50 else "medium" if sb.total >= 25 else "low"
+        if canonical.lower() in DOMAIN_TERMS and conf == "low":
+            conf = "medium"
+            # Boost score to at least the medium threshold so mode filter doesn't drop it
+            if sb.total < 25:
+                sb.domain_term_bonus += (25 - sb.total)
+                sb.total = 25
 
-        # Skip very short names (likely abbreviations)
-        if len(name) < 3:
-            continue
-
-        # Skip names that are just numbers or underscores
-        if name.replace("_", "").isdigit():
-            continue
-
-        # Compute confidence
-        has_l5l6 = bool({"L5_fixedpoint", "L6_resource_opt"} & set(sections))
-        has_rtl = "RTL" in sections
-        has_test = "tests" in sections
-
-        section_count = len(sections)
-
-        if has_l5l6 and has_rtl:
-            confidence = "high"
-            reason = "Appears in both L5/L6 and RTL (cross-stage evidence)"
-        elif section_count >= 3:
-            confidence = "high"
-            reason = "Appears in {} source sections".format(section_count)
-        elif section_count >= 2 or total_count >= 3:
-            confidence = "medium"
-            if section_count >= 2:
-                reason = "Appears in {} sections with {} occurrences".format(section_count, total_count)
-            else:
-                reason = "Appears {} times in {}".format(total_count, sections[0] if sections else "?")
-        else:
-            confidence = "low"
-            reason = "Single occurrence in {}".format(sections[0] if sections else "?")
-
-        # Boost domain terms
-        if name.lower() in DOMAIN_TERMS and confidence == "low":
-            confidence = "medium"
-            reason = "FPGA/OFDM domain term: " + reason
-
-        # Determine likely stage
-        if has_l5l6 and has_rtl:
-            likely_stage = "cross_stage"
-        elif has_rtl:
-            likely_stage = "RTL"
-        elif has_l5l6:
-            likely_stage = "L5" if "L5_fixedpoint" in sections else "L6"
-        elif has_test:
-            likely_stage = "test"
-        else:
-            likely_stage = "unknown"
+        reason = _reason(secs, total, has_l5l6, has_rtl, conf)
+        stage = "cross_stage" if has_l5l6 and has_rtl else (
+            "RTL" if has_rtl else (
+                "L5" if "L5_fixedpoint" in sec_set else "L6") if has_l5l6 else (
+                "test" if "tests" in sec_set else "unknown"))
+        role = _role(canonical, secs, roles)
+        sel = _sel_reason(canonical, secs, total, aliases, compound_src, sb, role)
 
         result.candidates.append(ConceptCandidate(
-            name=name,
-            source_sections=sections,
-            occurrence_count=total_count,
-            confidence=confidence,
-            reason=reason,
-            representative_files=files,
-            likely_stage=likely_stage,
-        ))
+            name=canonical, source_sections=secs, occurrence_count=total,
+            confidence=conf, reason=reason, representative_files=files,
+            likely_stage=stage, aliases=aliases, semantic_role=role,
+            score_breakdown=sb, selection_reason=sel, compound_source=compound_src))
 
-    # Sort: high confidence first, then by occurrence count desc
-    conf_order = {"high": 0, "medium": 1, "low": 2}
-    result.candidates.sort(key=lambda c: (conf_order.get(c.confidence, 3), -c.occurrence_count))
-
+    # Phase 6: mode filter + sort
+    thresh = {"conservative": 50, "balanced": 25, "broad": 0}.get(mode, 25)
+    result.candidates = [c for c in result.candidates if c.score_breakdown.total >= thresh]
+    co = {"high": 0, "medium": 1, "low": 2}
+    result.candidates.sort(key=lambda c: (co.get(c.confidence, 3), -c.occurrence_count))
     return result
 
 
-def _scan_python_files(
-    files: list[str],
-    section: str,
-    symbol_map: dict[str, dict[str, Any]],
-    is_test: bool = False,
-) -> None:
-    """Extract symbol names from Python files using AST."""
-    for file_path in files:
-        try:
-            source = Path(file_path).read_text(encoding="utf-8", errors="ignore")
-            tree = ast.parse(source, filename=file_path)
-        except (SyntaxError, UnicodeDecodeError):
-            continue
+def _extract_compounds(smap: dict[str, dict[str, Any]]) -> None:
+    """Detect compound concepts from PascalCase class/function names.
 
-        for node in ast.walk(tree):
-            name = None
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                name = node.name
-            elif isinstance(node, ast.ClassDef):
-                name = node.name
-            elif isinstance(node, ast.Assign):
-                # Top-level or in-function assignments
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and not target.id.startswith("_"):
-                        name = target.id
+    Skips ALL_UPPER names (constants like ATAN2_TABLE_SIZE_Q) to avoid
+    producing garbage compounds.  For CamelCase names, splits into parts,
+    filters generic fillers, and produces both a joined compound and
+    individual meaningful parts as separate candidates.
+    """
+    _RE_ALL_UPPER = re.compile(r"^[A-Z0-9_]+$")
+    additions: list[tuple[str, dict[str, Any]]] = []
 
-            if name is None or _should_skip_name(name, is_test):
+    for name, info in list(smap.items()):
+        for orig in info.get("original_names", set()):
+            # Skip dunder, private, and ALL_UPPER (constants)
+            if not re.search(r"[A-Z]", orig) or orig.startswith("_"):
+                continue
+            if _RE_ALL_UPPER.match(orig):
                 continue
 
-            _add_symbol(name, section, file_path, symbol_map)
-
-
-def _scan_rtl_files(
-    files: list[str],
-    symbol_map: dict[str, dict[str, Any]],
-) -> None:
-    """Extract symbol names from RTL files using regex."""
-    for file_path in files:
-        try:
-            lines = Path(file_path).read_text(encoding="utf-8", errors="ignore").splitlines()
-        except (UnicodeDecodeError, OSError):
-            continue
-
-        for line in lines:
-            # Module names
-            m = _RE_MODULE.match(line)
-            if m:
-                _add_symbol(m.group(1), "RTL", file_path, symbol_map)
+            parts = [p.lower() for p in _RE_CAMEL.findall(orig) if p]
+            if len(parts) < 2:
+                continue
+            meaningful = [p for p in parts if p not in _COMPOUND_GENERIC and len(p) >= 3]
+            if not meaningful:
                 continue
 
-            # Signal declarations
-            m = _RE_SIGNAL_DECL.match(line)
-            if m:
-                sig_name = m.group(1)
-                # Extract meaningful part of signal name
-                parts = sig_name.split("_")
-                for part in parts:
-                    if len(part) >= 3 and not _is_generic_single(part):
-                        _add_symbol(part, "RTL", file_path, symbol_map)
-                # Also add full signal name if meaningful
-                if len(sig_name) >= 4:
-                    _add_symbol(sig_name, "RTL", file_path, symbol_map)
-                continue
+            # Add joined compound
+            compound = "_".join(meaningful)
+            if len(compound) >= 3 and not _is_generic(compound):
+                additions.append((compound, {
+                    "sections": dict(info["sections"]),
+                    "count": 1, "files": set(info["files"]),
+                    "original_names": {compound},
+                    "roles": ["function"],
+                    "compound_source": orig,
+                }))
 
-            # Parameters
-            m = _RE_PARAM.match(line)
-            if m:
-                param_name = m.group(1)
-                if len(param_name) >= 3:
-                    _add_symbol(param_name, "RTL", file_path, symbol_map)
+            # Also add each individual meaningful part if it looks like a concept
+            for p in meaningful:
+                if len(p) >= 4 and not _is_generic(p):
+                    additions.append((p, {
+                        "sections": dict(info["sections"]),
+                        "count": 1, "files": set(info["files"]),
+                        "original_names": {p},
+                        "roles": ["function"],
+                        "compound_source": orig,
+                    }))
 
-
-def _add_symbol(
-    name: str,
-    section: str,
-    file_path: str,
-    symbol_map: dict[str, dict[str, Any]],
-) -> None:
-    """Add a symbol occurrence to the map."""
-    # Normalize: strip leading/trailing underscores, lowercase
-    normalized = name.strip("_").lower()
-    if not normalized or len(normalized) < 2:
-        return
-
-    if normalized not in symbol_map:
-        symbol_map[normalized] = {
-            "sections": {},
-            "count": 0,
-            "files": set(),
-            "original_names": set(),
-        }
-
-    entry = symbol_map[normalized]
-    entry["sections"][section] = entry["sections"].get(section, 0) + 1
-    entry["count"] += 1
-    entry["files"].add(file_path)
-    entry["original_names"].add(name)
+    # Merge additions into smap
+    for compound, entry in additions:
+        if compound not in smap:
+            smap[compound] = entry
+        else:
+            e = smap[compound]
+            for s, c in entry["sections"].items():
+                e["sections"][s] = e["sections"].get(s, 0) + c
+            e["count"] += entry["count"]
+            e["files"] |= entry["files"]
+            e["original_names"] |= entry["original_names"]
+            e.setdefault("compound_source", entry.get("compound_source", ""))
+            if "function" not in e.get("roles", []):
+                e.setdefault("roles", []).append("function")
 
 
-def _is_generic(name: str) -> bool:
-    """Check if a name is too generic to be a concept candidate."""
-    normalized = name.strip("_").lower()
+def _build_alias_groups(smap: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
+    names = sorted(smap.keys())
+    parent: dict[str, str] = {}
 
-    # Check stop words
-    if normalized in GENERIC_STOP_WORDS:
+    def find(x: str) -> str:
+        while parent.get(x, x) != x:
+            parent[x] = parent.get(parent[x], parent[x])
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb if len(ra) <= len(rb) else ra] = ra if len(ra) <= len(rb) else rb
+
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if _are_aliases(a, b):
+                union(a, b)
+    groups: dict[str, list[str]] = {}
+    for n in names:
+        groups.setdefault(find(n), []).append(n)
+    return groups
+
+
+def _are_aliases(a: str, b: str) -> bool:
+    """Determine if two names are likely aliases of the same concept.
+
+    Conservative: only groups names that clearly refer to the same thing.
+    Avoids false positives from transitive linking through long compound names.
+    """
+    if a == b:
         return True
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
 
-    # Check common Python builtins
-    if normalized in {"__str__", "__repr__", "__len__", "__init__", "__call__"}:
+    # Reject if length ratio is too different (avoids transitive chain pollution)
+    if len(longer) > len(shorter) * 2.5:
+        return False
+
+    ab = _RE_ALIAS_SUFFIX.sub("", a)
+    bb = _RE_ALIAS_SUFFIX.sub("", b)
+
+    # "foo" is prefix of "foo_est", "foo_idx", etc.
+    if longer.startswith(shorter + "_") and len(shorter) >= 4:
         return True
-
+    # After stripping suffixes, they are the same
+    if ab == bb and len(ab) >= 4:
+        return True
+    # Multi-part names sharing ALL parts except one (e.g. peak_idx / peak_index)
+    ap = a.split("_")
+    bp = b.split("_")
+    if len(ap) >= 2 and len(bp) >= 2 and len(ap) <= 4 and len(bp) <= 4:
+        shared = set(ap) & set(bp)
+        min_parts = min(len(ap), len(bp))
+        if len(shared) >= min_parts and all(len(p) >= 4 for p in shared):
+            return True
     return False
 
 
+def _score(name: str, secs: list[str], total: int,
+           aliases: list[str], roles: dict[str, int], csrc: str) -> ScoreBreakdown:
+    ss = set(secs)
+    sb = ScoreBreakdown()
+    if bool({"L5_fixedpoint", "L6_resource_opt"} & ss) and "RTL" in ss:
+        sb.cross_stage_bonus = 20
+    if "function" in roles or csrc:
+        sb.key_position_bonus = 15
+    if name.lower() in DOMAIN_TERMS:
+        sb.domain_term_bonus = 10
+    if "tests" in ss:
+        sb.test_presence_bonus = 5
+    sb.occurrence_score = min(20, total * 2)
+    if aliases:
+        sb.alias_group_bonus = 10
+    if re.match(r"^(top|tb_|test_|src|lib|pkg|utils|helper|common|shared|core|base|main)", name):
+        sb.generic_penalty = -30
+    sb.total = (sb.cross_stage_bonus + sb.key_position_bonus + sb.domain_term_bonus
+                + sb.test_presence_bonus + sb.occurrence_score + sb.alias_group_bonus + sb.generic_penalty)
+    return sb
+
+
+def _reason(secs: list[str], total: int, has_l5l6: bool, has_rtl: bool, conf: str) -> str:
+    if has_l5l6 and has_rtl:
+        return "Appears in both L5/L6 and RTL (cross-stage evidence)"
+    if len(secs) >= 3:
+        return "Appears in {} source sections".format(len(secs))
+    if len(secs) >= 2 or total >= 3:
+        return "Appears in {} sections with {} occurrences".format(len(secs), total)
+    return "Single occurrence in {}".format(secs[0] if secs else "?")
+
+
+def _role(name: str, secs: list[str], roles: dict[str, int]) -> str:
+    if re.search(r"(config|cfg|settings)$", name, re.IGNORECASE):
+        return "config"
+    if set(secs) == {"tests"}:
+        return "test_only"
+    for tag in ("signal", "parameter", "function"):
+        if roles.get(tag, 0) > 0:
+            return tag
+    return "unknown"
+
+
+def _sel_reason(name: str, secs: list[str], total: int, aliases: list[str],
+                csrc: str, sb: ScoreBreakdown, role: str) -> str:
+    ss = set(secs)
+    if bool({"L5_fixedpoint", "L6_resource_opt"} & ss) and "RTL" in ss:
+        return "Cross-stage: appears in L5/L6 and RTL with {} total occurrences".format(total)
+    if csrc:
+        return "Compound concept from class definition: {}".format(csrc)
+    if name.lower() in DOMAIN_TERMS:
+        return "Domain term with {} occurrences in key positions".format(total)
+    if aliases:
+        return "Alias group of {} related names: {}".format(len(aliases) + 1, ", ".join([name] + aliases[:4]))
+    return "{} concept with {} occurrences across {} sections".format(role, total, len(secs))
+
+
+# --- scanning helpers ---
+
+def _scan_python_files(files: list[str], section: str,
+                       symbol_map: dict[str, dict[str, Any]], is_test: bool = False) -> None:
+    for fp in files:
+        try:
+            tree = ast.parse(Path(fp).read_text(encoding="utf-8", errors="ignore"), filename=fp)
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            name = rh = None
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name, rh = node.name, "function"
+            elif isinstance(node, ast.ClassDef):
+                name, rh = node.name, "function"
+            elif isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and not t.id.startswith("_"):
+                        name = t.id
+                        rh = "signal" if _looks_like_signal(t.id) else None
+            if name and not _should_skip_name(name, is_test):
+                _add_symbol(name, section, fp, symbol_map, rh)
+
+
+def _scan_rtl_files(files: list[str], symbol_map: dict[str, dict[str, Any]]) -> None:
+    for fp in files:
+        try:
+            lines = Path(fp).read_text(encoding="utf-8", errors="ignore").splitlines()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for line in lines:
+            m = _RE_MODULE.match(line)
+            if m:
+                mod_name = m.group(1)
+                _add_symbol(mod_name, "RTL", fp, symbol_map, "function")
+                # Module names like coarse_sync_s0_autocorr — extract meaningful segments
+                parts = mod_name.split("_")
+                for p in parts:
+                    if 3 <= len(p) <= 15 and not _is_generic_single(p):
+                        _add_symbol(p, "RTL", fp, symbol_map, "function")
+                # Also add meaningful 2-part combinations (e.g., coarse_sync)
+                meaningful = [p for p in parts if len(p) >= 3 and not _is_generic_single(p)]
+                for i in range(len(meaningful) - 1):
+                    combo = meaningful[i] + "_" + meaningful[i + 1]
+                    if len(combo) >= 4 and not _is_generic(combo):
+                        _add_symbol(combo, "RTL", fp, symbol_map, "function")
+                continue
+            m = _RE_SIGNAL.match(line)
+            if m:
+                sn = m.group(1)
+                # Only add full signal name; splitting causes garbage
+                if len(sn) >= 3 and not _is_generic(sn.strip("_").lower()):
+                    _add_symbol(sn, "RTL", fp, symbol_map, "signal")
+                continue
+            m = _RE_PARAM.match(line)
+            if m and len(m.group(1)) >= 3:
+                _add_symbol(m.group(1), "RTL", fp, symbol_map, "parameter")
+
+
+def _add_symbol(name: str, section: str, fp: str,
+                symbol_map: dict[str, dict[str, Any]], role: str | None = None) -> None:
+    n = name.strip("_").lower()
+    if not n or len(n) < 2:
+        return
+    if n not in symbol_map:
+        symbol_map[n] = {"sections": {}, "count": 0, "files": set(),
+                         "original_names": set(), "roles": []}
+    e = symbol_map[n]
+    e["sections"][section] = e["sections"].get(section, 0) + 1
+    e["count"] += 1
+    e["files"].add(fp)
+    e["original_names"].add(name)
+    if role and role not in e["roles"]:
+        e["roles"].append(role)
+
+
+def _looks_like_signal(name: str) -> bool:
+    return bool(re.search(r"(_[ioqdn]$|_reg$|_next$|_wire$|_bus$|^[swr]_)", name.lower()))
+
+
+def _is_generic(name: str) -> bool:
+    n = name.strip("_").lower()
+    return n in GENERIC_STOP_WORDS or n in {"__str__", "__repr__", "__len__", "__init__", "__call__"}
+
+
 def _is_generic_single(part: str) -> bool:
-    """Check if a single underscore-separated part is generic."""
     return part.lower() in GENERIC_STOP_WORDS or len(part) < 3
 
 
 def _should_skip_name(name: str, is_test: bool) -> bool:
-    """Decide if a Python name should be skipped."""
-    if name.startswith("__") and name.endswith("__"):
-        return True
-    if name.startswith("_") and not is_test:
-        return True
-    return False
+    return (name.startswith("__") and name.endswith("__")) or (name.startswith("_") and not is_test)

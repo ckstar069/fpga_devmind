@@ -182,6 +182,63 @@ fn run_concept_discovery(project: String, out: String) -> Result<String, String>
     Ok(stdout)
 }
 
+/// Read a file's content as a string. Used by Settings for golden spec loading.
+#[tauri::command]
+fn read_file_content(path: String) -> Result<String, String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+    std::fs::read_to_string(p).map_err(|e| format!("Cannot read file: {}", e))
+}
+
+/// Run evaluation against a golden spec.
+/// Calls: python -m fpga_devmind.cli p1b-evaluate-discovery --project ... --golden-spec ... --out ...
+#[tauri::command]
+fn evaluate_discovery(
+    project: String,
+    golden_spec: String,
+    out: String,
+) -> Result<serde_json::Value, String> {
+    let exe_dir = std::env::current_dir().map_err(|e| format!("Cannot get CWD: {}", e))?;
+    let project_root = exe_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or("Cannot determine project root")?;
+
+    let python = which_python()?;
+
+    let output = std::process::Command::new(&python)
+        .args([
+            "-m", "fpga_devmind.cli",
+            "p1b-evaluate-discovery",
+            "--project", &project,
+            "--golden-spec", &golden_spec,
+            "--out", &out,
+        ])
+        .env("PYTHONPATH", project_root.join("src").to_string_lossy().to_string())
+        .output()
+        .map_err(|e| format!("Failed to run evaluation: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if !output.status.success() {
+        return Err(format!(
+            "Evaluation failed (exit {:?}):\n{}\n{}",
+            output.status.code(),
+            stdout,
+            stderr
+        ));
+    }
+
+    // Try to parse stdout as JSON (the eval result)
+    let result: serde_json::Value = serde_json::from_str(&stdout)
+        .map_err(|e| format!("Failed to parse evaluation result: {}\nOutput:\n{}", e, stdout))?;
+
+    Ok(result)
+}
+
 /// Find python executable
 fn which_python() -> Result<String, String> {
     // Try .venv/bin/python first (project-local venv)
@@ -221,6 +278,8 @@ pub fn run() {
             run_project_trace,
             list_fpga_projects,
             run_concept_discovery,
+            read_file_content,
+            evaluate_discovery,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
