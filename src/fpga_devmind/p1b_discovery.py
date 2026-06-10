@@ -67,6 +67,7 @@ GENERIC_STOP_WORDS: frozenset[str] = frozenset({
     "frac_bits", "int_bits",
     # T037: generic implementation nouns
     "pipeline",
+    "detect",
 })
 
 DOMAIN_TERMS: frozenset[str] = frozenset({

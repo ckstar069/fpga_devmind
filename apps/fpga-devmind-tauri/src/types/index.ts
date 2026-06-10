@@ -558,6 +558,9 @@ export interface CrossStageEdge {
   to_node_id: string;
   edge_type: string;
   confidence: string;
+  reason: string;
+  evidence_ids: string[];
+  source_files: string[];
   notes?: string;
 }
 

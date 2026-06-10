@@ -406,6 +406,11 @@ export function buildPipelineGraph(bundle: ProjectBundle): FlowGraph {
           kind,
           confidence: n.confidence ?? "unknown",
           selected: false,
+          // T040.1: pipeline node detail fields
+          stage: n.stage ?? lane.lane_id,
+          concept: n.concept ?? "",
+          source_files: n.file_path ? [n.file_path] : [],
+          evidence_count: n.source_type ? 1 : 0,
         },
       });
     }
@@ -436,6 +441,16 @@ export function buildPipelineGraph(bundle: ProjectBundle): FlowGraph {
         },
         label: isClaimBridge ? e.edge_type : "",
         labelStyle: { fontSize: 9, fill: isClaimBridge ? "#10b981" : "#64748b" },
+        // T040.1: pipeline edge detail fields
+        data: {
+          edge_type: e.edge_type,
+          confidence: e.confidence,
+          reason: e.reason,
+          evidence_ids: e.evidence_ids,
+          source_files: e.source_files,
+          from_lane: e.from_lane,
+          to_lane: e.to_lane,
+        },
       });
     }
   }

@@ -1,9 +1,10 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   ReactFlow,
   Background,
   Controls,
   type Node,
+  type Edge,
   type NodeProps,
   Handle,
   Position,
@@ -86,6 +87,17 @@ const MODES: { key: GraphMode; label: string }[] = [
 function ProjectGraph({ bundle, selectedNodeId, onSelectNode }: Props) {
   const [mode, setMode] = useState<GraphMode>("summary");
   const [hideShared, setHideShared] = useState(false);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+
+  // T040.1: Default to pipeline mode when semantic_pipeline_view is available
+  useEffect(() => {
+    if (bundle.semantic_pipeline_view) {
+      setMode("pipeline");
+    } else {
+      setMode("summary");
+    }
+    setSelectedEdgeId(null);
+  }, [bundle.path, bundle.semantic_pipeline_view]);
 
   const flowGraph = useMemo(() => {
     switch (mode) {
@@ -105,18 +117,34 @@ function ProjectGraph({ bundle, selectedNodeId, onSelectNode }: Props) {
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       onSelectNode(node.id === selectedNodeId ? null : node.id);
+      setSelectedEdgeId(null);
     },
     [selectedNodeId, onSelectNode],
   );
 
+  const onEdgeClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      setSelectedEdgeId(edge.id === selectedEdgeId ? null : edge.id);
+      onSelectNode(null);
+    },
+    [selectedEdgeId, onSelectNode],
+  );
+
   const onPaneClick = useCallback(() => {
     onSelectNode(null);
+    setSelectedEdgeId(null);
   }, [onSelectNode]);
 
   const card = useMemo(
     () => (selectedNodeId ? buildUnderstandingCard(bundle, selectedNodeId) : null),
     [bundle, selectedNodeId],
   );
+
+  // T040.1: selected edge data for pipeline mode
+  const selectedEdge = useMemo(() => {
+    if (!selectedEdgeId) return null;
+    return flowGraph.edges.find((e) => e.id === selectedEdgeId) ?? null;
+  }, [selectedEdgeId, flowGraph.edges]);
 
   return (
     <div>
@@ -157,6 +185,7 @@ function ProjectGraph({ bundle, selectedNodeId, onSelectNode }: Props) {
             edges={flowGraph.edges}
             nodeTypes={nodeTypes}
             onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
             onPaneClick={onPaneClick}
             fitView
             minZoom={0.2}
@@ -170,9 +199,64 @@ function ProjectGraph({ bundle, selectedNodeId, onSelectNode }: Props) {
           </ReactFlow>
         </div>
 
-        {/* Right panel: Understanding Card (compact) */}
+        {/* Right panel: Understanding Card (compact) + Edge Detail */}
         <div className="detail-panel">
           <h3>理解卡</h3>
+
+          {/* T040.1: Edge detail panel (pipeline mode) */}
+          {selectedEdge && selectedEdge.data && (() => {
+            const d = selectedEdge.data as {
+              edge_type: string;
+              confidence: string;
+              from_lane: string;
+              to_lane: string;
+              reason?: string;
+              evidence_ids?: string[];
+              source_files?: string[];
+            };
+            return (
+              <div className="detail-section" style={{ marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>
+                <div className="detail-section-title">边详情</div>
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div>
+                    <strong>类型:</strong>{" "}
+                    <span className={`badge badge-${d.confidence === "supported" ? "supported" : "inferred"}`}>
+                      {d.edge_type}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 4 }}>
+                    <strong>置信度:</strong> {d.confidence}
+                    {d.confidence === "inferred" && (
+                      <span style={{ color: "var(--yellow)", marginLeft: 6 }}>⚠ 推断</span>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 4 }}>
+                    <strong>阶段:</strong> {d.from_lane} → {d.to_lane}
+                  </div>
+                  {d.reason && (
+                    <div style={{ marginTop: 4 }}>
+                      <strong>原因:</strong> {d.reason}
+                    </div>
+                  )}
+                  {d.evidence_ids && d.evidence_ids.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <strong>证据:</strong>{" "}
+                      {d.evidence_ids.slice(0, 3).join(", ")}
+                      {d.evidence_ids.length > 3 && " ..."}
+                    </div>
+                  )}
+                  {d.source_files && d.source_files.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <strong>源文件:</strong>{" "}
+                      {d.source_files.slice(0, 2).map((f) => f.split("/").slice(-2).join("/")).join(", ")}
+                      {d.source_files.length > 2 && " ..."}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {!card ? (
             <div className="detail-text" style={{ color: "var(--text2)" }}>
               点击左侧图中的节点查看理解卡。

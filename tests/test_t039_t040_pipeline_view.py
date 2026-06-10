@@ -174,6 +174,21 @@ def test_build_semantic_pipeline_view_schema() -> None:
     concept_to_claim = [e for e in cross_edges if e["edge_type"] == "has_claim"]
     assert len(concept_to_claim) >= 1
 
+    # T040.1: cross_stage_edges must have enriched fields
+    for e in cross_edges:
+        assert "reason" in e, f"Missing 'reason' in edge {e.get('edge_id')}"
+        assert "evidence_ids" in e, f"Missing 'evidence_ids' in edge {e.get('edge_id')}"
+        assert "source_files" in e, f"Missing 'source_files' in edge {e.get('edge_id')}"
+        assert isinstance(e["reason"], str)
+        assert isinstance(e["evidence_ids"], list)
+        assert isinstance(e["source_files"], list)
+        # reason should not be empty for has_claim/realizes
+        if e["edge_type"] in ("has_claim", "realizes"):
+            assert len(e["reason"]) > 0, f"Empty reason for {e['edge_type']} edge"
+        # shares_file edges must be marked inferred
+        if e["edge_type"] in ("shares_file", "shares_rtl_object"):
+            assert e["confidence"] == "inferred", f"shares edge must be inferred: {e}"
+
     # Pipeline summary
     summary = result["pipeline_summary"]
     assert summary["concept_count_per_stage"]["L6_resource_opt"] >= 1

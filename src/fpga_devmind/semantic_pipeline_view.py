@@ -158,22 +158,84 @@ def build_semantic_pipeline_view(
     # ------------------------------------------------------------------
     cross_stage_edges: list[dict[str, Any]] = []
 
+    # Build node_id -> concept mapping for edge enrichment
+    node_id_to_concept: dict[str, str] = {}
+    for node in nodes:
+        if node.get("kind") == "concept":
+            node_id_to_concept[node.get("node_id", "")] = node.get("label", "")
+        elif node.get("kind") == "mapping_claim":
+            node_id_to_concept[node.get("node_id", "")] = node.get("concept", "")
+
     for edge in edges:
         eid = edge.get("edge_id", "")
         from_id = edge.get("from_node_id", "")
         to_id = edge.get("to_node_id", "")
         from_lane = node_lane.get(from_id)
         to_lane = node_lane.get(to_id)
+        edge_type = edge.get("edge_type", "")
+        confidence = edge.get("confidence", "unknown")
 
         if from_lane and to_lane and from_lane != to_lane:
+            # Enrich cross-stage edge with reason and evidence
+            concept = node_id_to_concept.get(from_id, "")
+            if not concept:
+                concept = node_id_to_concept.get(to_id, "")
+
+            reason = ""
+            evidence_ids: list[str] = []
+            source_files: list[str] = []
+
+            if edge_type == "has_claim":
+                reason = f"概念 '{concept}' 通过 mapping claim 连接到 RTL 实现。"
+                # Collect evidence from concept's evidence chain
+                chain = evidence_chain.get(concept, {})
+                for ev in chain.get("l5_l6_evidence", [])[:5]:
+                    eid_ev = ev.get("evidence_id", "")
+                    if eid_ev:
+                        evidence_ids.append(eid_ev)
+                    fp = ev.get("file_path", "")
+                    if fp and fp not in source_files:
+                        source_files.append(fp)
+            elif edge_type == "realizes":
+                reason = f"Mapping claim 将概念 '{concept}' 实现为 RTL 模块。"
+                chain = evidence_chain.get(concept, {})
+                for ev in chain.get("rtl_evidence", [])[:5]:
+                    eid_ev = ev.get("evidence_id", "")
+                    if eid_ev:
+                        evidence_ids.append(eid_ev)
+                    fp = ev.get("file_path", "")
+                    if fp and fp not in source_files:
+                        source_files.append(fp)
+            elif edge_type in ("shares_file", "shares_rtl_object"):
+                reason = (
+                    f"推断关系：概念 '{concept}' 与其他概念共享文件或 RTL 对象。"
+                    "这是结构推断，不代表已证明的 dataflow 关系。"
+                )
+                confidence = "inferred"
+            else:
+                reason = f"跨阶段边：{edge_type}"
+
+            # Fallback: collect source files from evidence_index for this concept
+            if not source_files and concept:
+                for eid_idx, ev in evidence_index.items():
+                    if ev.get("concept") == concept:
+                        fp = ev.get("file_path", "")
+                        if fp and fp not in source_files:
+                            source_files.append(fp)
+                        if len(source_files) >= 5:
+                            break
+
             cross_stage_edges.append({
                 "edge_id": eid,
                 "from_lane": from_lane,
                 "to_lane": to_lane,
                 "from_node_id": from_id,
                 "to_node_id": to_id,
-                "edge_type": edge.get("edge_type", ""),
-                "confidence": edge.get("confidence", "unknown"),
+                "edge_type": edge_type,
+                "confidence": confidence,
+                "reason": reason,
+                "evidence_ids": evidence_ids,
+                "source_files": source_files,
                 "notes": edge.get("notes", ""),
             })
         elif from_lane and from_lane == to_lane:

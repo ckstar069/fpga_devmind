@@ -92,6 +92,57 @@ export function answerQuestion(
     return answerMissingEvidence(bundle, q);
   }
 
+  // T039/T040: Pipeline / dataflow questions — MOVED BEFORE legacy patterns for priority
+  // "某个概念的 pipeline 路径是什么？"
+  if (q.includes("pipeline 路径") || q.includes("路径是什么")) {
+    return answerPipelinePath(bundle, q);
+  }
+
+  // "哪些概念完成了 L5/L6 到 RTL 的映射？" / "哪些概念跨了所有阶段？"
+  if (q.includes("跨了所有阶段") || q.includes("跨阶段") || q.includes("full pipeline")) {
+    return answerFullPipelineConcepts(bundle, q);
+  }
+
+  // "dataflow 是怎样的？" / "数据流" — but NOT "data from" / "数据来源"
+  if ((q.includes("dataflow") || q.includes("数据流") || q.includes("数据流向")) && !q.includes("数据来源") && !q.includes("来自")) {
+    return answerDataflowSummary(bundle, q);
+  }
+
+  // "哪些概念完成了 L5/L6 到 RTL 的映射？" (specific phrasing)
+  if (q.includes("L5") && q.includes("RTL") && q.includes("映射")) {
+    return answerFullPipelineConcepts(bundle, q);
+  }
+
+  // "哪些概念缺少 RTL？"
+  if (q.includes("缺少") && q.includes("RTL")) {
+    return answerMissingEvidence(bundle, q);
+  }
+
+  // "哪些关系是 inferred？"
+  if (q.includes("关系") && q.includes("inferred")) {
+    return answerInferredAreas(bundle, q);
+  }
+
+  // "pipeline/dataflow 图的数据来自哪里？"
+  if (q.includes("pipeline") && (q.includes("数据来源") || q.includes("来自"))) {
+    return answerDataProvenance(bundle, q);
+  }
+
+  // "这个项目整体实现了什么？" / overall summary
+  if (q.includes("整体") && (q.includes("实现") || q.includes("什么"))) {
+    return answerProjectSummary(bundle, q);
+  }
+
+  // "哪些概念达到了 supported？" / "哪些概念是 supported/inferred?"
+  if (q.includes("supported") || q.includes("supported 置信度")) {
+    return answerSupportedConcepts(bundle, q);
+  }
+
+  // "哪些概念缺失 RTL 证据？" / "缺失" / "missing"
+  if (q.includes("缺失") || q.includes("missing") || (q.includes("没有") && (q.includes("RTL") || q.includes("证据")))) {
+    return answerMissingEvidence(bundle, q);
+  }
+
   // "自动识别出了哪些概念？" / "识别出" / "哪些概念"
   if (q.includes("自动识别") || q.includes("识别出") || q.includes("哪些概念")) {
     return answerDiscoveredConcepts(bundle, q);
@@ -133,7 +184,7 @@ export function answerQuestion(
     return answerKeyEvidence(bundle, q);
   }
 
-  // T038: Semantic summary driven Q&A — moved BEFORE legacy patterns for priority
+  // T038: Semantic summary driven Q&A
   if (q.includes("pipeline") || q.includes("阶段") || q.includes("stage")) {
     return answerPipelineStages(bundle, q);
   }
@@ -170,19 +221,6 @@ export function answerQuestion(
 
   if (q.includes("选中") || q.includes("解释") || q.includes("当前节点")) {
     return answerExplainSelected(bundle, q, selectedNodeId);
-  }
-
-  // T039/T040: Pipeline / dataflow questions
-  if (q.includes("pipeline 路径") || q.includes("路径是什么") || q.includes("dataflow")) {
-    return answerPipelinePath(bundle, q);
-  }
-
-  if (q.includes("跨了所有阶段") || q.includes("跨阶段") || q.includes("full pipeline")) {
-    return answerFullPipelineConcepts(bundle, q);
-  }
-
-  if (q.includes("dataflow") || q.includes("数据流") || q.includes("数据流向")) {
-    return answerDataflowSummary(bundle, q);
   }
 
   // T036: "为什么这些概念被选中？" / "selection reason"
