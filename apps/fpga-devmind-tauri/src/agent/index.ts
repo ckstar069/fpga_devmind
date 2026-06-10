@@ -69,6 +69,18 @@ export { buildLlmContext, LLM_CONTEXT_VERSION } from "./contextBuilder";
 export type { ExternalRequestPlan } from "./requestPlan";
 export { buildDryRunExternalRequestPlan, REQUEST_PLAN_VERSION } from "./requestPlan";
 
+// T045: External Request Package + Approval Gate
+export type { ExternalRequestPackage } from "./externalRequestPackage";
+export { buildExternalRequestPackage, EXTERNAL_REQUEST_PACKAGE_VERSION } from "./externalRequestPackage";
+
+export type { ApprovalState, ApprovalDecision } from "./approvalGate";
+export {
+  APPROVAL_GATE_VERSION,
+  createPreviewDecision,
+  approveExternalRequest,
+  denyExternalRequest,
+} from "./approvalGate";
+
 import type { AgentRunRequest, AgentRunResult, AgentProviderKind } from "./providers";
 import { deterministicProvider } from "./deterministicProvider";
 import { offlineMockProvider } from "./offlineMockProvider";
