@@ -76,7 +76,7 @@ function makeMockBundle(): ProjectBundle {
       test_modules: [],
       limitations: [],
     },
-    project_graph: {
+    graph: {
       nodes: [
         {
           node_id: "cfo",
@@ -217,5 +217,53 @@ describe("T044 Dry-run External Request Plan", () => {
     expect(plan.endpoint).toBeUndefined();
     expect(plan.headers).toBeUndefined();
     expect(plan.base_url).toBeUndefined();
+  });
+
+  it("user_prompt_preview does not contain raw sensitive question", () => {
+    const bundle = makeMockBundle();
+    const rawQuestion =
+      "my api_key is sk-abcdefghijklmnopqrstuvwxyz and token ghp_abcdefghijklmnopqrstuvwxyz";
+    const plan = buildDryRunExternalRequestPlan(bundle, rawQuestion, null);
+
+    expect(plan.question_preview).toContain("redacted");
+    expect(plan.hypothetical_request_preview.user_prompt_preview).toContain("redacted");
+    expect(plan.hypothetical_request_preview.user_prompt_preview).not.toContain(rawQuestion);
+    expect(plan.hypothetical_request_preview.user_prompt_preview).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
+    expect(plan.hypothetical_request_preview.user_prompt_preview).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz");
+  });
+
+  it("does not leak sensitive raw question anywhere in dry-run plan JSON", () => {
+    const bundle = makeMockBundle();
+    const rawQuestion =
+      "my api_key is sk-abcdefghijklmnopqrstuvwxyz and token ghp_abcdefghijklmnopqrstuvwxyz";
+    const plan = buildDryRunExternalRequestPlan(bundle, rawQuestion, null);
+    const serialized = JSON.stringify(plan);
+
+    expect(plan.question_preview).toContain("redacted");
+    expect(plan.hypothetical_request_preview.user_prompt_preview).toContain("redacted");
+
+    expect(serialized).not.toContain(rawQuestion);
+    expect(serialized).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
+    expect(serialized).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz");
+    expect(serialized).not.toContain("api_key is");
+    expect(serialized).not.toContain("token ghp_");
+  });
+
+  it("does not leak raw sensitive question with other patterns", () => {
+    const bundle = makeMockBundle();
+    const rawQuestion = "password is secret123 and bearer abcdef";
+    const plan = buildDryRunExternalRequestPlan(bundle, rawQuestion, null);
+    const serialized = JSON.stringify(plan);
+
+    expect(plan.question_preview).toContain("redacted");
+    expect(serialized).not.toContain(rawQuestion);
+    expect(serialized).not.toContain("password is secret123");
+    expect(serialized).not.toContain("bearer abcdef");
+  });
+
+  it("keeps non-sensitive question preview in hypothetical user prompt", () => {
+    const bundle = makeMockBundle();
+    const plan = buildDryRunExternalRequestPlan(bundle, "what is cfo?", null);
+    expect(plan.hypothetical_request_preview.user_prompt_preview).toContain("what is cfo?");
   });
 });

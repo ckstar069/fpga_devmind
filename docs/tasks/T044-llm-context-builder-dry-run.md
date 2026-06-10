@@ -50,7 +50,9 @@
   - 调用 `evaluateProviderPolicy({ provider_kind: "external_disabled", question })`
   - 调用 `buildLlmContext(bundle, question, selectedNodeId)`
   - 构建 hypothetical system/user prompt 预览
+  - `buildHypotheticalUserPrompt()` 只使用 `contextBundle.question_preview`（redacted），**不接收 raw question**
   - **不包含 api_key / endpoint / headers / base_url 字段**
+  - `JSON.stringify(plan)` 中不包含任何 raw sensitive question（T044.1）
 
 ### 4. AgentQA Dry-run Preview UI (`src/pages/AgentQA.tsx`)
 
@@ -66,7 +68,7 @@
 
 ### 5. 测试 (`src/__tests__/context-builder.test.ts` + `src/__tests__/request-plan.test.ts`)
 
-**context-builder.test.ts (17 tests):**
+**context-builder.test.ts (20 tests):**
 - null bundle → 空 pack / 空 context
 - 关键词匹配 concept routes
 - selectedNodeId 匹配
@@ -74,8 +76,11 @@
 - 敏感内容 question_preview 脱敏
 - 包含 semantic summary、pipeline edges、quality status
 - items 上限 20、preview 上限 500、token estimate ≥0
+- `JSON.stringify(ctx)` 不包含敏感原文（T044.1）
+- sourcePack fallback 不声称缺少 nav 当 nav 存在（T044.1）
+- sourcePack fallback 正确提示 "No matching navigation route found"（T044.1）
 
-**request-plan.test.ts (18 tests):**
+**request-plan.test.ts (22 tests):**
 - schema_version 匹配常量
 - dry_run=true、policy_allowed=false
 - provider_kind=external_disabled
@@ -89,8 +94,12 @@
 - selected_node_id 保留
 - limitations 包含 dry-run 和策略说明
 - **无 api_key/endpoint/headers/base_url 字段**
+- **user_prompt_preview 不包含 raw sensitive question**（T044.1）
+- **`JSON.stringify(plan)` 不包含敏感原文**（T044.1）
+- 多类敏感文本覆盖：api_key、sk-、ghp_、token、bearer、password（T044.1）
+- 非敏感问题仍显示 preview（T044.1）
 
-**总计: 150 tests passed** (was 115, +35 new tests)
+**总计: 157 tests passed** (was 150, +7 new tests in T044.1)
 
 ### 6. 文档
 
@@ -101,7 +110,7 @@
 
 ```bash
 cd apps/fpga-devmind-tauri
-npm test -- --run   # 150 passed
+npm test -- --run   # 157 passed
 npm run build       # pass
 
 cd src-tauri
@@ -111,7 +120,7 @@ cargo check         # pass
 ```bash
 rg -n "api_key|apiKey|secret|token|bearer|password|endpoint|base_url|headers|fetch\(|WebSocket|EventSource|axios|https://" \
   apps/fpga-devmind-tauri/src/agent/
-# Expected: no matches
+# Expected: no matches (T044.1 verified)
 ```
 
 ## Constraints Met
@@ -128,3 +137,6 @@ rg -n "api_key|apiKey|secret|token|bearer|password|endpoint|base_url|headers|fet
 - ✅ Context items capped ≤20，previews truncated ≤500 chars
 - ✅ Token estimate rough（char count / 4），仅供开发者参考
 - ✅ Dry-run preview 不触发任何外部调用
+- ✅ `hypothetical_request_preview.user_prompt_preview` 不包含 raw sensitive question（T044.1）
+- ✅ `JSON.stringify(plan)` 和 `JSON.stringify(ctx)` 不包含敏感原文（T044.1）
+- ✅ sourcePack fallback limitation 文案准确区分 "no nav" vs "nav exists but no match"（T044.1）

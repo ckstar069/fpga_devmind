@@ -95,7 +95,7 @@ function makeMockBundle(): ProjectBundle {
       test_modules: [],
       limitations: [],
     },
-    project_graph: {
+    graph: {
       nodes: [
         {
           node_id: "cfo",
@@ -231,5 +231,35 @@ describe("T044 LLM Context Builder", () => {
     const ctx = buildLlmContext(bundle, "what is cfo?", "cfo");
     // Should include node_fallback or concept items related to cfo
     expect(ctx.context_items.some((i) => i.id === "cfo" || i.title === "cfo")).toBe(true);
+  });
+
+  it("does not leak sensitive raw question in JSON serialization", () => {
+    const bundle = makeMockBundle();
+    const rawQuestion = "my api_key is sk-abcdefghijklmnopqrstuvwxyz";
+    const ctx = buildLlmContext(bundle, rawQuestion, null);
+    const serialized = JSON.stringify(ctx);
+    expect(ctx.question_preview).toContain("redacted");
+    expect(serialized).not.toContain(rawQuestion);
+    expect(serialized).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
+  });
+
+  it("sourcePack fallback does not claim missing nav when nav exists", () => {
+    const bundle = makeMockBundle();
+    // Question that does not match any concept route — nav exists but no match
+    const pack = buildSourceEvidencePack(bundle, "something completely unrelated xyz", null);
+    // Should NOT say "No agent_navigation_index" since nav exists
+    const hasMissingNavMessage = pack.limitations.some((l) =>
+      l.includes("No agent_navigation_index")
+    );
+    expect(hasMissingNavMessage).toBe(false);
+  });
+
+  it("sourcePack fallback mentions no matching route when nav exists but no match", () => {
+    const bundle = makeMockBundle();
+    // Question that does not match any concept route — nav exists but no match
+    const pack = buildSourceEvidencePack(bundle, "something completely unrelated xyz", null);
+    expect(pack.limitations.some((l) =>
+      l.includes("No matching navigation route found")
+    )).toBe(true);
   });
 });
